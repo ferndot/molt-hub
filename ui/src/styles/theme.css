@@ -50,10 +50,6 @@
   --color-redirect: #3b82f6;
   --color-defer: #9ca3af;
   --color-ack: #2a9d8f;
-
-  /* Mission Control */
-  --attention-border-width: 4px;
-  --sidebar-width: 300px;
 }
 
 @media (prefers-color-scheme: dark) {
