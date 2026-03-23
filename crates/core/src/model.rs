@@ -122,6 +122,10 @@ pub enum AgentStatus {
     Terminated,
     /// Agent exited unexpectedly.
     Crashed { error: String },
+    /// Agent process exited with a zero exit code.
+    Completed,
+    /// Agent process exited with a non-zero exit code.
+    Failed,
 }
 
 // ---------------------------------------------------------------------------

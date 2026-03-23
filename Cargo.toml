@@ -28,7 +28,7 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migr
 axum = { version = "0.7", features = ["ws"] }
 
 # IDs
-ulid = "1"
+ulid = { version = "1", features = ["serde"] }
 
 # Error handling
 thiserror = "2"
@@ -45,3 +45,6 @@ async-trait = "0.1"
 
 # Concurrent hashmaps
 dashmap = "6"
+
+# Templating
+handlebars = "6"

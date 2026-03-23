@@ -167,11 +167,7 @@ impl TaskMachine {
                 HumanDecisionKind::Approved => TaskState::Completed {
                     outcome: TaskOutcome::Success,
                 },
-                HumanDecisionKind::Rejected { reason } => TaskState::Completed {
-                    outcome: TaskOutcome::Rejected {
-                        reason: reason.clone(),
-                    },
-                },
+                HumanDecisionKind::Rejected { .. } => TaskState::InProgress,
                 HumanDecisionKind::Redirected { to_stage, .. } => {
                     self.current_stage = to_stage.clone();
                     TaskState::InProgress
@@ -376,20 +372,16 @@ mod tests {
         assert!(m.is_terminal());
     }
 
-    // --- AwaitingApproval → Completed(Rejected) ---
+    // --- AwaitingApproval → InProgress (Rejected) ---
 
     #[test]
-    fn awaiting_approval_rejected_yields_completed_rejected() {
+    fn awaiting_approval_rejected_yields_in_progress() {
         let mut m = TaskMachine::new("review".into());
         m.apply(&agent_assigned()).unwrap();
         m.apply_with_approval_flag(&agent_completed(), true).unwrap();
         let result = m.apply(&human_rejected()).unwrap();
-        assert!(matches!(
-            result,
-            TaskState::Completed {
-                outcome: TaskOutcome::Rejected { .. }
-            }
-        ));
+        assert!(matches!(result, TaskState::InProgress));
+        assert!(!m.is_terminal());
     }
 
     // --- AwaitingApproval → InProgress (Redirected) ---

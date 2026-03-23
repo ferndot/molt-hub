@@ -1,6 +1,7 @@
 //! EventStore trait and SQLite-backed implementation.
 
 use chrono::{DateTime, Utc};
+use serde::de::Error as _;
 use sqlx::SqlitePool;
 use thiserror::Error;
 use tracing::instrument;
