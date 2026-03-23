@@ -1,5 +1,6 @@
 /* ==========================================================================
- * JiraImport — modal dialog for importing Jira issues
+ * GitHubImport — modal dialog for importing GitHub issues
+ * Mirrors JiraImport styling conventions.
  * ========================================================================== */
 
 /* ---- Overlay ---- */
@@ -76,7 +77,7 @@
   margin-bottom: 0.75rem;
 }
 
-.projectSelect {
+.repoInput {
   flex: 1;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border-subtle);
@@ -87,24 +88,38 @@
   outline: none;
 }
 
-.projectSelect:focus {
+.repoInput:focus {
   border-color: var(--accent, #3b82f6);
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
 
-.jqlInput {
-  flex: 2;
+.filterSelect {
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
   background: var(--bg-secondary);
   color: var(--text-primary);
   font-size: 0.875rem;
-  font-family: monospace;
   outline: none;
 }
 
-.jqlInput:focus {
+.filterSelect:focus {
+  border-color: var(--accent, #3b82f6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+.labelInput {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  outline: none;
+}
+
+.labelInput:focus {
   border-color: var(--accent, #3b82f6);
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
 }
@@ -129,6 +144,22 @@
 .searchBtn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ---- Filter row ---- */
+
+.filterRow {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.filterLabel {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
 }
 
 /* ---- Results list ---- */
@@ -173,7 +204,7 @@
   min-width: 0;
 }
 
-.resultKey {
+.resultNumber {
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--accent, #3b82f6);
@@ -181,7 +212,7 @@
   margin-right: 0.5rem;
 }
 
-.resultSummary {
+.resultTitle {
   font-size: 0.875rem;
   color: var(--text-primary);
   white-space: nowrap;
@@ -195,12 +226,12 @@
   margin-top: 0.25rem;
 }
 
-.resultStatus {
+.resultState {
   font-size: 0.75rem;
   color: var(--text-muted);
 }
 
-.resultPriority {
+.resultLabels {
   font-size: 0.75rem;
   color: var(--text-muted);
 }

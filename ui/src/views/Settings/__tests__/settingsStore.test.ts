@@ -17,8 +17,8 @@ import {
   STORAGE_KEY,
   NAV_SIDEBAR_MIN,
   NAV_SIDEBAR_MAX,
-  TRIAGE_SIDEBAR_MIN,
-  TRIAGE_SIDEBAR_MAX,
+  INBOX_SIDEBAR_MIN,
+  INBOX_SIDEBAR_MAX,
 } from "../settingsStore";
 import type { KanbanColumn, Theme, SettingsState } from "../settingsStore";
 
@@ -450,10 +450,10 @@ describe("loadPersistedSettings", () => {
   it("restores sidebar widths", () => {
     localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ sidebarWidths: { navSidebar: 300, triageSidebar: 400 } }),
+      JSON.stringify({ sidebarWidths: { navSidebar: 300, inboxSidebar: 400 } }),
     );
     const result = loadPersistedSettings();
-    expect(result.sidebarWidths).toEqual({ navSidebar: 300, triageSidebar: 400 });
+    expect(result.sidebarWidths).toEqual({ navSidebar: 300, inboxSidebar: 400 });
   });
 
   it("restores jira config with null lastError", () => {
@@ -500,10 +500,11 @@ describe("persistSettings", () => {
   it("writes appearance and sidebarWidths to localStorage", () => {
     const state: SettingsState = {
       jiraConfig: { baseUrl: "", connected: false, siteName: "", cloudId: "", lastError: null },
+      githubConfig: { connected: false, token: "", owner: "", lastError: null },
       connectionTestStatus: "idle",
       appearance: { theme: "dark", colorblindMode: false },
       kanbanColumns: DEFAULT_KANBAN_COLUMNS,
-      sidebarWidths: { navSidebar: 280, triageSidebar: 350 },
+      sidebarWidths: { navSidebar: 280, inboxSidebar: 350 },
     };
 
     persistSettings(state);
@@ -513,16 +514,17 @@ describe("persistSettings", () => {
     const parsed = JSON.parse(raw!);
     expect(parsed.appearance.theme).toBe("dark");
     expect(parsed.sidebarWidths.navSidebar).toBe(280);
-    expect(parsed.sidebarWidths.triageSidebar).toBe(350);
+    expect(parsed.sidebarWidths.inboxSidebar).toBe(350);
   });
 
   it("does not persist connectionTestStatus (transient state)", () => {
     const state: SettingsState = {
       jiraConfig: { baseUrl: "", connected: false, siteName: "", cloudId: "", lastError: null },
+      githubConfig: { connected: false, token: "", owner: "", lastError: null },
       connectionTestStatus: "testing",
       appearance: { theme: "system", colorblindMode: false },
       kanbanColumns: DEFAULT_KANBAN_COLUMNS,
-      sidebarWidths: { navSidebar: 240, triageSidebar: 320 },
+      sidebarWidths: { navSidebar: 240, inboxSidebar: 320 },
     };
 
     persistSettings(state);
@@ -535,10 +537,11 @@ describe("persistSettings", () => {
   it("does not persist lastError (transient state)", () => {
     const state: SettingsState = {
       jiraConfig: { baseUrl: "", connected: false, siteName: "", cloudId: "", lastError: "some error" },
+      githubConfig: { connected: false, token: "", owner: "", lastError: null },
       connectionTestStatus: "idle",
       appearance: { theme: "system", colorblindMode: false },
       kanbanColumns: DEFAULT_KANBAN_COLUMNS,
-      sidebarWidths: { navSidebar: 240, triageSidebar: 320 },
+      sidebarWidths: { navSidebar: 240, inboxSidebar: 320 },
     };
 
     persistSettings(state);
@@ -558,8 +561,8 @@ describe("sidebar width constants", () => {
     expect(NAV_SIDEBAR_MIN).toBeLessThan(NAV_SIDEBAR_MAX);
   });
 
-  it("triage sidebar min is less than max", () => {
-    expect(TRIAGE_SIDEBAR_MIN).toBeLessThan(TRIAGE_SIDEBAR_MAX);
+  it("inbox sidebar min is less than max", () => {
+    expect(INBOX_SIDEBAR_MIN).toBeLessThan(INBOX_SIDEBAR_MAX);
   });
 
   it("nav sidebar default (240) is within min/max bounds", () => {
@@ -567,9 +570,9 @@ describe("sidebar width constants", () => {
     expect(240).toBeLessThanOrEqual(NAV_SIDEBAR_MAX);
   });
 
-  it("triage sidebar default (320) is within min/max bounds", () => {
-    expect(320).toBeGreaterThanOrEqual(TRIAGE_SIDEBAR_MIN);
-    expect(320).toBeLessThanOrEqual(TRIAGE_SIDEBAR_MAX);
+  it("inbox sidebar default (320) is within min/max bounds", () => {
+    expect(320).toBeGreaterThanOrEqual(INBOX_SIDEBAR_MIN);
+    expect(320).toBeLessThanOrEqual(INBOX_SIDEBAR_MAX);
   });
 });
 
@@ -600,25 +603,25 @@ describe("sidebar width store actions", () => {
     });
   });
 
-  describe("setTriageSidebarWidth", () => {
+  describe("setInboxSidebarWidth", () => {
     it("clamps to minimum", async () => {
-      const { settingsState, setTriageSidebarWidth } = await import("../settingsStore");
-      setTriageSidebarWidth(100); // below min
-      expect(settingsState.sidebarWidths.triageSidebar).toBe(TRIAGE_SIDEBAR_MIN);
+      const { settingsState, setInboxSidebarWidth } = await import("../settingsStore");
+      setInboxSidebarWidth(100); // below min
+      expect(settingsState.sidebarWidths.inboxSidebar).toBe(INBOX_SIDEBAR_MIN);
     });
 
     it("clamps to maximum", async () => {
-      const { settingsState, setTriageSidebarWidth } = await import("../settingsStore");
-      setTriageSidebarWidth(9999); // above max
-      expect(settingsState.sidebarWidths.triageSidebar).toBe(TRIAGE_SIDEBAR_MAX);
+      const { settingsState, setInboxSidebarWidth } = await import("../settingsStore");
+      setInboxSidebarWidth(9999); // above max
+      expect(settingsState.sidebarWidths.inboxSidebar).toBe(INBOX_SIDEBAR_MAX);
     });
 
     it("sets valid width within bounds", async () => {
-      const { settingsState, setTriageSidebarWidth } = await import("../settingsStore");
-      setTriageSidebarWidth(400);
-      expect(settingsState.sidebarWidths.triageSidebar).toBe(400);
+      const { settingsState, setInboxSidebarWidth } = await import("../settingsStore");
+      setInboxSidebarWidth(400);
+      expect(settingsState.sidebarWidths.inboxSidebar).toBe(400);
       // restore
-      setTriageSidebarWidth(320);
+      setInboxSidebarWidth(320);
     });
   });
 });

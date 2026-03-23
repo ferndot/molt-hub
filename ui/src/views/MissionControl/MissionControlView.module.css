@@ -60,24 +60,22 @@
   opacity: 0.9;
 }
 
-.inboxExpandTab {
-  align-self: flex-start;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-right: none;
-  border-radius: 6px 0 0 6px;
-  padding: 0.5rem 0.625rem;
-  cursor: pointer;
-  font-size: 0.75rem;
+.importBtn {
+  width: 100%;
+  padding: 0.5rem;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
   color: var(--text-muted);
-  writing-mode: horizontal-tb;
-  margin-top: 1rem;
-  transition: background 0.15s, color 0.15s;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  margin-top: 0.5rem;
+  transition: border-color 0.15s, color 0.15s;
 }
 
-.inboxExpandTab:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+.importBtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .body {

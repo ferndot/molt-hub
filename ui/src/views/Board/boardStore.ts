@@ -2,6 +2,9 @@
  * Board store — SolidJS createStore holding board state: stages and tasks
  * grouped by stage. Subscribes to WebSocket topic "board:*" for real-time
  * updates.
+ *
+ * Stages are fetched from GET /api/pipeline/stages on init, falling back
+ * to hardcoded defaults if the API is unavailable.
  */
 
 import { createStore } from "solid-js/store";
@@ -30,22 +33,69 @@ export interface BoardTask {
   expanded: boolean;
 }
 
+/** A pipeline stage as returned by the server API. */
+export interface PipelineStage {
+  id: string;
+  label: string;
+  wip_limit: number | null;
+}
+
 export interface BoardState {
   stages: string[];
+  pipelineStages: PipelineStage[];
+  stagesLoaded: boolean;
   tasks: BoardTask[];
 }
 
 // ---------------------------------------------------------------------------
-// Mock data
+// Default / fallback stages
 // ---------------------------------------------------------------------------
 
-const STAGES: string[] = [
+const DEFAULT_STAGES: string[] = [
   "backlog",
   "in-progress",
   "code-review",
   "testing",
   "deployed",
 ];
+
+const DEFAULT_PIPELINE_STAGES: PipelineStage[] = [
+  { id: "backlog", label: "Backlog", wip_limit: null },
+  { id: "in-progress", label: "In Progress", wip_limit: null },
+  { id: "code-review", label: "Code Review", wip_limit: null },
+  { id: "testing", label: "Testing", wip_limit: null },
+  { id: "deployed", label: "Deployed", wip_limit: null },
+];
+
+// ---------------------------------------------------------------------------
+// API fetch
+// ---------------------------------------------------------------------------
+
+interface StagesApiResponse {
+  stages: PipelineStage[];
+}
+
+/**
+ * Fetch pipeline stages from the server.
+ * Returns null on failure so callers can fall back to defaults.
+ */
+export async function fetchPipelineStages(): Promise<PipelineStage[] | null> {
+  try {
+    const response = await fetch("/api/pipeline/stages");
+    if (!response.ok) return null;
+    const ct = response.headers.get("content-type") ?? "";
+    if (!ct.includes("application/json")) return null;
+    const data = (await response.json()) as StagesApiResponse;
+    if (!Array.isArray(data.stages) || data.stages.length === 0) return null;
+    return data.stages;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mock data
+// ---------------------------------------------------------------------------
 
 const MOCK_TASKS: Omit<BoardTask, "expanded">[] = [
   {
@@ -155,12 +205,32 @@ const MOCK_TASKS: Omit<BoardTask, "expanded">[] = [
 // ---------------------------------------------------------------------------
 
 const initialState: BoardState = {
-  stages: STAGES,
+  stages: DEFAULT_STAGES,
+  pipelineStages: DEFAULT_PIPELINE_STAGES,
+  stagesLoaded: false,
   tasks: MOCK_TASKS.map((t) => ({ ...t, expanded: false })),
 };
 
 export const [boardState, setBoardState] =
   createStore<BoardState>(initialState);
+
+// ---------------------------------------------------------------------------
+// Stage initialisation
+// ---------------------------------------------------------------------------
+
+/**
+ * Load pipeline stages from the server API and update the store.
+ * Falls back to the hardcoded defaults if the API is unavailable.
+ * Call this once at app startup or when the Board view mounts.
+ */
+export async function initBoardStages(): Promise<void> {
+  const fetched = await fetchPipelineStages();
+  if (fetched) {
+    setBoardState("stages", fetched.map((s) => s.id));
+    setBoardState("pipelineStages", fetched);
+  }
+  setBoardState("stagesLoaded", true);
+}
 
 // ---------------------------------------------------------------------------
 // Actions

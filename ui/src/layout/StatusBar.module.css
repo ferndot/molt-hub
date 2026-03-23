@@ -1,4 +1,4 @@
-/* StatusBar — slim 24px bottom bar */
+/* StatusBar — slim 24px bottom bar, uses --chrome-* vars from theme.css */
 
 .bar {
   display: flex;
@@ -7,12 +7,13 @@
   padding: 0 0.75rem;
   height: 24px;
   flex-shrink: 0;
-  background: #0a0a12;
-  border-top: 1px solid #1e1e2e;
+  background: var(--chrome-bg);
+  border-top: 1px solid var(--chrome-border);
   font-family: var(--font-mono);
   font-size: 0.6875rem;
-  color: #6b7280;
+  color: var(--chrome-text);
   user-select: none;
+  transition: var(--transition-theme);
 }
 
 .left {
@@ -29,9 +30,9 @@
 }
 
 .label {
-  color: #9ca3af;
+  color: var(--chrome-text-active);
   display: inline-block;
-  min-width: 5.5em; /* prevent layout shift between "Connected" / "Connecting…" / "Disconnected" */
+  min-width: 5.5em;
 }
 
 .right {
@@ -41,22 +42,17 @@
 }
 
 .hint {
-  color: #4b5563;
+  color: var(--chrome-text);
+  opacity: 0.7;
 }
 
 .separator {
-  color: #374151;
+  color: var(--chrome-border);
   margin: 0 0.25rem;
 }
 
-.metrics {
-  display: flex;
-  align-items: center;
-  gap: 0;
-}
-
 .metricItem {
-  color: #9ca3af;
+  color: var(--chrome-text-active);
 }
 
 .metricNormal {
@@ -69,4 +65,38 @@
 
 .metricCritical {
   color: #ef4444;
+}
+
+/* Inbox toggle */
+.inboxToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: none;
+  color: var(--chrome-text);
+  cursor: pointer;
+  padding: 0.125rem 0.375rem;
+  border-radius: 3px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.inboxToggle:hover {
+  color: var(--chrome-text-active);
+  background: var(--chrome-hover);
+}
+
+.inboxToggleActive {
+  color: var(--text-primary);
+}
+
+.inboxBadge {
+  font-size: 0.5625rem;
+  background: var(--priority-p0);
+  color: #fff;
+  border-radius: 6px;
+  padding: 0 0.25rem;
+  min-width: 14px;
+  text-align: center;
+  line-height: 14px;
 }

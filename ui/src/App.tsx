@@ -4,6 +4,7 @@ import { Router, Route } from "@solidjs/router";
 import AppLayout from "./layout/AppLayout";
 import TriageView from "./views/Triage/TriageView";
 import AgentDetailView from "./views/AgentDetail/AgentDetailView";
+import AgentsView from "./views/Agents/AgentsView";
 import BoardView from "./views/Board/BoardView";
 import Settings from "./views/Settings/Settings";
 
@@ -23,14 +24,7 @@ const MissionControlPage: Component = () => (
   </Suspense>
 );
 
-const AgentsPage: Component = () => (
-  <div style={{ padding: "2rem" }}>
-    <h2 style={{ "margin-bottom": "1rem", "font-size": "1.25rem" }}>Agents</h2>
-    <p style={{ color: "#6b7280" }}>
-      Agent detail list view.
-    </p>
-  </div>
-);
+const AgentsPage: Component = () => <AgentsView />;
 
 const SettingsPage: Component = () => <Settings />;
 

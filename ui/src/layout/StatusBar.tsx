@@ -5,6 +5,7 @@
 
 import { createMemo, createSignal, createEffect, on, type Component } from "solid-js";
 import type { ConnectionStatus } from "../types";
+import { TbFillPoint, TbOutlineBolt, TbOutlineCpu, TbOutlineServer } from "solid-icons/tb";
 import {
   activeAgentCount,
   pendingDecisionCount,
@@ -95,28 +96,28 @@ const StatusBar: Component<Props> = (props) => {
 
         {/* Active agents — count from metricsStore (updated via WebSocket) */}
         <span class={styles.metricNormal}>
-          🟢 {activeAgentCount()} active
+          <TbFillPoint size={14} style={{ color: "#22c55e", "vertical-align": "middle" }} /> {activeAgentCount()} active
         </span>
 
         <Sep />
 
         {/* Pending decisions — derived from attentionStore p0Count + p1Count */}
         <span class={styles.metricItem}>
-          ⚡ {pendingCount()} pending
+          <TbOutlineBolt size={14} style={{ "vertical-align": "middle" }} /> {pendingCount()} pending
         </span>
 
         <Sep />
 
         {/* CPU usage — mocked; TODO: wire to health monitoring WebSocket stream */}
         <span class={cpuClass()}>
-          CPU {cpuUsage()}%
+          <TbOutlineCpu size={14} style={{ "vertical-align": "middle" }} /> CPU {cpuUsage()}%
         </span>
 
         <Sep />
 
         {/* Memory usage — mocked; TODO: wire to health monitoring WebSocket stream */}
         <span class={styles.metricItem}>
-          MEM {formatMemory(memoryUsage())}
+          <TbOutlineServer size={14} style={{ "vertical-align": "middle" }} /> MEM {formatMemory(memoryUsage())}
         </span>
       </div>
 

@@ -8,6 +8,7 @@
 import type { Component } from "solid-js";
 import { createSignal, createMemo, For, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
+import { TbOutlineCommand } from "solid-icons/tb";
 import { filterCommands, type Command } from "./commands";
 import styles from "./CommandPalette.module.css";
 
@@ -84,7 +85,7 @@ const CommandPalette: Component<Props> = (props) => {
     <div class={styles.overlay} onClick={handleOverlayClick} role="dialog" aria-modal="true" aria-label="Command palette">
       <div class={styles.modal}>
         <div class={styles.searchWrapper}>
-          <span class={styles.searchIcon} aria-hidden="true">⌘</span>
+          <span class={styles.searchIcon} aria-hidden="true"><TbOutlineCommand size={16} /></span>
           <input
             class={styles.searchInput}
             type="text"

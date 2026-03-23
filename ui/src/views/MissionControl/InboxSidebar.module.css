@@ -1,0 +1,331 @@
+/* InboxSidebar — heterogeneous notification panel */
+
+/* ---- Layout ---- */
+
+.sidebar {
+  flex-shrink: 0;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: width 0.15s ease;
+  position: relative;
+}
+
+.dragging {
+  transition: none;
+}
+
+.collapsed {
+  width: 0 !important;
+  border-left: none;
+}
+
+/* ---- Drag handle ---- */
+
+.resizeHandle {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 0.15s;
+  z-index: 10;
+}
+
+.resizeHandle:hover,
+.resizeHandle.dragging {
+  background: var(--accent);
+  opacity: 0.5;
+}
+
+/* ---- Header ---- */
+
+.header {
+  padding: 0.625rem 0.75rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.6875rem;
+  letter-spacing: 0.08em;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.headerTitle {
+  flex-shrink: 0;
+}
+
+.countBadge {
+  font-size: 0.625rem;
+  background: var(--priority-p0);
+  color: #fff;
+  border-radius: 10px;
+  padding: 0 0.375rem;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.markAllBtn {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.125rem 0.375rem;
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  white-space: nowrap;
+}
+
+.markAllBtn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+/* ---- Filter tabs ---- */
+
+.filterTabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  padding: 0 0.5rem;
+  gap: 0;
+}
+
+.filterTab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.375rem 0.25rem;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: color 0.1s, border-color 0.1s;
+  white-space: nowrap;
+}
+
+.filterTab:hover {
+  color: var(--text-secondary);
+}
+
+.filterTabActive {
+  color: var(--text-primary);
+  border-bottom-color: var(--accent);
+}
+
+.tabCount {
+  font-size: 0.5625rem;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 0 0.25rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.filterTabActive .tabCount {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ---- List ---- */
+
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.emptyState {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  padding: 2rem 1rem;
+}
+
+/* ---- Notification item ---- */
+
+.notifItem {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.notifItem:hover {
+  border-color: var(--border-strong);
+}
+
+.notifItem.unread {
+  border-left: 3px solid var(--accent);
+}
+
+/* ---- New notification pulse ---- */
+
+@keyframes notifPulse {
+  0%   { background: color-mix(in srgb, var(--bg-elevated), var(--accent) 25%); }
+  100% { background: var(--bg-elevated); }
+}
+
+.notifPulse {
+  animation: notifPulse 0.6s ease-out;
+}
+
+/* ---- Notification row layout ---- */
+
+.notifRow {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.notifContent {
+  flex: 1;
+  min-width: 0;
+}
+
+.notifTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.notifTitle {
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notifTitleUnread {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.notifSubtitle {
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+  margin-top: 0.0625rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notifMeta {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.125rem;
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.notifAgent {
+  background: var(--bg-secondary);
+  border-radius: 3px;
+  padding: 0 0.25rem;
+  font-size: 0.5625rem;
+}
+
+.notifTime {
+  color: var(--text-muted);
+}
+
+/* ---- Priority badge (reused for decision type) ---- */
+
+.priorityBadge {
+  font-size: 0.5625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 0.0625rem 0.25rem;
+  border-radius: 3px;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.priorityP0 { background: var(--priority-p0); }
+.priorityP1 { background: var(--priority-p1); }
+.priorityP2 { background: var(--priority-p2); }
+.priorityP3 { background: var(--priority-p3); }
+
+/* ---- Notification type icons ---- */
+
+.iconDecision  { color: var(--priority-p0); flex-shrink: 0; margin-top: 0.0625rem; }
+.iconAgent     { color: var(--accent); flex-shrink: 0; margin-top: 0.0625rem; }
+.iconBuildPass { color: #22c55e; flex-shrink: 0; margin-top: 0.0625rem; }
+.iconBuildFail { color: #ef4444; flex-shrink: 0; margin-top: 0.0625rem; }
+.iconMention   { color: #8b5cf6; flex-shrink: 0; margin-top: 0.0625rem; }
+.iconSystem    { color: #f59e0b; flex-shrink: 0; margin-top: 0.0625rem; }
+
+/* ---- Actions ---- */
+
+.notifActions {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 0.375rem;
+  padding-left: 1.5rem; /* align with content after icon */
+}
+
+.actionBtn {
+  font-size: 0.625rem;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.125rem 0.375rem;
+  cursor: pointer;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  line-height: 1.2;
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.actionBtn:hover {
+  border-color: var(--border-strong);
+}
+
+.actionLabel {
+  font-size: 0.5625rem;
+}
+
+.approveBtn { color: var(--color-approve); }
+.approveBtn:hover { background: var(--color-approve); color: #fff; }
+
+.rejectBtn { color: var(--color-reject); }
+.rejectBtn:hover { background: var(--color-reject); color: #fff; }
+
+.deferBtn { color: var(--color-defer); }
+.deferBtn:hover { background: var(--color-defer); color: #fff; }
+
+.ackBtn { color: var(--color-ack, var(--priority-p2)); }
+.ackBtn:hover { background: var(--color-ack, var(--priority-p2)); color: #fff; }
+
+.viewBtn { color: var(--accent); }
+.viewBtn:hover { background: var(--accent); color: #fff; }
+
+.dismissBtn { color: var(--text-muted); }
+.dismissBtn:hover { background: var(--text-muted); color: #fff; }

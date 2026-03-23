@@ -25,14 +25,15 @@
   --text-subtle: #9ca3af;
 
   --border: #e5e7eb;
+  --border-subtle: #f0f1f3;
   --border-strong: #d1d5db;
 
-  /* Sidebar (always dark to anchor the chrome) */
-  --sidebar-bg: #1a1a2e;
-  --sidebar-border: #2a2a3e;
-  --sidebar-hover: #252540;
-  --sidebar-text: #9ca3af;
-  --sidebar-text-active: #ffffff;
+  /* Sidebar — adapts to theme */
+  --sidebar-bg: #f8f9fa;
+  --sidebar-border: #e5e7eb;
+  --sidebar-hover: #eef0f2;
+  --sidebar-text: #6b7280;
+  --sidebar-text-active: #111827;
 
   /* Accent — maps to system accent when supported */
   --accent: #4361ee;
@@ -50,6 +51,13 @@
   --color-redirect: #3b82f6;
   --color-defer: #9ca3af;
   --color-ack: #2a9d8f;
+
+  /* Chrome — status bar, toolbars, secondary chrome */
+  --chrome-bg: #eef0f2;
+  --chrome-border: #dde0e4;
+  --chrome-text: #6b7280;
+  --chrome-text-active: #374151;
+  --chrome-hover: #e2e5e9;
 
   /* Mission Control */
   --attention-border-width: 4px;
@@ -70,7 +78,20 @@
     --text-subtle: #6b7280;
 
     --border: #2a2a3e;
+    --border-subtle: #222236;
     --border-strong: #3a3a5a;
+
+    --sidebar-bg: #13131f;
+    --sidebar-border: #2a2a3e;
+    --sidebar-hover: #1e1e34;
+    --sidebar-text: #9ca3af;
+    --sidebar-text-active: #e5e7eb;
+
+    --chrome-bg: #0d0d16;
+    --chrome-border: #1e1e2e;
+    --chrome-text: #6b7280;
+    --chrome-text-active: #9ca3af;
+    --chrome-hover: #1e1e2e;
   }
 }
 
@@ -86,7 +107,20 @@
   --text-subtle: #6b7280;
 
   --border: #2a2a3e;
+  --border-subtle: #222236;
   --border-strong: #3a3a5a;
+
+  --sidebar-bg: #13131f;
+  --sidebar-border: #2a2a3e;
+  --sidebar-hover: #1e1e34;
+  --sidebar-text: #9ca3af;
+  --sidebar-text-active: #e5e7eb;
+
+  --chrome-bg: #0d0d16;
+  --chrome-border: #1e1e2e;
+  --chrome-text: #6b7280;
+  --chrome-text-active: #9ca3af;
+  --chrome-hover: #1e1e2e;
 }
 
 /* ============================================================

@@ -245,9 +245,29 @@ export function useAgentDetailStore() {
 
 export function setupAgentSubscription(agentId: string): () => void {
   const topic = `agent:${agentId}`;
-  const unsubscribe = subscribe(topic, (_msg) => {
-    // TODO: handle real-time agent output events
-    // e.g. append to outputLines, update status/stage
+  const unsubscribe = subscribe(topic, (msg) => {
+    if (msg.type !== "event") return;
+    const payload = msg.payload as Record<string, unknown>;
+
+    // Append agent output lines to the store.
+    const output = payload.output as string | undefined;
+    const timestamp = payload.timestamp as string | undefined;
+    if (output) {
+      const ts = timestamp
+        ? new Date(timestamp).toLocaleTimeString("en-US", {
+            hour12: false,
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          })
+        : new Date().toLocaleTimeString("en-US", {
+            hour12: false,
+            hour: "2-digit",
+            minute: "2-digit",
+            second: "2-digit",
+          });
+      appendOutputLine(agentId, { timestamp: ts, text: output });
+    }
   });
   return unsubscribe;
 }

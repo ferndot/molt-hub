@@ -5,15 +5,20 @@
  * Route: /settings
  */
 
+import type { JSX } from "solid-js";
 import { createSignal, Show, For, type Component } from "solid-js";
+import { TbOutlinePalette, TbOutlinePlug, TbOutlineSquareRotated, TbOutlineBrandGithub, TbOutlineArrowLeft } from "solid-icons/tb";
 import {
   settingsState,
   initiateOAuth,
   disconnectJira,
+  connectGitHub,
+  disconnectGitHub,
   setTheme,
   setColorblindMode,
 } from "./settingsStore";
 import type { Theme } from "./settingsStore";
+import GitHubImport from "./GitHubImport";
 import styles from "./Settings.module.css";
 
 // ---------------------------------------------------------------------------
@@ -88,7 +93,7 @@ const IntegrationsPanel: Component<{ onSelect: (id: SectionId) => void }> = (pro
     </p>
     <div class={styles.integrationsList}>
       <button class={styles.integrationCard} onClick={() => props.onSelect("jira")}>
-        <span class={styles.integrationIcon}>◆</span>
+        <span class={styles.integrationIcon}><TbOutlineSquareRotated size={16} /></span>
         <div>
           <span class={styles.integrationName}>Jira</span>
           <span class={styles.integrationStatus}>
@@ -97,10 +102,12 @@ const IntegrationsPanel: Component<{ onSelect: (id: SectionId) => void }> = (pro
         </div>
       </button>
       <button class={styles.integrationCard} onClick={() => props.onSelect("github")}>
-        <span class={styles.integrationIcon}>◉</span>
+        <span class={styles.integrationIcon}><TbOutlineBrandGithub size={16} /></span>
         <div>
           <span class={styles.integrationName}>GitHub</span>
-          <span class={styles.integrationStatus}>Not connected</span>
+          <span class={styles.integrationStatus}>
+            {settingsState.githubConfig.connected ? "Connected" : "Not connected"}
+          </span>
         </div>
       </button>
     </div>
@@ -116,7 +123,7 @@ const JiraPanel: Component<{ onBack: () => void }> = (props) => {
 
   return (
     <div>
-      <button class={styles.backBtn} onClick={props.onBack}>&larr; Integrations</button>
+      <button class={styles.backBtn} onClick={props.onBack}><TbOutlineArrowLeft size={14} style={{ "vertical-align": "middle" }} /> Integrations</button>
       <h3 class={styles.sectionTitle}>Jira Integration</h3>
 
       <Show when={!isConnected()}>
@@ -164,29 +171,108 @@ const JiraPanel: Component<{ onBack: () => void }> = (props) => {
 // Section: GitHub Integration (placeholder)
 // ---------------------------------------------------------------------------
 
-const GitHubPanel: Component<{ onBack: () => void }> = (props) => (
-  <div>
-    <button class={styles.backBtn} onClick={props.onBack}>&larr; Integrations</button>
-    <h3 class={styles.sectionTitle}>GitHub Integration</h3>
-    <p class={styles.oauthDescription}>
-      GitHub integration is not yet configured. Connect a GitHub account to import
-      issues and pull requests.
-    </p>
-    <div class={styles.buttonRow}>
-      <button class={styles.btnPrimary} disabled>
-        Connect to GitHub (coming soon)
+const GitHubPanel: Component<{ onBack: () => void }> = (props) => {
+  const isConnected = () => settingsState.githubConfig.connected;
+  const [token, setToken] = createSignal("");
+  const [owner, setOwner] = createSignal("");
+  const [importOpen, setImportOpen] = createSignal(false);
+  const [connecting, setConnecting] = createSignal(false);
+
+  const handleConnect = async () => {
+    const t = token().trim();
+    const o = owner().trim();
+    if (!t || !o) return;
+    setConnecting(true);
+    await connectGitHub(t, o);
+    setConnecting(false);
+    if (settingsState.githubConfig.connected) {
+      setToken("");
+    }
+  };
+
+  return (
+    <div>
+      <button class={styles.backBtn} onClick={props.onBack}>
+        <TbOutlineArrowLeft size={14} style={{ "vertical-align": "middle" }} /> Integrations
       </button>
+      <h3 class={styles.sectionTitle}>GitHub Integration</h3>
+
+      <Show when={!isConnected()}>
+        <div class={styles.oauthSection}>
+          <p class={styles.oauthDescription}>
+            Connect your GitHub account to import issues and pull requests.
+            Provide a personal access token with <code>repo</code> scope.
+          </p>
+          <div class={styles.formGroup}>
+            <label class={styles.label} for="gh-token">Personal Access Token</label>
+            <input
+              id="gh-token"
+              class={styles.input}
+              type="password"
+              placeholder="ghp_..."
+              value={token()}
+              onInput={(e) => setToken(e.currentTarget.value)}
+            />
+          </div>
+          <div class={styles.formGroup}>
+            <label class={styles.label} for="gh-owner">Owner / Organization</label>
+            <input
+              id="gh-owner"
+              class={styles.input}
+              type="text"
+              placeholder="my-org or username"
+              value={owner()}
+              onInput={(e) => setOwner(e.currentTarget.value)}
+            />
+          </div>
+          <div class={styles.buttonRow}>
+            <button
+              class={styles.btnPrimary}
+              disabled={!token().trim() || !owner().trim() || connecting()}
+              onClick={handleConnect}
+            >
+              {connecting() ? "Connecting…" : "Connect"}
+            </button>
+          </div>
+          <Show when={settingsState.githubConfig.lastError}>
+            <p class={styles.errorMsg}>{settingsState.githubConfig.lastError}</p>
+          </Show>
+        </div>
+      </Show>
+
+      <Show when={isConnected()}>
+        <div class={styles.connectedSection}>
+          <div class={styles.connectedRow}>
+            <span class={`${styles.statusBadge} ${styles.statusConnected}`}>
+              <span class={styles.statusDot} />
+              Connected
+            </span>
+            <Show when={settingsState.githubConfig.owner}>
+              <span class={styles.siteName}>{settingsState.githubConfig.owner}</span>
+            </Show>
+          </div>
+          <div class={styles.buttonRow}>
+            <button class={styles.btnPrimary} onClick={() => setImportOpen(true)}>
+              Import Issues
+            </button>
+            <button class={styles.btnDanger} onClick={() => disconnectGitHub()}>
+              Disconnect
+            </button>
+          </div>
+        </div>
+        <GitHubImport isOpen={importOpen()} onClose={() => setImportOpen(false)} />
+      </Show>
     </div>
-  </div>
-);
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Settings view
 // ---------------------------------------------------------------------------
 
-const NAV_ITEMS: { id: SectionId; label: string; icon: string }[] = [
-  { id: "appearance", label: "Appearance", icon: "◐" },
-  { id: "integrations", label: "Integrations", icon: "⬡" },
+const NAV_ITEMS: { id: SectionId; label: string; icon: () => JSX.Element }[] = [
+  { id: "appearance", label: "Appearance", icon: () => <TbOutlinePalette size={16} /> },
+  { id: "integrations", label: "Integrations", icon: () => <TbOutlinePlug size={16} /> },
 ];
 
 const Settings: Component = () => {
@@ -215,7 +301,7 @@ const Settings: Component = () => {
                 class={`${styles.navItem}${navActiveFor(item.id) ? ` ${styles.navItemActive}` : ""}`}
                 onClick={() => setActiveSection(item.id)}
               >
-                <span class={styles.navIcon}>{item.icon}</span>
+                <span class={styles.navIcon}>{item.icon()}</span>
                 <span>{item.label}</span>
               </button>
             )}

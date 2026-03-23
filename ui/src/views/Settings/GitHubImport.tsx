@@ -1,7 +1,8 @@
 /**
- * JiraImport — modal dialog for searching and importing Jira issues.
+ * GitHubImport — modal dialog for searching and importing GitHub issues.
  *
  * Opens over any view. Controlled via isOpen / onClose props.
+ * Mirrors the JiraImport pattern.
  */
 
 import {
@@ -13,58 +14,57 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { TbOutlineX, TbOutlineCheck, TbOutlineAlertCircle } from "solid-icons/tb";
-import styles from "./JiraImport.module.css";
+import { settingsState } from "./settingsStore";
+import styles from "./GitHubImport.module.css";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-export interface JiraProject {
-  key: string;
-  name: string;
+export interface GitHubIssue {
+  number: number;
+  title: string;
+  state: string;
+  labels: string[];
 }
 
-export interface JiraIssue {
-  key: string;
-  summary: string;
-  status: string;
-  priority: string;
-}
-
-export interface JiraImportProps {
+export interface GitHubImportProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+type IssueStateFilter = "open" | "closed" | "all";
 type ImportStatus = "idle" | "importing" | "success" | "error";
 
 // ---------------------------------------------------------------------------
 // API helpers
 // ---------------------------------------------------------------------------
 
-async function fetchProjects(): Promise<JiraProject[]> {
-  const response = await fetch("/api/integrations/jira/projects");
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json() as Promise<JiraProject[]>;
-}
-
 async function searchIssues(
-  projectKey: string,
-  jql: string,
-): Promise<JiraIssue[]> {
+  owner: string,
+  repo: string,
+  state: IssueStateFilter,
+  labels: string,
+): Promise<GitHubIssue[]> {
   const params = new URLSearchParams();
-  if (projectKey) params.set("project", projectKey);
-  if (jql) params.set("jql", jql);
-  const response = await fetch(`/api/integrations/jira/search?${params}`);
+  params.set("owner", owner);
+  params.set("repo", repo);
+  params.set("state", state);
+  if (labels) params.set("labels", labels);
+  const response = await fetch(`/api/integrations/github/issues?${params}`);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json() as Promise<JiraIssue[]>;
+  return response.json() as Promise<GitHubIssue[]>;
 }
 
-async function importIssues(keys: string[]): Promise<{ imported: number }> {
-  const response = await fetch("/api/integrations/jira/import", {
+async function importIssues(
+  owner: string,
+  repo: string,
+  issueNumbers: number[],
+): Promise<{ imported: number }> {
+  const response = await fetch("/api/integrations/github/import", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ keys }),
+    body: JSON.stringify({ owner, repo, issues: issueNumbers }),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json() as Promise<{ imported: number }>;
@@ -74,37 +74,45 @@ async function importIssues(keys: string[]): Promise<{ imported: number }> {
 // Component
 // ---------------------------------------------------------------------------
 
-const JiraImport: Component<JiraImportProps> = (props) => {
+const GitHubImport: Component<GitHubImportProps> = (props) => {
   // ---- State ----
-  const [selectedProject, setSelectedProject] = createSignal("");
-  const [jql, setJql] = createSignal("");
+  const [repo, setRepo] = createSignal("");
+  const [stateFilter, setStateFilter] = createSignal<IssueStateFilter>("open");
+  const [labelFilter, setLabelFilter] = createSignal("");
   const [searchTrigger, setSearchTrigger] = createSignal<{
-    project: string;
-    jql: string;
+    owner: string;
+    repo: string;
+    state: IssueStateFilter;
+    labels: string;
   } | null>(null);
-  const [selectedKeys, setSelectedKeys] = createSignal<Set<string>>(new Set());
+  const [selectedNumbers, setSelectedNumbers] = createSignal<Set<number>>(new Set());
   const [importStatus, setImportStatus] = createSignal<ImportStatus>("idle");
   const [importError, setImportError] = createSignal<string | null>(null);
   const [importedCount, setImportedCount] = createSignal(0);
 
-  // ---- Projects resource ----
-  const [projects] = createResource<JiraProject[]>(fetchProjects);
-
   // ---- Search results resource ----
-  const [searchResults, { refetch: refetchSearch }] = createResource(
+  const [searchResults] = createResource(
     searchTrigger,
     async (trigger) => {
       if (!trigger) return [];
-      return searchIssues(trigger.project, trigger.jql);
+      return searchIssues(trigger.owner, trigger.repo, trigger.state, trigger.labels);
     },
   );
 
   // ---- Handlers ----
   const handleSearch = () => {
-    setSelectedKeys(new Set<string>());
+    const owner = settingsState.githubConfig.owner;
+    const repoName = repo().trim();
+    if (!repoName) return;
+    setSelectedNumbers(new Set<number>());
     setImportStatus("idle");
     setImportError(null);
-    setSearchTrigger({ project: selectedProject(), jql: jql() });
+    setSearchTrigger({
+      owner,
+      repo: repoName,
+      state: stateFilter(),
+      labels: labelFilter().trim(),
+    });
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -112,38 +120,40 @@ const JiraImport: Component<JiraImportProps> = (props) => {
     if (e.key === "Escape") props.onClose();
   };
 
-  const toggleSelect = (key: string) => {
-    setSelectedKeys((prev) => {
+  const toggleSelect = (num: number) => {
+    setSelectedNumbers((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) {
-        next.delete(key);
+      if (next.has(num)) {
+        next.delete(num);
       } else {
-        next.add(key);
+        next.add(num);
       }
       return next;
     });
   };
 
   const toggleSelectAll = () => {
-    const results = searchResults() ?? [];
-    const allSelected = results.every((i) => selectedKeys().has(i.key));
+    const items = results();
+    const allSelected = items.every((i) => selectedNumbers().has(i.number));
     if (allSelected) {
-      setSelectedKeys(new Set<string>());
+      setSelectedNumbers(new Set<number>());
     } else {
-      setSelectedKeys(new Set(results.map((i) => i.key)));
+      setSelectedNumbers(new Set(items.map((i) => i.number)));
     }
   };
 
   const handleImport = async () => {
-    const keys = [...selectedKeys()];
-    if (keys.length === 0) return;
+    const nums = [...selectedNumbers()];
+    if (nums.length === 0) return;
+    const trigger = searchTrigger();
+    if (!trigger) return;
     setImportStatus("importing");
     setImportError(null);
     try {
-      const result = await importIssues(keys);
+      const result = await importIssues(trigger.owner, trigger.repo, nums);
       setImportedCount(result.imported);
       setImportStatus("success");
-      setSelectedKeys(new Set<string>());
+      setSelectedNumbers(new Set<number>());
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Import failed");
       setImportStatus("error");
@@ -153,9 +163,9 @@ const JiraImport: Component<JiraImportProps> = (props) => {
   const results = () => searchResults() ?? [];
   const isSearching = () => searchResults.loading;
   const searchError = () => searchResults.error as Error | null;
-  const selectedCount = () => selectedKeys().size;
+  const selectedCount = () => selectedNumbers().size;
   const allSelected = () =>
-    results().length > 0 && results().every((i) => selectedKeys().has(i.key));
+    results().length > 0 && results().every((i) => selectedNumbers().has(i.number));
 
   // ---- Render ----
   return (
@@ -168,12 +178,12 @@ const JiraImport: Component<JiraImportProps> = (props) => {
           }}
           role="dialog"
           aria-modal="true"
-          aria-label="Import from Jira"
+          aria-label="Import from GitHub"
         >
           <div class={styles.dialog}>
             {/* Header */}
             <div class={styles.dialogHeader}>
-              <span class={styles.dialogTitle}>Import from Jira</span>
+              <span class={styles.dialogTitle}>Import from GitHub</span>
               <button
                 class={styles.closeBtn}
                 onClick={props.onClose}
@@ -204,56 +214,56 @@ const JiraImport: Component<JiraImportProps> = (props) => {
 
               {/* Search controls */}
               <div class={styles.searchRow}>
-                <Show
-                  when={!projects.loading}
-                  fallback={
-                    <select class={styles.projectSelect} disabled>
-                      <option>Loading projects…</option>
-                    </select>
-                  }
-                >
-                  <select
-                    class={styles.projectSelect}
-                    value={selectedProject()}
-                    onChange={(e) => setSelectedProject(e.currentTarget.value)}
-                  >
-                    <option value="">All projects</option>
-                    <For each={projects() ?? []}>
-                      {(p) => (
-                        <option value={p.key}>
-                          {p.key} — {p.name}
-                        </option>
-                      )}
-                    </For>
-                  </select>
-                </Show>
-
                 <input
-                  class={styles.jqlInput}
+                  class={styles.repoInput}
                   type="text"
-                  placeholder="JQL query (e.g. status = 'In Progress')"
-                  value={jql()}
-                  onInput={(e) => setJql(e.currentTarget.value)}
+                  placeholder="Repository name (e.g. my-project)"
+                  value={repo()}
+                  onInput={(e) => setRepo(e.currentTarget.value)}
                   onKeyDown={handleKeyDown}
                 />
 
                 <button
                   class={styles.searchBtn}
-                  disabled={isSearching()}
+                  disabled={isSearching() || !repo().trim()}
                   onClick={handleSearch}
                 >
                   {isSearching() ? "Searching…" : "Search"}
                 </button>
               </div>
 
+              {/* Filters */}
+              <div class={styles.filterRow}>
+                <span class={styles.filterLabel}>State:</span>
+                <select
+                  class={styles.filterSelect}
+                  value={stateFilter()}
+                  onChange={(e) => setStateFilter(e.currentTarget.value as IssueStateFilter)}
+                >
+                  <option value="open">Open</option>
+                  <option value="closed">Closed</option>
+                  <option value="all">All</option>
+                </select>
+
+                <span class={styles.filterLabel}>Labels:</span>
+                <input
+                  class={styles.labelInput}
+                  type="text"
+                  placeholder="e.g. bug, enhancement"
+                  value={labelFilter()}
+                  onInput={(e) => setLabelFilter(e.currentTarget.value)}
+                  onKeyDown={handleKeyDown}
+                />
+              </div>
+
               {/* Results */}
-              <Show when={!isSearching()} fallback={<div class={styles.loadingState}>Searching Jira…</div>}>
+              <Show when={!isSearching()} fallback={<div class={styles.loadingState}>Searching GitHub…</div>}>
                 <Show
                   when={results().length > 0}
                   fallback={
                     <Show when={searchTrigger() !== null}>
                       <div class={styles.emptyState}>
-                        No issues found. Try adjusting your JQL query.
+                        No issues found. Try adjusting your filters.
                       </div>
                     </Show>
                   }
@@ -263,9 +273,9 @@ const JiraImport: Component<JiraImportProps> = (props) => {
                       type="checkbox"
                       checked={allSelected()}
                       onChange={toggleSelectAll}
-                      id="jira-select-all-issues"
+                      id="gh-select-all-issues"
                     />
-                    <label for="jira-select-all-issues">
+                    <label for="gh-select-all-issues">
                       Select all ({results().length})
                     </label>
                   </div>
@@ -273,27 +283,31 @@ const JiraImport: Component<JiraImportProps> = (props) => {
                   <ul class={styles.resultsList}>
                     <For each={results()}>
                       {(issue) => {
-                        const isSelected = () => selectedKeys().has(issue.key);
+                        const isSelected = () => selectedNumbers().has(issue.number);
                         return (
                           <li
                             class={`${styles.resultItem}${isSelected() ? ` ${styles.resultItemSelected}` : ""}`}
-                            onClick={() => toggleSelect(issue.key)}
+                            onClick={() => toggleSelect(issue.number)}
                           >
                             <input
                               type="checkbox"
                               class={styles.resultCheckbox}
                               checked={isSelected()}
-                              onChange={() => toggleSelect(issue.key)}
+                              onChange={() => toggleSelect(issue.number)}
                               onClick={(e) => e.stopPropagation()}
                             />
                             <div class={styles.resultContent}>
                               <div>
-                                <span class={styles.resultKey}>{issue.key}</span>
-                                <span class={styles.resultSummary}>{issue.summary}</span>
+                                <span class={styles.resultNumber}>#{issue.number}</span>
+                                <span class={styles.resultTitle}>{issue.title}</span>
                               </div>
                               <div class={styles.resultMeta}>
-                                <span class={styles.resultStatus}>{issue.status}</span>
-                                <span class={styles.resultPriority}>{issue.priority}</span>
+                                <span class={styles.resultState}>{issue.state}</span>
+                                <Show when={issue.labels.length > 0}>
+                                  <span class={styles.resultLabels}>
+                                    {issue.labels.join(", ")}
+                                  </span>
+                                </Show>
                               </div>
                             </div>
                           </li>
@@ -346,4 +360,4 @@ const JiraImport: Component<JiraImportProps> = (props) => {
   );
 };
 
-export default JiraImport;
+export default GitHubImport;

@@ -10,6 +10,7 @@ pub mod audit;
 pub mod credentials;
 pub mod hooks;
 pub mod integrations;
+pub mod pipeline;
 pub mod scheduler;
 pub mod settings;
 pub mod summarizer;

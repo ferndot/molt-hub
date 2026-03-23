@@ -90,7 +90,11 @@ export function connect(url = "/ws"): void {
   }
 
   manualClose = false;
-  setStatus("connecting");
+  // Only show "connecting" on the first attempt — on reconnects, stay
+  // "disconnected" until actually connected to avoid status bar flicker.
+  if (reconnectAttempt === 0) {
+    setStatus("connecting");
+  }
 
   const ws = new WebSocket(url);
   socket = ws;

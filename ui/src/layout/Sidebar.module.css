@@ -39,7 +39,7 @@
 
 .navItem:hover {
   background: var(--sidebar-hover);
-  color: #e5e7eb;
+  color: var(--sidebar-text-active);
 }
 
 .navItem.active {
@@ -84,12 +84,53 @@
   background: var(--priority-p1);
 }
 
-/* Traffic light spacer — window drag region for macOS overlay titlebar */
+/* Traffic light spacer — window drag region with sidebar toggle inline */
 .trafficLightSpacer {
-  height: 38px;
+  height: 42px;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 0.5rem;
   -webkit-app-region: drag;
   app-region: drag;
+}
+
+/* When collapsed, keep toggle inline — vertically centered in the row */
+.sidebar.collapsed .trafficLightSpacer {
+  justify-content: flex-end;
+  padding: 0 0.25rem;
+}
+
+.sidebarToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--sidebar-text);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/* Always show toggle when sidebar is collapsed */
+.sidebar.collapsed .sidebarToggle {
+  opacity: 0.6;
+}
+
+.sidebar:hover .sidebarToggle {
+  opacity: 0.6;
+}
+
+.sidebarToggle:hover {
+  opacity: 1 !important;
+  background: var(--sidebar-hover);
 }
 
 /* Agent list wrapper — scrollable */
@@ -97,6 +138,13 @@
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+}
+
+/* Bottom nav — pinned to bottom */
+.bottomNav {
+  flex-shrink: 0;
+  border-top: 1px solid var(--sidebar-border);
+  padding: 0.25rem 0;
 }
 
 /* Drag handle — right edge of sidebar */

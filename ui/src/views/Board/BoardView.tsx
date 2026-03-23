@@ -3,8 +3,9 @@
  * pipeline stage. Exported as the default component for the /board route.
  */
 
-import { For, Show, createSignal, type Component } from "solid-js";
-import { moveTask, tasksForStage } from "./boardStore";
+import { For, Show, createSignal, onMount, type Component } from "solid-js";
+import { TbOutlineSettings } from "solid-icons/tb";
+import { moveTask, tasksForStage, initBoardStages } from "./boardStore";
 import BoardColumn from "./BoardColumn";
 import ColumnEditor from "./ColumnEditor";
 import { settingsState, getSortedColumns, getStagesForColumn } from "../Settings/settingsStore";
@@ -16,6 +17,11 @@ import styles from "./BoardView.module.css";
 
 const BoardView: Component = () => {
   const [editorOpen, setEditorOpen] = createSignal(false);
+
+  // Fetch pipeline stages from server on mount (falls back to defaults)
+  onMount(() => {
+    initBoardStages();
+  });
 
   const handleDrop = (
     taskId: string,
@@ -49,7 +55,7 @@ const BoardView: Component = () => {
           aria-label="Configure board columns"
           aria-expanded={editorOpen()}
         >
-          ⚙
+          <TbOutlineSettings size={16} />
         </button>
       </div>
 
