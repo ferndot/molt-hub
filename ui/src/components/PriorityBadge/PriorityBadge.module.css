@@ -1,0 +1,90 @@
+/* ==========================================================================
+ * PriorityBadge — colorblind-safe priority indicators
+ *
+ * Normal mode: colored badge with text label.
+ * Colorblind mode (.colorblind on root): adds distinctive patterns via
+ * background-image so priorities are distinguishable without color.
+ * ========================================================================== */
+
+/* ---- Base badge ---- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #ffffff;
+  border-radius: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+/* ---- Size variants ---- */
+.sm {
+  font-size: 0.5625rem;
+  padding: 0.0625rem 0.25rem;
+}
+
+.md {
+  font-size: 0.6875rem;
+  padding: 0.125rem 0.375rem;
+}
+
+.lg {
+  font-size: 0.8125rem;
+  padding: 0.1875rem 0.5rem;
+}
+
+/* ---- Priority color backgrounds ---- */
+.p0 { background: var(--priority-p0); }
+.p1 { background: var(--priority-p1); }
+.p2 { background: var(--priority-p2); }
+.p3 { background: var(--priority-p3); }
+
+/* ---- Shape icon (visible in all modes, distinctive per priority) ---- */
+.icon {
+  display: inline-flex;
+  align-items: center;
+  font-style: normal;
+  line-height: 1;
+}
+
+/* ==========================================================================
+ * Colorblind mode — adds background patterns for redundant encoding.
+ * The .colorblind class is set on <html> by settingsStore.
+ * We use :global() to reference the root class from within CSS modules.
+ * ========================================================================== */
+
+:global(.colorblind) .p0 {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 255, 255, 0.3) 2px,
+    rgba(255, 255, 255, 0.3) 4px
+  );
+}
+
+:global(.colorblind) .p1 {
+  background-image: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.3) 1px,
+    transparent 1px
+  );
+  background-size: 4px 4px;
+}
+
+:global(.colorblind) .p2 {
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(255, 255, 255, 0.25) 2px,
+    rgba(255, 255, 255, 0.25) 4px
+  );
+}
+
+:global(.colorblind) .p3 {
+  /* No pattern — solid background signals lowest priority */
+}

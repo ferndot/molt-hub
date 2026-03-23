@@ -388,6 +388,17 @@ if (typeof createEffect !== "undefined") {
       root.style.colorScheme = theme;
     }
   });
+
+  // Apply colorblind mode class to document root
+  createEffect(() => {
+    const enabled = settingsState.appearance.colorblindMode;
+    const root = document.documentElement;
+    if (enabled) {
+      root.classList.add("colorblind");
+    } else {
+      root.classList.remove("colorblind");
+    }
+  });
 }
 
 // ---------------------------------------------------------------------------

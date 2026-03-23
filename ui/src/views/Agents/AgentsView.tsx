@@ -2,6 +2,8 @@ import { createSignal, createMemo, For, Show, onMount, onCleanup, type Component
 import { A } from "@solidjs/router";
 import { TbOutlineSearch } from "solid-icons/tb";
 import { useAgentDetailStore, startAgentPolling, type AgentDetail } from "../AgentDetail/agentStore";
+import { StatusIndicator } from "../../components/StatusIndicator";
+import type { IndicatorStatus } from "../../components/StatusIndicator";
 import styles from "./AgentsView.module.css";
 
 // ---------------------------------------------------------------------------
@@ -10,13 +12,6 @@ import styles from "./AgentsView.module.css";
 // ---------------------------------------------------------------------------
 
 type ListStatus = "running" | "waiting" | "blocked" | "done";
-
-const STATUS_COLOR: Record<ListStatus, string> = {
-  running: "#22c55e",
-  waiting: "#f59e0b",
-  blocked: "#e63946",
-  done: "#6b7280",
-};
 
 function toListStatus(s: AgentDetail["status"]): ListStatus {
   switch (s) {
@@ -28,6 +23,20 @@ function toListStatus(s: AgentDetail["status"]): ListStatus {
       return "blocked";
     case "idle":
       return "done";
+  }
+}
+
+/** Map agent status to StatusIndicator status */
+function toIndicatorStatus(s: AgentDetail["status"]): IndicatorStatus {
+  switch (s) {
+    case "running":
+      return "running";
+    case "paused":
+      return "paused";
+    case "terminated":
+      return "terminated";
+    case "idle":
+      return "idle";
   }
 }
 
@@ -149,13 +158,11 @@ const AgentsView: Component = () => {
         >
           <For each={filtered()}>
             {(agent) => {
-              const ls = () => toListStatus(agent.status);
               return (
                 <A href={`/agents/${agent.id}`} class={styles.agentCard}>
-                  <span
-                    class={styles.statusDot}
-                    style={{ background: STATUS_COLOR[ls()] }}
-                    title={ls()}
+                  <StatusIndicator
+                    status={toIndicatorStatus(agent.status)}
+                    size="sm"
                   />
                   <span class={styles.agentName}>{agent.name}</span>
                   <span class={styles.taskName}>{agent.taskName}</span>

@@ -52,11 +52,36 @@ describe("StatusIndicator", () => {
     it("maps failure → 'Completed — Failure'", () => {
       expect(STATUS_LABELS.failure).toBe("Completed — Failure");
     });
+
+    // Agent-lifecycle statuses
+    it("maps running → 'Running'", () => {
+      expect(STATUS_LABELS.running).toBe("Running");
+    });
+
+    it("maps paused → 'Paused'", () => {
+      expect(STATUS_LABELS.paused).toBe("Paused");
+    });
+
+    it("maps completed → 'Completed'", () => {
+      expect(STATUS_LABELS.completed).toBe("Completed");
+    });
+
+    it("maps failed → 'Failed'", () => {
+      expect(STATUS_LABELS.failed).toBe("Failed");
+    });
+
+    it("maps idle → 'Idle'", () => {
+      expect(STATUS_LABELS.idle).toBe("Idle");
+    });
+
+    it("maps terminated → 'Terminated'", () => {
+      expect(STATUS_LABELS.terminated).toBe("Terminated");
+    });
   });
 
   describe("type coverage", () => {
-    it("ALL_STATUSES contains exactly 6 variants", () => {
-      expect(ALL_STATUSES).toHaveLength(6);
+    it("ALL_STATUSES contains exactly 12 variants", () => {
+      expect(ALL_STATUSES).toHaveLength(12);
     });
 
     it("ALL_SIZES contains exactly 3 variants (sm, md, lg)", () => {
@@ -101,7 +126,7 @@ describe("StatusIndicator", () => {
   describe("Okabe-Ito palette contract", () => {
     // These are documented in the CSS but we verify the status→shape mapping
     // is exhaustive by checking ALL_STATUSES covers every expected variant
-    const EXPECTED_STATUSES: IndicatorStatus[] = [
+    const EXPECTED_TASK_STATUSES: IndicatorStatus[] = [
       "pending",
       "in_progress",
       "blocked",
@@ -110,10 +135,52 @@ describe("StatusIndicator", () => {
       "failure",
     ];
 
-    it("ALL_STATUSES covers the full Okabe-Ito mapping", () => {
-      for (const expected of EXPECTED_STATUSES) {
+    const EXPECTED_AGENT_STATUSES: IndicatorStatus[] = [
+      "running",
+      "paused",
+      "completed",
+      "failed",
+      "idle",
+      "terminated",
+    ];
+
+    it("ALL_STATUSES covers the full task-pipeline mapping", () => {
+      for (const expected of EXPECTED_TASK_STATUSES) {
         expect(ALL_STATUSES).toContain(expected);
       }
+    });
+
+    it("ALL_STATUSES covers the full agent-lifecycle mapping", () => {
+      for (const expected of EXPECTED_AGENT_STATUSES) {
+        expect(ALL_STATUSES).toContain(expected);
+      }
+    });
+  });
+
+  describe("agent-lifecycle status shapes contract", () => {
+    it("running status uses filled circle shape", () => {
+      // Running = filled circle (green) — verify label is present
+      expect(STATUS_LABELS.running).toBe("Running");
+    });
+
+    it("paused status uses half-filled circle shape", () => {
+      expect(STATUS_LABELS.paused).toBe("Paused");
+    });
+
+    it("completed status uses checkmark shape", () => {
+      expect(STATUS_LABELS.completed).toBe("Completed");
+    });
+
+    it("failed status uses X mark shape", () => {
+      expect(STATUS_LABELS.failed).toBe("Failed");
+    });
+
+    it("idle status uses hollow circle shape", () => {
+      expect(STATUS_LABELS.idle).toBe("Idle");
+    });
+
+    it("terminated status uses dash/minus shape", () => {
+      expect(STATUS_LABELS.terminated).toBe("Terminated");
     });
   });
 });

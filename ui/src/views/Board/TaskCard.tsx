@@ -1,31 +1,35 @@
 /**
  * TaskCard — individual task card with collapsed/expanded/focused states,
- * priority badge, status dot, and HTML5 drag-and-drop support.
+ * priority badge, status indicator, and HTML5 drag-and-drop support.
  */
 
 import { Show, type Component } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import type { Priority } from "../../types/domain";
 import type { BoardTask, BoardTaskStatus } from "./boardStore";
 import { toggleCard } from "./boardStore";
+import { PriorityBadge } from "../../components/PriorityBadge";
+import { StatusIndicator } from "../../components/StatusIndicator";
+import type { IndicatorStatus } from "../../components/StatusIndicator";
+import type { PriorityLevel } from "../../components/PriorityBadge";
 import styles from "./TaskCard.module.css";
 
 // ---------------------------------------------------------------------------
-// Color maps
+// Status mapping — BoardTaskStatus → IndicatorStatus
 // ---------------------------------------------------------------------------
 
-export const PRIORITY_COLORS: Record<Priority, string> = {
-  p0: "#e63946",
-  p1: "#f4a261",
-  p2: "#2a9d8f",
-  p3: "#6c757d",
-};
-
-export const STATUS_COLORS: Record<BoardTaskStatus, string> = {
-  running: "#2a9d8f",
-  waiting: "#f4a261",
-  blocked: "#e63946",
-  complete: "#6c757d",
-};
+function toIndicatorStatus(s: BoardTaskStatus): IndicatorStatus {
+  switch (s) {
+    case "running":
+      return "running";
+    case "waiting":
+      return "paused";
+    case "blocked":
+      return "blocked";
+    case "complete":
+      return "completed";
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -44,19 +48,31 @@ export interface TaskCardProps {
 // ---------------------------------------------------------------------------
 
 const TaskCard: Component<TaskCardProps> = (props) => {
+  const navigate = useNavigate();
+
   const handleDragStart = (e: DragEvent) => {
     props.onDragStart?.(e, props.task.id, props.task.stage);
   };
 
   const handleClick = (e: MouseEvent) => {
-    // Don't toggle if clicking action buttons
+    // Don't navigate/toggle if clicking action buttons
     const target = e.target as HTMLElement;
     if (target.closest("button")) return;
+    // Double-click navigates to detail view
+    if (e.detail === 2) {
+      navigate(`/tasks/${props.task.id}`);
+      return;
+    }
     toggleCard(props.task.id);
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      navigate(`/tasks/${props.task.id}`);
+      return;
+    }
+    if (e.key === " ") {
       e.preventDefault();
       toggleCard(props.task.id);
     }
@@ -83,20 +99,16 @@ const TaskCard: Component<TaskCardProps> = (props) => {
       data-task-id={props.task.id}
       data-task-stage={props.task.stage}
     >
-      {/* Header row: task name + priority badge + status dot */}
+      {/* Header row: task name + priority badge + status indicator */}
       <div class={styles.header}>
         <span class={styles.taskName}>{props.task.name}</span>
-        <span
-          class={styles.priorityBadge}
-          style={{ background: PRIORITY_COLORS[props.task.priority] }}
-        >
-          {props.task.priority.toUpperCase()}
-        </span>
-        <span
-          class={styles.statusDot}
-          style={{ background: STATUS_COLORS[props.task.status] }}
-          title={props.task.status}
-          aria-label={`Status: ${props.task.status}`}
+        <PriorityBadge
+          priority={props.task.priority as PriorityLevel}
+          size="sm"
+        />
+        <StatusIndicator
+          status={toIndicatorStatus(props.task.status)}
+          size="sm"
         />
       </div>
 

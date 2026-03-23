@@ -4,6 +4,7 @@ import { Router, Route } from "@solidjs/router";
 import AppLayout from "./layout/AppLayout";
 import TriageView from "./views/Triage/TriageView";
 import AgentDetailView from "./views/AgentDetail/AgentDetailView";
+import TaskDetailView from "./views/TaskDetail/TaskDetailView";
 import AgentsView from "./views/Agents/AgentsView";
 import BoardView from "./views/Board/BoardView";
 import SettingsView from "./views/Settings/SettingsView";
@@ -41,6 +42,7 @@ const App: Component = () => {
       <Route path="/board" component={BoardPage} />
       <Route path="/agents" component={AgentsPage} />
       <Route path="/agents/:id" component={AgentDetailView} />
+      <Route path="/tasks/:id" component={TaskDetailView} />
       <Route path="/settings" component={SettingsPage} />
     </Router>
   );

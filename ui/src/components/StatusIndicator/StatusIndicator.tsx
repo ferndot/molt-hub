@@ -6,6 +6,9 @@
  *
  * Palette: Okabe & Ito (2008) — optimised for all forms of colour-vision
  * deficiency.
+ *
+ * Supports both task-pipeline statuses (pending, in_progress, etc.)
+ * and agent-lifecycle statuses (running, paused, idle, terminated).
  */
 
 import type { Component } from "solid-js";
@@ -28,6 +31,12 @@ const STATUS_CLASS: Record<IndicatorStatus, string> = {
   awaiting_approval: styles.awaitingApproval,
   success: styles.success,
   failure: styles.failure,
+  running: styles.running,
+  paused: styles.paused,
+  completed: styles.completed,
+  failed: styles.failed,
+  idle: styles.idle,
+  terminated: styles.terminated,
 };
 
 const SIZE_CLASS: Record<IndicatorSize, string> = {

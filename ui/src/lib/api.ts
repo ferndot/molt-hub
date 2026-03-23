@@ -67,6 +67,12 @@ export const api = {
   rejectAgent: (id: string, reason: string) =>
     post<Record<string, unknown>>(`/agents/${id}/reject`, { reason }),
 
+  // Tasks
+  getTask: (id: string) =>
+    get<TaskDetail>(`/tasks/${id}`),
+  getTaskEvents: (id: string) =>
+    get<{ events: TaskEvent[] }>(`/tasks/${id}/events`),
+
   // Audit
   getAuditLog: (limit = 100) =>
     get<{ entries: AuditEntry[] }>(`/audit?limit=${limit}`),
@@ -82,4 +88,25 @@ export interface AuditEntry {
   action: string;
   actor: string;
   details: string;
+}
+
+export interface TaskDetail {
+  id: string;
+  title: string;
+  description: string;
+  current_stage: string;
+  priority: string;
+  assigned_agent: string | null;
+  agent_name: string | null;
+  state_type: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskEvent {
+  id: string;
+  timestamp: string;
+  event_type: string;
+  actor: string;
+  description: string;
 }
