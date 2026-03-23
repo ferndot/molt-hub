@@ -1,0 +1,29 @@
+# Rust build artifacts
+/target/
+**/*.rs.bk
+
+# Editor swap files
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Secrets / env
+.env
+.env.*
+!.env.example
+
+# SQLite databases (local dev)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

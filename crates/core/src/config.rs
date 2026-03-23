@@ -1,0 +1,333 @@
+//! Stage configuration — schema and validation for pipeline stage definitions.
+//!
+//! This module defines the YAML input schema for pipeline configuration.
+//! These types are distinct from the runtime model types in `model.rs`.
+
+use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use thiserror::Error;
+
+// ─── Error type ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Error)]
+pub enum ConfigError {
+    #[error("parse error: {0}")]
+    Parse(String),
+
+    #[error("stage '{stage}': {message}")]
+    StageError { stage: String, message: String },
+
+    #[error("duplicate stage name: '{0}'")]
+    DuplicateStage(String),
+
+    #[error("unknown stage reference: '{0}'")]
+    UnknownStageRef(String),
+
+    #[error("pipeline must contain at least one stage")]
+    NoStages,
+
+    #[error("warning: {0}")]
+    Warning(String),
+}
+
+// ─── Hook types ──────────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HookKind {
+    Shell,
+    StartDevEnvironment,
+    TeardownDevEnvironment,
+    AgentDispatch,
+    Webhook,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HookTrigger {
+    Enter,
+    Exit,
+    OnStall,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HookDefinition {
+    pub kind: HookKind,
+    pub on: HookTrigger,
+    #[serde(flatten)]
+    pub config: serde_json::Value,
+}
+
+// ─── Transition types ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TransitionTrigger {
+    AgentCompleted,
+    Approved,
+    Rejected,
+    Timeout,
+    Manual,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransitionDefinition {
+    pub when: TransitionTrigger,
+    pub then: String,
+    pub guard: Option<serde_json::Value>,
+}
+
+// ─── Stage definition ─────────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StageDefinition {
+    pub name: String,
+    pub instructions: Option<String>,
+    pub instructions_template: Option<String>,
+    #[serde(default)]
+    pub requires_approval: bool,
+    #[serde(default)]
+    pub approvers: Vec<String>,
+    pub timeout_seconds: Option<u64>,
+    #[serde(default)]
+    pub terminal: bool,
+    #[serde(default)]
+    pub hooks: Vec<HookDefinition>,
+    #[serde(default)]
+    pub transition_rules: Vec<TransitionDefinition>,
+}
+
+// ─── Pipeline config (top-level) ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PipelineConfig {
+    pub name: String,
+    pub description: Option<String>,
+    pub version: u32,
+    pub stages: Vec<StageDefinition>,
+}
+
+impl PipelineConfig {
+    /// Parse a YAML string into a `PipelineConfig`.
+    pub fn from_yaml(yaml: &str) -> Result<Self, ConfigError> {
+        serde_yaml::from_str(yaml).map_err(|e| ConfigError::Parse(e.to_string()))
+    }
+
+    /// Validate the config and return any errors/warnings.
+    /// An empty vec means the config is valid.
+    pub fn validate(&self) -> Vec<ConfigError> {
+        let mut errors: Vec<ConfigError> = Vec::new();
+
+        // Rule: at least one stage
+        if self.stages.is_empty() {
+            errors.push(ConfigError::NoStages);
+            // Nothing else to check without stages
+            return errors;
+        }
+
+        // Collect stage names for reference checks
+        let stage_names: HashSet<&str> = self.stages.iter().map(|s| s.name.as_str()).collect();
+
+        // Rule: unique stage names
+        {
+            let mut seen: HashSet<&str> = HashSet::new();
+            for stage in &self.stages {
+                if !seen.insert(stage.name.as_str()) {
+                    errors.push(ConfigError::DuplicateStage(stage.name.clone()));
+                }
+            }
+        }
+
+        // Rule: at most one terminal stage
+        let terminal_count = self.stages.iter().filter(|s| s.terminal).count();
+        if terminal_count > 1 {
+            errors.push(ConfigError::Warning(format!(
+                "pipeline has {terminal_count} terminal stages; at most one is expected"
+            )));
+        }
+
+        // Per-stage validation
+        for stage in &self.stages {
+            // Rule: instructions and instructions_template are mutually exclusive
+            if stage.instructions.is_some() && stage.instructions_template.is_some() {
+                errors.push(ConfigError::StageError {
+                    stage: stage.name.clone(),
+                    message: "instructions and instructions_template are mutually exclusive"
+                        .to_string(),
+                });
+            }
+
+            // Rule: transition targets must reference known stage names
+            for rule in &stage.transition_rules {
+                if !stage_names.contains(rule.then.as_str()) {
+                    errors.push(ConfigError::UnknownStageRef(rule.then.clone()));
+                }
+            }
+        }
+
+        errors
+    }
+
+    /// Parse YAML and validate in one step.
+    /// Returns `Ok(config)` only when there are no errors (warnings are treated as errors here).
+    pub fn load_and_validate(yaml: &str) -> Result<Self, Vec<ConfigError>> {
+        let config = Self::from_yaml(yaml).map_err(|e| vec![e])?;
+        let errors = config.validate();
+        if errors.is_empty() {
+            Ok(config)
+        } else {
+            Err(errors)
+        }
+    }
+}
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn minimal_yaml() -> &'static str {
+        r#"
+name: My Pipeline
+version: 1
+stages:
+  - name: review
+    requires_approval: true
+    approvers:
+      - alice
+  - name: done
+    terminal: true
+    transition_rules:
+      - when: approved
+        then: done
+"#
+    }
+
+    #[test]
+    fn parse_minimal_config() {
+        let cfg = PipelineConfig::from_yaml(minimal_yaml()).expect("should parse");
+        assert_eq!(cfg.name, "My Pipeline");
+        assert_eq!(cfg.version, 1);
+        assert_eq!(cfg.stages.len(), 2);
+        assert!(cfg.stages[0].requires_approval);
+        assert!(cfg.stages[1].terminal);
+    }
+
+    #[test]
+    fn validate_valid_config() {
+        let cfg = PipelineConfig::from_yaml(minimal_yaml()).unwrap();
+        let errs = cfg.validate();
+        // The transition `then: done` is a known stage, so only possible issue would be
+        // the approved transition pointing to "done" which exists — no errors expected.
+        // (Warnings count as errors in load_and_validate, but validate() returns them raw.)
+        assert!(
+            errs.is_empty(),
+            "unexpected errors: {errs:?}"
+        );
+    }
+
+    #[test]
+    fn error_on_no_stages() {
+        let yaml = "name: empty\nversion: 1\nstages: []\n";
+        let cfg = PipelineConfig::from_yaml(yaml).unwrap();
+        let errs = cfg.validate();
+        assert!(errs.iter().any(|e| matches!(e, ConfigError::NoStages)));
+    }
+
+    #[test]
+    fn error_on_duplicate_stage() {
+        let yaml = r#"
+name: dup
+version: 1
+stages:
+  - name: review
+  - name: review
+"#;
+        let cfg = PipelineConfig::from_yaml(yaml).unwrap();
+        let errs = cfg.validate();
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, ConfigError::DuplicateStage(n) if n == "review")));
+    }
+
+    #[test]
+    fn error_on_unknown_stage_ref() {
+        let yaml = r#"
+name: bad-ref
+version: 1
+stages:
+  - name: start
+    transition_rules:
+      - when: agent_completed
+        then: nonexistent
+"#;
+        let cfg = PipelineConfig::from_yaml(yaml).unwrap();
+        let errs = cfg.validate();
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, ConfigError::UnknownStageRef(n) if n == "nonexistent")));
+    }
+
+    #[test]
+    fn error_on_mutually_exclusive_instructions() {
+        let yaml = r#"
+name: both-instructions
+version: 1
+stages:
+  - name: work
+    instructions: "Do the thing."
+    instructions_template: "tmpl/work.md"
+"#;
+        let cfg = PipelineConfig::from_yaml(yaml).unwrap();
+        let errs = cfg.validate();
+        assert!(errs.iter().any(|e| matches!(
+            e,
+            ConfigError::StageError { stage, .. } if stage == "work"
+        )));
+    }
+
+    #[test]
+    fn warning_on_multiple_terminal_stages() {
+        let yaml = r#"
+name: multi-terminal
+version: 1
+stages:
+  - name: done1
+    terminal: true
+  - name: done2
+    terminal: true
+"#;
+        let cfg = PipelineConfig::from_yaml(yaml).unwrap();
+        let errs = cfg.validate();
+        assert!(errs
+            .iter()
+            .any(|e| matches!(e, ConfigError::Warning(_))));
+    }
+
+    #[test]
+    fn load_and_validate_returns_err_on_invalid() {
+        let yaml = "name: empty\nversion: 1\nstages: []\n";
+        let result = PipelineConfig::load_and_validate(yaml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn hook_definition_round_trips() {
+        let yaml = r#"
+name: hooked
+version: 1
+stages:
+  - name: build
+    hooks:
+      - kind: shell
+        on: enter
+        command: "make build"
+"#;
+        let cfg = PipelineConfig::from_yaml(yaml).unwrap();
+        let hook = &cfg.stages[0].hooks[0];
+        assert_eq!(hook.kind, HookKind::Shell);
+        assert_eq!(hook.on, HookTrigger::Enter);
+        assert_eq!(hook.config["command"], "make build");
+    }
+}

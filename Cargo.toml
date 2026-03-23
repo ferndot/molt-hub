@@ -1,0 +1,47 @@
+[workspace]
+members = [
+    "crates/core",
+    "crates/server",
+    "crates/harness",
+]
+resolver = "2"
+
+[workspace.package]
+name = "molt-hub"
+version = "0.1.0"
+edition = "2021"
+authors = ["Molt Hub Contributors"]
+
+[workspace.dependencies]
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Database
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "macros", "migrate"] }
+
+# HTTP / WebSocket
+axum = { version = "0.7", features = ["ws"] }
+
+# IDs
+ulid = "1"
+
+# Error handling
+thiserror = "2"
+
+# Tracing / logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Date/time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async traits
+async-trait = "0.1"
+
+# Concurrent hashmaps
+dashmap = "6"

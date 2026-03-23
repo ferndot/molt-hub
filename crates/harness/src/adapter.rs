@@ -1,0 +1,191 @@
+//! AgentAdapter trait — common interface for all agent backends.
+
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::time::Duration;
+
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+use molt_hub_core::model::{AgentId, AgentStatus, SessionId, TaskId};
+
+// ---------------------------------------------------------------------------
+// SpawnConfig
+// ---------------------------------------------------------------------------
+
+/// Configuration passed to an adapter when spawning a new agent process.
+#[derive(Debug, Clone)]
+pub struct SpawnConfig {
+    pub agent_id: AgentId,
+    pub task_id: TaskId,
+    pub session_id: SessionId,
+    pub working_dir: PathBuf,
+    pub instructions: String,
+    pub env: HashMap<String, String>,
+    pub timeout: Option<Duration>,
+    pub adapter_config: serde_json::Value,
+}
+
+// ---------------------------------------------------------------------------
+// AgentHandle
+// ---------------------------------------------------------------------------
+
+/// An opaque handle returned by `AgentAdapter::spawn`.
+///
+/// Adapters may store their own internal state in `internal`; callers can
+/// retrieve it via `downcast_internal`.
+pub struct AgentHandle {
+    pub agent_id: AgentId,
+    pub pid: Option<u32>,
+    internal: Box<dyn std::any::Any + Send + Sync>,
+}
+
+impl AgentHandle {
+    /// Construct a new handle.  `internal` is adapter-specific state.
+    pub fn new(
+        agent_id: AgentId,
+        pid: Option<u32>,
+        internal: Box<dyn std::any::Any + Send + Sync>,
+    ) -> Self {
+        Self {
+            agent_id,
+            pid,
+            internal,
+        }
+    }
+
+    /// Returns the agent ID associated with this handle.
+    pub fn agent_id(&self) -> &AgentId {
+        &self.agent_id
+    }
+
+    /// Returns the OS process ID, if applicable.
+    pub fn pid(&self) -> Option<u32> {
+        self.pid
+    }
+
+    /// Attempt to downcast the internal state to a concrete type.
+    pub fn downcast_internal<T: std::any::Any>(&self) -> Option<&T> {
+        self.internal.downcast_ref::<T>()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// AgentMessage
+// ---------------------------------------------------------------------------
+
+/// Messages that can be sent to a running agent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AgentMessage {
+    /// Send a free-form instruction string to the agent.
+    Instruction(String),
+    /// Ask the agent to pause execution.
+    Pause,
+    /// Resume a previously paused agent.
+    Resume,
+    /// Send structured data to the agent.
+    Data(serde_json::Value),
+}
+
+// ---------------------------------------------------------------------------
+// AgentEvent
+// ---------------------------------------------------------------------------
+
+/// Events emitted by a running agent and consumed by the supervisor layer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AgentEvent {
+    /// A line / chunk of text output from the agent.
+    Output {
+        agent_id: AgentId,
+        content: String,
+        timestamp: DateTime<Utc>,
+    },
+    /// The agent transitioned to a new status.
+    StatusChanged {
+        agent_id: AgentId,
+        previous: AgentStatus,
+        current: AgentStatus,
+        timestamp: DateTime<Utc>,
+    },
+    /// The agent finished successfully.
+    Completed {
+        agent_id: AgentId,
+        exit_code: Option<i32>,
+        timestamp: DateTime<Utc>,
+    },
+    /// The agent encountered an error.
+    Error {
+        agent_id: AgentId,
+        message: String,
+        timestamp: DateTime<Utc>,
+    },
+    /// A progress update from the agent (0–100).
+    Progress {
+        agent_id: AgentId,
+        percent: u8,
+        message: Option<String>,
+        timestamp: DateTime<Utc>,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// AdapterError
+// ---------------------------------------------------------------------------
+
+/// Errors returned by `AgentAdapter` operations.
+#[derive(Debug, Error)]
+pub enum AdapterError {
+    #[error("failed to spawn agent: {0}")]
+    SpawnFailed(String),
+
+    #[error("agent not found")]
+    AgentNotFound,
+
+    #[error("agent is already terminated")]
+    AlreadyTerminated,
+
+    #[error("failed to send message to agent: {0}")]
+    SendFailed(String),
+
+    #[error("operation timed out")]
+    Timeout,
+
+    #[error("internal adapter error: {0}")]
+    Internal(#[from] Box<dyn std::error::Error + Send + Sync>),
+}
+
+// ---------------------------------------------------------------------------
+// AgentAdapter
+// ---------------------------------------------------------------------------
+
+/// Trait implemented by every agent backend (Claude CLI, local shell, …).
+///
+/// All methods are `async` and the trait is object-safe via `async_trait`.
+#[async_trait]
+pub trait AgentAdapter: Send + Sync + 'static {
+    /// Spawn a new agent according to `config` and return an opaque handle.
+    async fn spawn(&self, config: SpawnConfig) -> Result<AgentHandle, AdapterError>;
+
+    /// Send a message to a running agent.
+    async fn send(
+        &self,
+        handle: &AgentHandle,
+        message: AgentMessage,
+    ) -> Result<(), AdapterError>;
+
+    /// Query the current status of an agent.
+    async fn status(&self, handle: &AgentHandle) -> Result<AgentStatus, AdapterError>;
+
+    /// Request a graceful termination of the agent.
+    async fn terminate(&self, handle: &AgentHandle) -> Result<(), AdapterError>;
+
+    /// Forcibly abort the agent without waiting for cleanup.
+    async fn abort(&self, handle: &AgentHandle) -> Result<(), AdapterError>;
+
+    /// A short identifier for this adapter implementation (e.g. `"claude-cli"`).
+    fn adapter_type(&self) -> &str;
+}
