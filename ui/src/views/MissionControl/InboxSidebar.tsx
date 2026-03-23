@@ -35,6 +35,8 @@ import {
   INBOX_SIDEBAR_MIN,
   INBOX_SIDEBAR_MAX,
 } from "../Settings/settingsStore";
+import { PriorityBadge } from "../../components/PriorityBadge";
+import type { PriorityLevel } from "../../components/PriorityBadge";
 import styles from "./InboxSidebar.module.css";
 
 // ---------------------------------------------------------------------------
@@ -166,9 +168,10 @@ const NotificationItem: Component<{ notif: Notification }> = (props) => {
         <div class={styles.notifContent}>
           <div class={styles.notifTitleRow}>
             <Show when={props.notif.type === "decision"}>
-              <span class={`${styles.priorityBadge} ${priorityClass(props.notif.priority)}`}>
-                {props.notif.priority}
-              </span>
+              <PriorityBadge
+                priority={props.notif.priority as PriorityLevel}
+                size="sm"
+              />
             </Show>
             <span
               class={styles.notifTitle}

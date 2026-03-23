@@ -14,6 +14,9 @@
  *
  * Maps closely to TaskState from domain.ts but uses flat strings so the
  * component is reusable across different domain objects.
+ *
+ * Includes both task-pipeline statuses (pending, in_progress, etc.)
+ * and agent-lifecycle statuses (running, paused, idle, terminated).
  */
 export type IndicatorStatus =
   | "pending"
@@ -21,7 +24,13 @@ export type IndicatorStatus =
   | "blocked"
   | "awaiting_approval"
   | "success"
-  | "failure";
+  | "failure"
+  | "running"
+  | "paused"
+  | "completed"
+  | "failed"
+  | "idle"
+  | "terminated";
 
 export type IndicatorSize = "sm" | "md" | "lg";
 
@@ -43,6 +52,12 @@ export const STATUS_LABELS: Record<IndicatorStatus, string> = {
   awaiting_approval: "Awaiting Approval",
   success: "Completed — Success",
   failure: "Completed — Failure",
+  running: "Running",
+  paused: "Paused",
+  completed: "Completed",
+  failed: "Failed",
+  idle: "Idle",
+  terminated: "Terminated",
 };
 
 // ---------------------------------------------------------------------------
@@ -56,6 +71,12 @@ export const ALL_STATUSES: readonly IndicatorStatus[] = [
   "awaiting_approval",
   "success",
   "failure",
+  "running",
+  "paused",
+  "completed",
+  "failed",
+  "idle",
+  "terminated",
 ] as const;
 
 export const ALL_SIZES: readonly IndicatorSize[] = [

@@ -27,13 +27,9 @@
 *.db-journal
 *.db-wal
 *.db-shm
-.claude/worktrees/
 
 # Claude Code local state
-.claude/projects/
-.claude/tackline/
-.claude/worktrees/
-.claude/launch.json
+.claude/
 
 # Dependencies
 node_modules/

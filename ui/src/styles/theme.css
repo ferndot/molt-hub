@@ -45,6 +45,14 @@
   --priority-p2: #2a9d8f;
   --priority-p3: #6c757d;
 
+  /* Status — semantic tokens for agent/task status indicators */
+  --status-running: #22c55e;
+  --status-paused: #eab308;
+  --status-completed: #3b82f6;
+  --status-failed: #ef4444;
+  --status-idle: #6b7280;
+  --status-terminated: #374151;
+
   /* Semantic action colors */
   --color-approve: #22c55e;
   --color-reject: #e63946;
