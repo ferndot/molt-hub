@@ -4,6 +4,7 @@
  */
 
 import { Show, type Component } from "solid-js";
+import { TbOutlineCheck, TbOutlineX, TbOutlineArrowRight, TbOutlineClock } from "solid-icons/tb";
 import type { MissionControlItem } from "./missionControlStore";
 import styles from "./UnifiedCard.module.css";
 
@@ -131,7 +132,7 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
                 )
               }
             >
-              &#10003; Approve
+              <TbOutlineCheck size={12} /> Approve
             </button>
             <button
               class={`${styles.actionBtn} ${styles.rejectBtn}`}
@@ -141,7 +142,7 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
                 )
               }
             >
-              &#10005; Reject
+              <TbOutlineX size={12} /> Reject
             </button>
             <button
               class={`${styles.actionBtn} ${styles.redirectBtn}`}
@@ -154,7 +155,7 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
                 )
               }
             >
-              &rarr; Redirect
+              <TbOutlineArrowRight size={12} /> Redirect
             </button>
             <button
               class={`${styles.actionBtn} ${styles.deferBtn}`}
@@ -164,7 +165,7 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
                 )
               }
             >
-              &#9207; Defer
+              <TbOutlineClock size={12} /> Defer
             </button>
           </Show>
           <Show when={props.item.attentionInfo!.triageType === "info"}>
@@ -176,7 +177,7 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
                 )
               }
             >
-              &#10003; Acknowledge
+              <TbOutlineCheck size={12} /> Acknowledge
             </button>
           </Show>
         </div>

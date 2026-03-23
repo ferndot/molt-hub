@@ -28,6 +28,7 @@ export interface MissionColumnProps {
   onAcknowledge: (triageId: string) => void;
   onDrop: (taskId: string, fromStage: string, toStage: string) => void;
   onToggle?: (taskId: string) => void;
+  footer?: () => any;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +121,9 @@ const MissionColumn: Component<MissionColumnProps> = (props) => {
           {props.hiddenCount} hidden
         </div>
       </Show>
+
+      {/* Optional column footer */}
+      <Show when={props.footer}>{props.footer!()}</Show>
     </div>
   );
 };

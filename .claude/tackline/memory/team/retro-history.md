@@ -49,3 +49,21 @@
 - Commits: 4 (2 fix, 1 revert, 1 fix) — net 2 meaningful changes
 - Fix rate: 25% (1 misdiagnosed component, reverted)
 - Key insight: When user reports a UI bug with specific visible text, grep for that exact string first — semantic exploration found the wrong component. Also: small <10-line fixes are faster as direct edits than worktree agent dispatches.
+
+## Retro: 2026-03-23 (Feature Sprint — Desktop + Wiring + Integrations)
+- Tasks completed: 7 (Tauri shell, theme switching, Settings redesign, sidebar resize, Focus Mode, WS wiring, GitHub integration)
+- Commits: 15 (7 feat, 6 fix, 1 revert, 1 cleanup)
+- Tests: 181 UI + 28 Rust server (14 new GitHub + broadcast tests)
+- Parallel agents: 3 dispatched for WS/GitHub/Focus — all succeeded, zero conflicts
+- Key insight: Status bar flicker required 3 fix attempts — should read the full signal chain upfront before patching symptoms. Delete generated .module.css.d.ts files; the wildcard css.d.ts suffices.
+- Process: Direct edits for small fixes saved time vs agent dispatch. User screenshot feedback was the most productive iteration loop.
+- Remaining: GitHub import UI, Tauri packaging/icon, real actor→WS broadcast, board DnD in Tauri.
+
+## Retro: 2026-03-23 (Sprint 2 — Waves 10-11: Icons + Notifications + Theme)
+- Tasks completed: 10 (icon pack, agents view, rename, GitHub import UI, notification panel, WS broadcast, sidebar restructure, theme vars, chrome vars, traffic light fix)
+- Commits: ~10 (4 feat, 3 fix, 1 refactor, 2 merge) — 2,251 lines added, 388 removed
+- Tests: 181 UI + 408 Rust = 589 total (stable, no regressions)
+- Fix rate: 30% — theme/sidebar polish required multiple iterations based on live user feedback
+- Key insight: Hardcoded hex colors in component CSS are tech debt that compounds — should establish CSS variable tokens (--chrome-*, --sidebar-*) BEFORE building components, not after. Retrofitting is expensive.
+- Process: User-driven iteration via Tauri desktop screenshots was the most productive feedback loop. Small direct edits for UI polish >> worktree agents. Sidebar redundancy (nav item + section) caught by user, not by agents.
+- Remaining open from user: inbox toggle should move to top-right header (not status bar), sidebar agent list needs optimization for 50+ agents

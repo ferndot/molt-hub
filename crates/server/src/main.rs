@@ -13,7 +13,7 @@ use clap::{Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use molt_hub_server::serve::build_router;
+use molt_hub_server::serve::{build_router, spawn_health_metrics_task};
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -90,7 +90,13 @@ async fn run_serve(args: ServeArgs) {
         );
     }
 
-    let app = build_router(dist_dir);
+    let (app, manager) = build_router(dist_dir);
+
+    // Spawn periodic health metrics broadcast (every 5 seconds).
+    let _metrics_handle = spawn_health_metrics_task(
+        manager,
+        std::time::Duration::from_secs(5),
+    );
 
     let addr: SocketAddr = format!("{}:{}", args.host, args.port)
         .parse()
@@ -218,7 +224,7 @@ mod tests {
     #[test]
     fn router_builds_without_panic() {
         let dist = PathBuf::from("/tmp/nonexistent-dist");
-        let _app = build_router(dist);
+        let (_app, _mgr) = build_router(dist);
         // If we got here, the router compiled and wired correctly.
     }
 }

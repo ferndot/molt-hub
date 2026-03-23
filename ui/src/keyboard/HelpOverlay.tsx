@@ -5,6 +5,7 @@
  */
 
 import type { Component } from "solid-js";
+import { TbOutlineX } from "solid-icons/tb";
 import styles from "./HelpOverlay.module.css";
 
 interface Props {
@@ -79,7 +80,7 @@ const HelpOverlay: Component<Props> = (props) => {
         <div class={styles.header}>
           <h2 class={styles.title}>Keyboard Shortcuts</h2>
           <button class={styles.closeBtn} onClick={props.onClose} aria-label="Close">
-            ×
+            <TbOutlineX size={16} />
           </button>
         </div>
 

@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../../ui/dist",
     "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "npm --prefix ../../ui run dev",
-    "beforeBuildCommand": "npm --prefix ../../ui run build"
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "npm --prefix ui run build"
   },
   "app": {
     "windows": [
@@ -21,7 +21,8 @@
         "resizable": true,
         "fullscreen": false,
         "titleBarStyle": "Overlay",
-        "hiddenTitle": true
+        "hiddenTitle": true,
+        "dragDropEnabled": false
       }
     ],
     "security": {

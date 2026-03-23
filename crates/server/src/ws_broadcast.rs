@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use chrono::Utc;
 use serde::Serialize;
 use tracing::warn;
 
@@ -126,6 +127,47 @@ pub fn broadcast_metrics(manager: &ConnectionManager, metrics: &MetricsPayload) 
 }
 
 // ---------------------------------------------------------------------------
+// Agent output events
+// ---------------------------------------------------------------------------
+
+/// Payload for an agent output line pushed to `agent:{id}`.
+#[derive(Debug, Serialize)]
+pub struct AgentOutputPayload {
+    pub agent_id: String,
+    pub output: String,
+    pub timestamp: String,
+}
+
+/// Broadcast an agent output line to clients subscribed to `agent:{id}`.
+pub fn broadcast_agent_output(manager: &ConnectionManager, agent_id: &str, output: &str) {
+    let payload = AgentOutputPayload {
+        agent_id: agent_id.to_owned(),
+        output: output.to_owned(),
+        timestamp: Utc::now().to_rfc3339(),
+    };
+    let topic = format!("agent:{agent_id}");
+    broadcast_json(manager, &topic, &payload);
+}
+
+// ---------------------------------------------------------------------------
+// Metrics update (with pending decisions)
+// ---------------------------------------------------------------------------
+
+/// Extended metrics payload including pending decision count.
+#[derive(Debug, Serialize)]
+pub struct MetricsUpdatePayload {
+    #[serde(rename = "activeAgentCount")]
+    pub active_agent_count: u32,
+    #[serde(rename = "pendingDecisionCount")]
+    pub pending_decision_count: u32,
+}
+
+/// Broadcast an agent lifecycle metrics update to `metrics:update`.
+pub fn broadcast_metrics_update(manager: &ConnectionManager, payload: &MetricsUpdatePayload) {
+    broadcast_json(manager, "metrics:update", payload);
+}
+
+// ---------------------------------------------------------------------------
 // Settings events
 // ---------------------------------------------------------------------------
 
@@ -158,7 +200,17 @@ mod tests {
         manager.subscribe(id, "triage:new");
         manager.subscribe(id, "triage:resolved");
         manager.subscribe(id, "health:metrics");
+        manager.subscribe(id, "metrics:update");
         manager.subscribe(id, "settings:changed");
+        (manager, rx)
+    }
+
+    fn setup_with_agent(agent_id: &str) -> (Arc<ConnectionManager>, mpsc::UnboundedReceiver<ServerMessage>) {
+        let manager = Arc::new(ConnectionManager::new());
+        let id = ConnectionId::new();
+        let (tx, rx) = mpsc::unbounded_channel();
+        manager.register(id, tx);
+        manager.subscribe(id, &format!("agent:{agent_id}"));
         (manager, rx)
     }
 
@@ -233,6 +285,41 @@ mod tests {
             ServerMessage::Event { topic, payload } => {
                 assert_eq!(topic, "settings:changed");
                 assert_eq!(payload["action"], "updated");
+            }
+            other => panic!("expected Event, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn broadcast_agent_output_sends_event() {
+        let (manager, mut rx) = setup_with_agent("agent-42");
+        broadcast_agent_output(&manager, "agent-42", "Running tests...");
+        let msg = rx.try_recv().expect("should receive message");
+        match msg {
+            ServerMessage::Event { topic, payload } => {
+                assert_eq!(topic, "agent:agent-42");
+                assert_eq!(payload["agent_id"], "agent-42");
+                assert_eq!(payload["output"], "Running tests...");
+                assert!(payload["timestamp"].is_string());
+            }
+            other => panic!("expected Event, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn broadcast_metrics_update_sends_event() {
+        let (manager, mut rx) = setup();
+        let payload = MetricsUpdatePayload {
+            active_agent_count: 3,
+            pending_decision_count: 2,
+        };
+        broadcast_metrics_update(&manager, &payload);
+        let msg = rx.try_recv().expect("should receive message");
+        match msg {
+            ServerMessage::Event { topic, payload } => {
+                assert_eq!(topic, "metrics:update");
+                assert_eq!(payload["activeAgentCount"], 3);
+                assert_eq!(payload["pendingDecisionCount"], 2);
             }
             other => panic!("expected Event, got {:?}", other),
         }

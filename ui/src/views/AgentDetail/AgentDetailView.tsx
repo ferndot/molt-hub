@@ -10,6 +10,7 @@
 import type { Component } from "solid-js";
 import { Show, onCleanup } from "solid-js";
 import { useParams } from "@solidjs/router";
+import { TbOutlineArrowLeft } from "solid-icons/tb";
 import { getAgent, setupAgentSubscription } from "./agentStore";
 import OutputStream from "./OutputStream";
 import AgentMeta from "./AgentMeta";
@@ -57,7 +58,7 @@ const AgentDetailView: Component = () => {
           {/* Header */}
           <div class={styles.header}>
             <a href="/agents" class={styles.backBtn}>
-              ← Agents
+              <TbOutlineArrowLeft size={14} style={{ "vertical-align": "middle" }} /> Agents
             </a>
             <span class={styles.agentName}>{a().name}</span>
             <span class={styles.stagePill}>{a().currentStage}</span>

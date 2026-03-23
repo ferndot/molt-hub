@@ -1,6 +1,7 @@
-import type { Component } from "solid-js";
+import type { Component, JSX } from "solid-js";
 import { Show, createSignal } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
+import { TbOutlineLayoutDashboard, TbOutlineRobot, TbOutlineSettings } from "solid-icons/tb";
 import { attentionCount } from "./attentionStore";
 import AgentList from "./AgentList";
 import {
@@ -12,13 +13,13 @@ import {
 import styles from "./Sidebar.module.css";
 
 // ---------------------------------------------------------------------------
-// Nav item icons (simple text/emoji placeholders until icon lib added)
+// Nav item icons
 // ---------------------------------------------------------------------------
 
-const NAV_ICONS: Record<string, string> = {
-  "/": "⚡",
-  "/agents": "◉",
-  "/settings": "⚙",
+const NAV_ICONS: Record<string, () => JSX.Element> = {
+  "/": () => <TbOutlineLayoutDashboard size={16} />,
+  "/agents": () => <TbOutlineRobot size={16} />,
+  "/settings": () => <TbOutlineSettings size={16} />,
 };
 
 // ---------------------------------------------------------------------------
@@ -27,7 +28,6 @@ const NAV_ICONS: Record<string, string> = {
 
 interface Props {
   collapsed: boolean;
-  onToggle: () => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -45,8 +45,6 @@ const Sidebar: Component<Props> = (props) => {
 
   const navItems = [
     { href: "/", label: "Mission Control" },
-    { href: "/agents", label: "Agents" },
-    { href: "/settings", label: "Settings" },
   ];
 
   // ---- Drag-to-resize logic ------------------------------------------------
@@ -89,7 +87,7 @@ const Sidebar: Component<Props> = (props) => {
       classList={{ [styles.collapsed]: props.collapsed, [styles.dragging]: isDragging() }}
       style={{ width: `${sidebarWidth()}px` }}
     >
-      {/* Traffic light spacer — window drag region */}
+      {/* Traffic light area — pure drag region */}
       <div class={styles.trafficLightSpacer} />
 
       {/* Nav links */}
@@ -102,7 +100,7 @@ const Sidebar: Component<Props> = (props) => {
               class={styles.navItem}
               classList={{ [styles.active]: isActive(item.href) }}
             >
-              <span class={styles.navIcon}>{NAV_ICONS[item.href]}</span>
+              <span class={styles.navIcon}>{NAV_ICONS[item.href]?.()}</span>
               <Show when={!props.collapsed}>
                 <span class={styles.navLabel}>{item.label}</span>
               </Show>
@@ -120,11 +118,23 @@ const Sidebar: Component<Props> = (props) => {
       </nav>
 
       {/* Agent list (scrollable) */}
-      <Show when={!props.collapsed}>
-        <div class={styles.agentListWrapper}>
-          <AgentList />
-        </div>
-      </Show>
+      <div class={styles.agentListWrapper}>
+        <AgentList collapsed={props.collapsed} />
+      </div>
+
+      {/* Settings — pinned to bottom */}
+      <div class={styles.bottomNav}>
+        <A
+          href="/settings"
+          class={styles.navItem}
+          classList={{ [styles.active]: isActive("/settings") }}
+        >
+          <span class={styles.navIcon}>{NAV_ICONS["/settings"]?.()}</span>
+          <Show when={!props.collapsed}>
+            <span class={styles.navLabel}>Settings</span>
+          </Show>
+        </A>
+      </div>
 
       {/* Drag handle */}
       <Show when={!props.collapsed}>

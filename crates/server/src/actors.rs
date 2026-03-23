@@ -14,9 +14,15 @@ use tracing::{debug, error, info, warn};
 
 use molt_hub_core::config::PipelineConfig;
 use molt_hub_core::events::store::EventStore;
-use molt_hub_core::events::types::EventEnvelope;
+use molt_hub_core::events::types::{DomainEvent, EventEnvelope};
 use molt_hub_core::machine::{TaskMachine, TransitionError};
 use molt_hub_core::model::{SessionId, TaskId, TaskState};
+
+use crate::ws::ConnectionManager;
+use crate::ws_broadcast::{
+    broadcast_agent_output, broadcast_board_update, broadcast_triage_new,
+    broadcast_triage_resolved, TriageItemPayload,
+};
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -103,6 +109,8 @@ struct TaskActor<S: EventStore + 'static> {
     store: Arc<S>,
     rx: mpsc::Receiver<TaskCommand>,
     state_tx: watch::Sender<StateUpdate>,
+    /// Optional WebSocket connection manager for broadcasting events to UI clients.
+    ws_manager: Option<Arc<ConnectionManager>>,
 }
 
 impl<S: EventStore + 'static> TaskActor<S> {
@@ -111,6 +119,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
         store: Arc<S>,
         rx: mpsc::Receiver<TaskCommand>,
         state_tx: watch::Sender<StateUpdate>,
+        ws_manager: Option<Arc<ConnectionManager>>,
     ) -> Self {
         let machine = TaskMachine::new(config.initial_stage.clone());
         Self {
@@ -121,6 +130,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
             store,
             rx,
             state_tx,
+            ws_manager,
         }
     }
 
@@ -159,12 +169,13 @@ impl<S: EventStore + 'static> TaskActor<S> {
     }
 
     /// Handle an `ApplyEvent` command: apply to the state machine, persist,
-    /// and broadcast the new state.
+    /// and broadcast the new state via both the watch channel and WebSocket.
     async fn handle_apply_event(
         &mut self,
         envelope: EventEnvelope,
     ) -> Result<TaskState, ActorError> {
         let requires_approval = self.requires_approval_for_current_stage();
+        let event_payload = envelope.payload.clone();
 
         let new_state = self
             .machine
@@ -186,7 +197,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
             .await
             .map_err(ActorError::EventStore)?;
 
-        // Broadcast the state update to any watchers.
+        // Broadcast the state update to any watchers (internal watch channel).
         let update = StateUpdate {
             task_id: self.task_id.clone(),
             new_state: new_state.clone(),
@@ -196,7 +207,94 @@ impl<S: EventStore + 'static> TaskActor<S> {
             warn!(task_id = %self.task_id, "no watchers on state channel");
         }
 
+        // Broadcast to WebSocket clients if a connection manager is available.
+        if let Some(ref mgr) = self.ws_manager {
+            self.broadcast_ws_events(mgr, &event_payload, &new_state);
+        }
+
         Ok(new_state)
+    }
+
+    /// Broadcast appropriate WebSocket events based on the domain event and new state.
+    fn broadcast_ws_events(
+        &self,
+        mgr: &ConnectionManager,
+        event: &DomainEvent,
+        new_state: &TaskState,
+    ) {
+        let task_id_str = self.task_id.to_string();
+        let stage = &self.machine.current_stage;
+
+        // Map TaskState to a board status string.
+        let status = match new_state {
+            TaskState::Pending => "waiting",
+            TaskState::InProgress => "running",
+            TaskState::Blocked { .. } => "blocked",
+            TaskState::AwaitingApproval { .. } => "waiting",
+            TaskState::Completed { .. } => "complete",
+            TaskState::Failed { .. } => "blocked",
+        };
+
+        // Board update — always broadcast state changes.
+        broadcast_board_update(mgr, &task_id_str, stage, status);
+
+        // Event-specific broadcasts.
+        match event {
+            // Agent output → stream to agent:{id} channel.
+            DomainEvent::AgentOutput { agent_id, output } => {
+                broadcast_agent_output(mgr, &agent_id.to_string(), output);
+            }
+
+            // Task blocked → triage:new (P0 item).
+            DomainEvent::TaskBlocked { reason } => {
+                let item = TriageItemPayload {
+                    id: ulid::Ulid::new().to_string(),
+                    task_id: task_id_str.clone(),
+                    task_name: String::new(), // task name not available in actor
+                    agent_name: String::new(),
+                    stage: stage.clone(),
+                    priority: "p0".to_string(),
+                    item_type: "decision".to_string(),
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    summary: format!("Task blocked: {reason}"),
+                };
+                broadcast_triage_new(mgr, &item);
+            }
+
+            // AwaitingApproval → triage:new (P1 item).
+            DomainEvent::AgentCompleted { .. }
+                if matches!(new_state, TaskState::AwaitingApproval { .. }) =>
+            {
+                let item = TriageItemPayload {
+                    id: ulid::Ulid::new().to_string(),
+                    task_id: task_id_str.clone(),
+                    task_name: String::new(),
+                    agent_name: String::new(),
+                    stage: stage.clone(),
+                    priority: "p1".to_string(),
+                    item_type: "decision".to_string(),
+                    created_at: chrono::Utc::now().to_rfc3339(),
+                    summary: "Awaiting human approval".to_string(),
+                };
+                broadcast_triage_new(mgr, &item);
+            }
+
+            // Task unblocked → triage:resolved.
+            DomainEvent::TaskUnblocked { .. } => {
+                // We don't have the original triage item ID; broadcast with
+                // task_id so the frontend can match and remove it.
+                broadcast_triage_resolved(mgr, &task_id_str);
+            }
+
+            // Human decision (approved) → triage:resolved.
+            DomainEvent::HumanDecision { .. }
+                if matches!(new_state, TaskState::Completed { .. }) =>
+            {
+                broadcast_triage_resolved(mgr, &task_id_str);
+            }
+
+            _ => {}
+        }
     }
 }
 
@@ -276,6 +374,9 @@ impl TaskActorHandle {
 pub struct TaskRegistry<S: EventStore + 'static> {
     actors: DashMap<TaskId, TaskActorHandle>,
     store: Arc<S>,
+    /// Optional WebSocket connection manager — when set, actors will broadcast
+    /// state changes to connected UI clients.
+    ws_manager: Option<Arc<ConnectionManager>>,
 }
 
 impl<S: EventStore + 'static> TaskRegistry<S> {
@@ -284,7 +385,22 @@ impl<S: EventStore + 'static> TaskRegistry<S> {
         Self {
             actors: DashMap::new(),
             store,
+            ws_manager: None,
         }
+    }
+
+    /// Create a new registry that broadcasts actor state changes via WebSocket.
+    pub fn with_ws(store: Arc<S>, ws_manager: Arc<ConnectionManager>) -> Self {
+        Self {
+            actors: DashMap::new(),
+            store,
+            ws_manager: Some(ws_manager),
+        }
+    }
+
+    /// Return the number of currently active actors.
+    pub fn active_count(&self) -> usize {
+        self.actors.len()
     }
 
     /// Spawn a new actor for the given task configuration and insert it into
@@ -308,7 +424,13 @@ impl<S: EventStore + 'static> TaskRegistry<S> {
         let (tx, rx) = mpsc::channel::<TaskCommand>(32);
         let (state_tx, state_rx) = watch::channel(initial_state);
 
-        let actor = TaskActor::new(config, Arc::clone(&self.store), rx, state_tx);
+        let actor = TaskActor::new(
+            config,
+            Arc::clone(&self.store),
+            rx,
+            state_tx,
+            self.ws_manager.clone(),
+        );
         tokio::spawn(actor.run());
 
         let handle = TaskActorHandle {

@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 use tauri::Manager;
-use molt_hub_server::serve::build_router;
+use molt_hub_server::serve::{build_router, spawn_health_metrics_task};
 
 /// Port for the embedded Axum server.
 const SERVER_PORT: u16 = 3001;
@@ -45,7 +45,11 @@ fn main() {
                         tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
                     rt.block_on(async {
                         let dist_dir = resolve_dist_dir();
-                        let router = build_router(dist_dir);
+                        let (router, manager) = build_router(dist_dir);
+                        let _metrics_handle = spawn_health_metrics_task(
+                            manager,
+                            std::time::Duration::from_secs(5),
+                        );
                         let addr: SocketAddr =
                             format!("127.0.0.1:{SERVER_PORT}").parse().unwrap();
                         tracing::info!(address = %addr, "embedded server starting");

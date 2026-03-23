@@ -11,7 +11,7 @@
   align-items: center;
   gap: 14px;
   padding: 16px 20px 14px;
-  border-bottom: 1px solid #2a2a36;
+  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
   flex-wrap: wrap;
 }
@@ -24,9 +24,9 @@
   border-radius: 5px;
   font-size: 0.78rem;
   font-weight: 500;
-  color: #9ca3af;
+  color: var(--text-muted);
   background: transparent;
-  border: 1px solid #2a2a36;
+  border: 1px solid var(--border);
   cursor: pointer;
   text-decoration: none;
   transition: border-color 0.1s ease, color 0.1s ease;
@@ -34,14 +34,14 @@
 }
 
 .backBtn:hover {
-  border-color: #4a4a60;
-  color: #e5e7eb;
+  border-color: var(--border-strong);
+  color: var(--text-primary);
 }
 
 .agentName {
   font-size: 1rem;
   font-weight: 600;
-  color: #e5e7eb;
+  color: var(--text-primary);
   flex: 1;
   white-space: nowrap;
   overflow: hidden;
@@ -56,14 +56,14 @@
   font-size: 0.72rem;
   font-weight: 500;
   background: rgba(42, 157, 143, 0.12);
-  color: #2a9d8f;
+  color: var(--priority-p2);
   border: 1px solid rgba(42, 157, 143, 0.3);
   flex-shrink: 0;
 }
 
 .timeRunning {
   font-size: 0.75rem;
-  color: #6b7280;
+  color: var(--text-muted);
   flex-shrink: 0;
 }
 
@@ -91,19 +91,10 @@
   overflow-y: auto;
 }
 
-.rightPane::-webkit-scrollbar {
-  width: 5px;
-}
-
-.rightPane::-webkit-scrollbar-thumb {
-  background: #2a2a36;
-  border-radius: 3px;
-}
-
 /* Divider between panes */
 .divider {
   width: 1px;
-  background: #2a2a36;
+  background: var(--border);
   flex-shrink: 0;
 }
 
@@ -120,10 +111,10 @@
 .notFoundTitle {
   font-size: 1.1rem;
   font-weight: 600;
-  color: #e5e7eb;
+  color: var(--text-primary);
 }
 
 .notFoundSub {
   font-size: 0.85rem;
-  color: #6b7280;
+  color: var(--text-muted);
 }

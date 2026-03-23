@@ -28,6 +28,13 @@ export interface JiraConfig {
   lastError: string | null;
 }
 
+export interface GitHubConfig {
+  connected: boolean;
+  token: string;
+  owner: string;
+  lastError: string | null;
+}
+
 export type ConnectionTestStatus = "idle" | "testing" | "success" | "error";
 
 export interface AppearanceConfig {
@@ -68,12 +75,13 @@ export interface KanbanColumn {
 export interface SidebarWidths {
   /** Left navigation sidebar width in pixels */
   navSidebar: number;
-  /** Triage/inbox sidebar width in pixels */
-  triageSidebar: number;
+  /** Inbox sidebar width in pixels */
+  inboxSidebar: number;
 }
 
 export interface SettingsState {
   jiraConfig: JiraConfig;
+  githubConfig: GitHubConfig;
   connectionTestStatus: ConnectionTestStatus;
   appearance: AppearanceConfig;
   kanbanColumns: KanbanColumn[];
@@ -114,6 +122,7 @@ export const STORAGE_KEY = "molt-hub-settings";
 /** Keys that are persisted to localStorage (excludes transient state) */
 type PersistedState = Pick<SettingsState, "appearance" | "kanbanColumns" | "sidebarWidths"> & {
   jiraConfig: Pick<JiraConfig, "baseUrl" | "connected" | "siteName" | "cloudId">;
+  githubConfig?: Pick<GitHubConfig, "connected" | "owner">;
 };
 
 /** Load persisted state from localStorage, merging with defaults. */
@@ -131,6 +140,13 @@ export function loadPersistedSettings(): Partial<SettingsState> {
       result.jiraConfig = {
         lastError: null,
         ...parsed.jiraConfig,
+      };
+    }
+    if (parsed.githubConfig) {
+      result.githubConfig = {
+        token: "",
+        lastError: null,
+        ...parsed.githubConfig,
       };
     }
     return result;
@@ -153,6 +169,10 @@ export function persistSettings(state: SettingsState): void {
         siteName: state.jiraConfig.siteName,
         cloudId: state.jiraConfig.cloudId,
       },
+      githubConfig: {
+        connected: state.githubConfig.connected,
+        owner: state.githubConfig.owner,
+      },
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
   } catch {
@@ -168,6 +188,12 @@ const defaultState: SettingsState = {
     cloudId: "",
     lastError: null,
   },
+  githubConfig: {
+    connected: false,
+    token: "",
+    owner: "",
+    lastError: null,
+  },
   connectionTestStatus: "idle",
   appearance: {
     theme: "system",
@@ -176,7 +202,7 @@ const defaultState: SettingsState = {
   kanbanColumns: DEFAULT_KANBAN_COLUMNS,
   sidebarWidths: {
     navSidebar: 240,
-    triageSidebar: 320,
+    inboxSidebar: 320,
   },
 };
 
@@ -185,6 +211,7 @@ const initialState: SettingsState = {
   ...defaultState,
   ...persisted,
   jiraConfig: { ...defaultState.jiraConfig, ...(persisted.jiraConfig ?? {}) },
+  githubConfig: { ...defaultState.githubConfig, ...(persisted.githubConfig ?? {}) },
   appearance: { ...defaultState.appearance, ...(persisted.appearance ?? {}) },
   sidebarWidths: { ...defaultState.sidebarWidths, ...(persisted.sidebarWidths ?? {}) },
 };
@@ -227,6 +254,10 @@ export async function saveToBackend(state: SettingsState): Promise<void> {
         siteName: state.jiraConfig.siteName,
         cloudId: state.jiraConfig.cloudId,
       },
+      githubConfig: {
+        connected: state.githubConfig.connected,
+        owner: state.githubConfig.owner,
+      },
     };
     const response = await fetch("/api/settings", {
       method: "PUT",
@@ -260,6 +291,9 @@ export async function loadFromBackend(): Promise<Partial<SettingsState> | null> 
     if (data.jiraConfig) {
       result.jiraConfig = { lastError: null, ...data.jiraConfig };
     }
+    if (data.githubConfig) {
+      result.githubConfig = { token: "", lastError: null, ...data.githubConfig };
+    }
     return result;
   } catch {
     return null;
@@ -277,6 +311,7 @@ export async function initSettings(): Promise<void> {
       ...current,
       ...backend,
       jiraConfig: { ...current.jiraConfig, ...(backend.jiraConfig ?? {}) },
+      githubConfig: { ...current.githubConfig, ...(backend.githubConfig ?? {}) },
       appearance: { ...current.appearance, ...(backend.appearance ?? {}) },
       sidebarWidths: { ...current.sidebarWidths, ...(backend.sidebarWidths ?? {}) },
     }));
@@ -424,6 +459,78 @@ export async function disconnectJira(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// GitHub actions
+// ---------------------------------------------------------------------------
+
+/**
+ * Connect GitHub by storing the personal access token and owner/org.
+ * Validates the token against the backend before marking connected.
+ */
+export async function connectGitHub(token: string, owner: string): Promise<void> {
+  try {
+    const response = await fetch("/api/integrations/github/connect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, owner }),
+    });
+    if (!response.ok) {
+      const ct = response.headers.get("content-type") ?? "";
+      if (!ct.includes("application/json")) {
+        setSettingsState(
+          produce((s) => {
+            s.githubConfig.connected = false;
+            s.githubConfig.lastError = "Backend not available — start the server first";
+          }),
+        );
+        return;
+      }
+      const text = await response.text();
+      setSettingsState(
+        produce((s) => {
+          s.githubConfig.connected = false;
+          s.githubConfig.lastError = text || `HTTP ${response.status}`;
+        }),
+      );
+      return;
+    }
+    setSettingsState(
+      produce((s) => {
+        s.githubConfig.connected = true;
+        s.githubConfig.token = token;
+        s.githubConfig.owner = owner;
+        s.githubConfig.lastError = null;
+      }),
+    );
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Network error";
+    setSettingsState(
+      produce((s) => {
+        s.githubConfig.connected = false;
+        s.githubConfig.lastError = message;
+      }),
+    );
+  }
+}
+
+/**
+ * Disconnect GitHub — clears local state and notifies the backend.
+ */
+export async function disconnectGitHub(): Promise<void> {
+  try {
+    await fetch("/api/integrations/github/disconnect", { method: "POST" });
+  } finally {
+    setSettingsState(
+      produce((s) => {
+        s.githubConfig.connected = false;
+        s.githubConfig.token = "";
+        s.githubConfig.owner = "";
+        s.githubConfig.lastError = null;
+      }),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Appearance actions
 // ---------------------------------------------------------------------------
 
@@ -507,17 +614,17 @@ export function reorderColumns(orderedIds: string[]): void {
 
 export const NAV_SIDEBAR_MIN = 180;
 export const NAV_SIDEBAR_MAX = 400;
-export const TRIAGE_SIDEBAR_MIN = 250;
-export const TRIAGE_SIDEBAR_MAX = 600;
+export const INBOX_SIDEBAR_MIN = 250;
+export const INBOX_SIDEBAR_MAX = 600;
 
 export function setNavSidebarWidth(width: number): void {
   const clamped = Math.max(NAV_SIDEBAR_MIN, Math.min(NAV_SIDEBAR_MAX, width));
   setSettingsState("sidebarWidths", "navSidebar", clamped);
 }
 
-export function setTriageSidebarWidth(width: number): void {
-  const clamped = Math.max(TRIAGE_SIDEBAR_MIN, Math.min(TRIAGE_SIDEBAR_MAX, width));
-  setSettingsState("sidebarWidths", "triageSidebar", clamped);
+export function setInboxSidebarWidth(width: number): void {
+  const clamped = Math.max(INBOX_SIDEBAR_MIN, Math.min(INBOX_SIDEBAR_MAX, width));
+  setSettingsState("sidebarWidths", "inboxSidebar", clamped);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,89 @@
+/* TopBar — thin bar at top of main content area, 36px tall.
+   Houses inbox toggle (right) and future breadcrumbs (left).
+   Uses --chrome-* vars for theme consistency with StatusBar. */
+
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 36px;
+  flex-shrink: 0;
+  padding: 0 0.75rem;
+  background: var(--chrome-bg);
+  border-bottom: 1px solid var(--chrome-border);
+  user-select: none;
+  -webkit-app-region: drag;
+  transition: var(--transition-theme);
+}
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  -webkit-app-region: no-drag;
+}
+
+/* Sidebar toggle button */
+.sidebarToggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--chrome-text);
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.sidebarToggle:hover {
+  color: var(--chrome-text-active);
+  background: var(--chrome-hover);
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  -webkit-app-region: no-drag;
+}
+
+/* Inbox toggle button */
+.inboxToggle {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  background: none;
+  border: none;
+  color: var(--chrome-text);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-family: var(--font-sans);
+  transition: color 0.15s, background 0.15s;
+}
+
+.inboxToggle:hover {
+  color: var(--chrome-text-active);
+  background: var(--chrome-hover);
+}
+
+.inboxToggleActive {
+  color: var(--chrome-text-active);
+  background: var(--chrome-hover);
+}
+
+/* Unread badge */
+.inboxBadge {
+  font-size: 0.625rem;
+  font-weight: 600;
+  background: var(--priority-p0);
+  color: #fff;
+  border-radius: 6px;
+  padding: 0 0.3rem;
+  min-width: 16px;
+  text-align: center;
+  line-height: 16px;
+}
