@@ -118,6 +118,8 @@ fn make_approval_pipeline(stage_name: &str, required_approvers: Vec<String>) -> 
             hooks: vec![],
             transition_rules: vec![],
         }],
+        integrations: vec![],
+            columns: vec![],
     })
 }
 

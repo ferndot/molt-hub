@@ -8,16 +8,12 @@
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use axum::routing::get;
-use axum::Router;
 use clap::{Parser, Subcommand};
-use tower_http::services::{ServeDir, ServeFile};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
-use molt_hub_server::ws::{ws_handler, ConnectionManager};
+use molt_hub_server::serve::build_router;
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -94,18 +90,7 @@ async fn run_serve(args: ServeArgs) {
         );
     }
 
-    let manager = Arc::new(ConnectionManager::new());
-
-    // Build index.html fallback path for SPA routing.
-    let index_html = dist_dir.join("index.html");
-
-    // Compose the router:
-    //   GET /ws  → WebSocket upgrade
-    //   /*       → static files from ui/dist/ with index.html fallback
-    let app: Router = Router::new()
-        .route("/ws", get(ws_handler))
-        .fallback_service(build_static_service(dist_dir.clone(), index_html))
-        .with_state(manager);
+    let app = build_router(dist_dir);
 
     let addr: SocketAddr = format!("{}:{}", args.host, args.port)
         .parse()
@@ -172,11 +157,6 @@ fn locate_dist_dir() -> PathBuf {
     cwd_relative
 }
 
-/// Build a `ServeDir` service that falls back to `index.html` for SPA routing.
-fn build_static_service(dist: PathBuf, index: PathBuf) -> ServeDir<ServeFile> {
-    ServeDir::new(dist).fallback(ServeFile::new(index))
-}
-
 /// Resolves when Ctrl+C is received.
 async fn shutdown_signal() {
     tokio::signal::ctrl_c()
@@ -235,15 +215,10 @@ mod tests {
     }
 
     /// Verify the router compiles with both /ws and static fallback.
-    #[tokio::test]
-    async fn router_builds_without_panic() {
-        let manager = Arc::new(ConnectionManager::new());
+    #[test]
+    fn router_builds_without_panic() {
         let dist = PathBuf::from("/tmp/nonexistent-dist");
-        let index = dist.join("index.html");
-        let _app: Router = Router::new()
-            .route("/ws", get(ws_handler))
-            .fallback_service(build_static_service(dist, index))
-            .with_state(manager);
+        let _app = build_router(dist);
         // If we got here, the router compiled and wired correctly.
     }
 }

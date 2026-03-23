@@ -139,6 +139,28 @@ pub enum DomainEvent {
         /// Optional note accompanying the decision.
         note: Option<String>,
     },
+
+    // ------------------------------------------------------------------
+    // Integration events
+    // ------------------------------------------------------------------
+
+    /// A task was imported from an external system (e.g. Jira, GitHub).
+    TaskImported {
+        /// Integration source identifier, e.g. `"jira"` or `"github"`.
+        source: String,
+        /// External system's identifier for the item (e.g. `"PROJ-42"`).
+        external_id: String,
+        /// Direct URL to the item in the external system's UI.
+        external_url: String,
+    },
+
+    /// An integration was configured (or reconfigured) for a project scope.
+    IntegrationConfigured {
+        /// The integration type, e.g. `"jira"`, `"github"`, `"webhook"`.
+        integration_type: String,
+        /// Scope this configuration applies to, e.g. a project key or repo slug.
+        project_scope: String,
+    },
 }
 
 /// The specific decision a human reviewer made.

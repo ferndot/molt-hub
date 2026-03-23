@@ -60,7 +60,37 @@
   text-overflow: ellipsis;
 }
 
+/* ---- Agent search ---- */
+
+.searchWrapper {
+  padding: 0 0.75rem 0.5rem;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 0.3125rem 0.5rem;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  color: #e5e7eb;
+  font-size: 0.8125rem;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.searchInput::placeholder {
+  color: var(--sidebar-text);
+  opacity: 0.7;
+}
+
+.searchInput:focus {
+  border-color: rgba(59, 130, 246, 0.6);
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .collapsed .sectionTitle,
-.collapsed .agentInfo {
+.collapsed .agentInfo,
+.collapsed .searchWrapper {
   display: none;
 }

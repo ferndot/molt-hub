@@ -571,6 +571,8 @@ mod tests {
             description: None,
             version: 1,
             stages: stage_defs,
+            integrations: vec![],
+            columns: vec![],
         })
     }
 

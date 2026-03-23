@@ -2,17 +2,30 @@
 //!
 //! When a task enters or exits a stage, `HookExecutor::execute_hooks` runs all configured
 //! hooks that match the trigger, applying the configured failure policy for each.
+//!
+//! ## AgentDispatch hook
+//!
+//! When an `agent_dispatch` hook fires, the executor spawns a sub-agent via the
+//! configured [`AgentAdapter`]. The hook config controls:
+//! - `adapter`: adapter type string passed to [`SpawnConfig::adapter_config`]
+//! - `instruction`: the instruction string sent to the sub-agent
+//! - `timeout_seconds`: optional timeout; defaults to 300 s
+//! - `working_dir`: optional working directory for the sub-agent; defaults to `"."`
 
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use thiserror::Error;
 use tokio::process::Command;
 use tokio::time::timeout;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use molt_hub_core::config::{HookDefinition, HookKind, HookTrigger, StageDefinition};
-use molt_hub_core::model::{AgentId, SessionId, TaskId};
+use molt_hub_core::model::{AgentId, AgentStatus, SessionId, TaskId};
+
+use molt_hub_harness::adapter::{AdapterError, AgentAdapter, SpawnConfig};
 
 // ─── Context ─────────────────────────────────────────────────────────────────
 
@@ -113,12 +126,28 @@ pub enum HookExecutorError {
 
 // ─── Executor ────────────────────────────────────────────────────────────────
 
-/// Stateless hook executor — receives config and context, runs hooks, returns results.
-pub struct HookExecutor;
+/// Hook executor — receives config and context, runs hooks, returns results.
+///
+/// For `agent_dispatch` hooks, an [`AgentAdapter`] must be provided via
+/// [`HookExecutor::with_adapter`]. Without an adapter those hooks return
+/// [`HookResult::Skipped`].
+pub struct HookExecutor {
+    adapter: Option<Arc<dyn AgentAdapter>>,
+}
 
 impl HookExecutor {
+    /// Create a bare executor without an agent adapter.
+    ///
+    /// `agent_dispatch` hooks will be skipped when no adapter is configured.
     pub fn new() -> Self {
-        HookExecutor
+        HookExecutor { adapter: None }
+    }
+
+    /// Create an executor with an agent adapter for `agent_dispatch` hooks.
+    pub fn with_adapter(adapter: Arc<dyn AgentAdapter>) -> Self {
+        HookExecutor {
+            adapter: Some(adapter),
+        }
     }
 
     /// Run all hooks on `stage` that match `trigger`.
@@ -182,7 +211,9 @@ impl HookExecutor {
             // Clone what we need to move into the spawned task.
             let hook_clone = (*hook).clone();
             let ctx_clone = ctx.clone();
-            let executor = HookExecutor;
+            let executor = HookExecutor {
+                adapter: self.adapter.clone(),
+            };
             let policy = FailurePolicy::from_config(&hook.config);
 
             handles.push(tokio::spawn(async move {
@@ -287,14 +318,151 @@ impl HookExecutor {
                 debug!(stage = %ctx.stage_name, "TeardownDevEnvironment hook placeholder");
                 HookResult::Success { output: None }
             }
-            HookKind::AgentDispatch => {
-                debug!(stage = %ctx.stage_name, "AgentDispatch hook placeholder");
-                HookResult::Success { output: None }
-            }
+            HookKind::AgentDispatch => self.execute_agent_dispatch(hook, ctx).await,
             HookKind::Webhook => {
                 debug!(stage = %ctx.stage_name, "Webhook hook placeholder");
                 HookResult::Success { output: None }
             }
+        }
+    }
+
+    // ── AgentDispatch hook ────────────────────────────────────────────────────
+
+    /// Spawn a sub-agent for the `agent_dispatch` hook kind.
+    ///
+    /// Config fields:
+    /// - `instruction` (required): instruction string sent to the sub-agent
+    /// - `timeout_seconds` (optional, default 300): max wait time
+    /// - `working_dir` (optional, default `"."`): working directory for the agent
+    /// - `adapter_config` (optional): opaque JSON forwarded to the adapter
+    async fn execute_agent_dispatch(
+        &self,
+        hook: &HookDefinition,
+        ctx: &HookContext,
+    ) -> HookResult {
+        let adapter = match &self.adapter {
+            Some(a) => Arc::clone(a),
+            None => {
+                warn!(
+                    stage = %ctx.stage_name,
+                    "agent_dispatch hook skipped: no AgentAdapter configured on HookExecutor"
+                );
+                return HookResult::Skipped {
+                    reason: "no AgentAdapter configured".into(),
+                };
+            }
+        };
+
+        let config = &hook.config;
+
+        let instruction = match config.get("instruction").and_then(|v| v.as_str()) {
+            Some(i) => i.to_string(),
+            None => {
+                return HookResult::Failed {
+                    error: "agent_dispatch hook missing required 'instruction' field".into(),
+                    retryable: false,
+                }
+            }
+        };
+
+        let timeout_secs = config
+            .get("timeout_seconds")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(300);
+
+        let working_dir = config
+            .get("working_dir")
+            .and_then(|v| v.as_str())
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let adapter_config = config
+            .get("adapter_config")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+
+        let sub_agent_id = AgentId::new();
+        let spawn_cfg = SpawnConfig {
+            agent_id: sub_agent_id.clone(),
+            task_id: ctx.task_id.clone(),
+            session_id: ctx.session_id.clone(),
+            working_dir,
+            instructions: instruction.clone(),
+            env: ctx.env.clone(),
+            timeout: Some(Duration::from_secs(timeout_secs)),
+            adapter_config,
+        };
+
+        info!(
+            task_id = %ctx.task_id,
+            stage = %ctx.stage_name,
+            sub_agent_id = %sub_agent_id,
+            "agent_dispatch: spawning sub-agent"
+        );
+
+        // Spawn the sub-agent.
+        let handle = match adapter.spawn(spawn_cfg).await {
+            Ok(h) => h,
+            Err(AdapterError::SpawnFailed(msg)) => {
+                return HookResult::Failed {
+                    error: format!("agent_dispatch spawn failed: {msg}"),
+                    retryable: true,
+                }
+            }
+            Err(e) => {
+                return HookResult::Failed {
+                    error: format!("agent_dispatch adapter error: {e}"),
+                    retryable: false,
+                }
+            }
+        };
+
+        // Poll until the agent terminates or the timeout expires.
+        let poll_result = timeout(Duration::from_secs(timeout_secs), async {
+            loop {
+                match adapter.status(&handle).await {
+                    Ok(AgentStatus::Completed) | Ok(AgentStatus::Terminated) => {
+                        return Ok(());
+                    }
+                    Ok(AgentStatus::Failed) => {
+                        return Err("sub-agent exited with non-zero status".to_string());
+                    }
+                    Ok(AgentStatus::Crashed { error }) => {
+                        return Err(format!("sub-agent crashed: {error}"));
+                    }
+                    Ok(_) => {
+                        tokio::time::sleep(Duration::from_millis(500)).await;
+                    }
+                    Err(e) => {
+                        return Err(format!("status check error: {e}"));
+                    }
+                }
+            }
+        })
+        .await;
+
+        match poll_result {
+            Ok(Ok(())) => {
+                info!(
+                    task_id = %ctx.task_id,
+                    sub_agent_id = %handle.agent_id(),
+                    "agent_dispatch: sub-agent completed successfully"
+                );
+                HookResult::Success {
+                    output: Some(format!(
+                        "agent_dispatch completed (agent {})",
+                        handle.agent_id()
+                    )),
+                }
+            }
+            Ok(Err(msg)) => HookResult::Failed {
+                error: format!("agent_dispatch: {msg}"),
+                retryable: false,
+            },
+            Err(_) => HookResult::Failed {
+                error: format!("agent_dispatch: sub-agent timed out after {timeout_secs}s"),
+                retryable: false,
+            },
         }
     }
 
@@ -417,6 +585,14 @@ impl HookExecutor {
 impl Default for HookExecutor {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl std::fmt::Debug for HookExecutor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HookExecutor")
+            .field("has_adapter", &self.adapter.is_some())
+            .finish()
     }
 }
 
@@ -769,7 +945,6 @@ mod tests {
         for kind in [
             HookKind::StartDevEnvironment,
             HookKind::TeardownDevEnvironment,
-            HookKind::AgentDispatch,
             HookKind::Webhook,
         ] {
             let hook = HookDefinition {
@@ -783,6 +958,159 @@ mod tests {
                 "expected Success{{None}} for placeholder hook"
             );
         }
+    }
+
+    // ── AgentDispatch hook ────────────────────────────────────────────────────
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use async_trait::async_trait;
+    use molt_hub_core::model::{AgentStatus};
+    use molt_hub_harness::adapter::{
+        AdapterError, AgentAdapter, AgentHandle, AgentMessage, SpawnConfig,
+    };
+
+    struct MockAdapter {
+        spawn_count: Arc<AtomicUsize>,
+        /// Status that `status()` returns after spawn.
+        fixed_status: AgentStatus,
+        fail_spawn: bool,
+    }
+
+    impl MockAdapter {
+        fn completing() -> Self {
+            Self {
+                spawn_count: Arc::new(AtomicUsize::new(0)),
+                fixed_status: AgentStatus::Completed,
+                fail_spawn: false,
+            }
+        }
+
+        fn failing_spawn() -> Self {
+            Self {
+                spawn_count: Arc::new(AtomicUsize::new(0)),
+                fixed_status: AgentStatus::Running,
+                fail_spawn: true,
+            }
+        }
+
+        fn crashing() -> Self {
+            Self {
+                spawn_count: Arc::new(AtomicUsize::new(0)),
+                fixed_status: AgentStatus::Crashed {
+                    error: "oh no".into(),
+                },
+                fail_spawn: false,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl AgentAdapter for MockAdapter {
+        async fn spawn(&self, config: SpawnConfig) -> Result<AgentHandle, AdapterError> {
+            if self.fail_spawn {
+                return Err(AdapterError::SpawnFailed("mock spawn failure".into()));
+            }
+            self.spawn_count.fetch_add(1, Ordering::SeqCst);
+            Ok(AgentHandle::new(config.agent_id, None, Box::new(())))
+        }
+
+        async fn send(
+            &self,
+            _handle: &AgentHandle,
+            _message: AgentMessage,
+        ) -> Result<(), AdapterError> {
+            Ok(())
+        }
+
+        async fn status(&self, _handle: &AgentHandle) -> Result<AgentStatus, AdapterError> {
+            Ok(self.fixed_status.clone())
+        }
+
+        async fn terminate(&self, _handle: &AgentHandle) -> Result<(), AdapterError> {
+            Ok(())
+        }
+
+        async fn abort(&self, _handle: &AgentHandle) -> Result<(), AdapterError> {
+            Ok(())
+        }
+
+        fn adapter_type(&self) -> &str {
+            "mock"
+        }
+    }
+
+    #[tokio::test]
+    async fn agent_dispatch_without_adapter_skips() {
+        let executor = HookExecutor::new(); // no adapter
+        let hook = HookDefinition {
+            kind: HookKind::AgentDispatch,
+            on: HookTrigger::Enter,
+            config: json!({ "instruction": "do something" }),
+        };
+        let result = executor.execute_single(&hook, &make_ctx()).await;
+        assert!(matches!(result, HookResult::Skipped { .. }));
+    }
+
+    #[tokio::test]
+    async fn agent_dispatch_missing_instruction_returns_failed() {
+        let adapter: Arc<dyn AgentAdapter> = Arc::new(MockAdapter::completing());
+        let executor = HookExecutor::with_adapter(adapter);
+        let hook = HookDefinition {
+            kind: HookKind::AgentDispatch,
+            on: HookTrigger::Enter,
+            config: json!({}), // no instruction
+        };
+        let result = executor.execute_single(&hook, &make_ctx()).await;
+        assert!(matches!(result, HookResult::Failed { retryable: false, .. }));
+    }
+
+    #[tokio::test]
+    async fn agent_dispatch_spawn_failure_returns_failed() {
+        let adapter: Arc<dyn AgentAdapter> = Arc::new(MockAdapter::failing_spawn());
+        let executor = HookExecutor::with_adapter(adapter);
+        let hook = HookDefinition {
+            kind: HookKind::AgentDispatch,
+            on: HookTrigger::Enter,
+            config: json!({ "instruction": "do something" }),
+        };
+        let result = executor.execute_single(&hook, &make_ctx()).await;
+        assert!(
+            matches!(result, HookResult::Failed { retryable: true, .. }),
+            "spawn failure should be retryable, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_dispatch_completing_agent_returns_success() {
+        let adapter: Arc<dyn AgentAdapter> = Arc::new(MockAdapter::completing());
+        let executor = HookExecutor::with_adapter(adapter);
+        let hook = HookDefinition {
+            kind: HookKind::AgentDispatch,
+            on: HookTrigger::Enter,
+            config: json!({ "instruction": "run tests", "timeout_seconds": 10 }),
+        };
+        let result = executor.execute_single(&hook, &make_ctx()).await;
+        assert!(
+            matches!(result, HookResult::Success { .. }),
+            "expected Success, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_dispatch_crashed_agent_returns_failed() {
+        let adapter: Arc<dyn AgentAdapter> = Arc::new(MockAdapter::crashing());
+        let executor = HookExecutor::with_adapter(adapter);
+        let hook = HookDefinition {
+            kind: HookKind::AgentDispatch,
+            on: HookTrigger::Enter,
+            config: json!({ "instruction": "run tests", "timeout_seconds": 10 }),
+        };
+        let result = executor.execute_single(&hook, &make_ctx()).await;
+        assert!(
+            matches!(result, HookResult::Failed { retryable: false, .. }),
+            "expected Failed, got {result:?}"
+        );
     }
 
     // ── FailurePolicy parsing ────────────────────────────────────────────────

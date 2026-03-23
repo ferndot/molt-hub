@@ -217,6 +217,8 @@ fn event_name(event: &DomainEvent) -> &'static str {
         DomainEvent::AgentOutput { .. } => "AgentOutput",
         DomainEvent::AgentCompleted { .. } => "AgentCompleted",
         DomainEvent::HumanDecision { .. } => "HumanDecision",
+        DomainEvent::TaskImported { .. } => "TaskImported",
+        DomainEvent::IntegrationConfigured { .. } => "IntegrationConfigured",
     }
 }
 

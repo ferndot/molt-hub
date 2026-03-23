@@ -64,6 +64,8 @@ impl InterruptClassifier {
             DomainEvent::AgentOutput { .. } => InterruptLevel::P3,
             DomainEvent::TaskPriorityChanged { .. } => InterruptLevel::P3,
             DomainEvent::TaskCreated { .. } => InterruptLevel::P3,
+            DomainEvent::TaskImported { .. } => InterruptLevel::P3,
+            DomainEvent::IntegrationConfigured { .. } => InterruptLevel::P3,
         }
     }
 }

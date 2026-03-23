@@ -120,6 +120,8 @@ fn make_pipeline(stages: &[(&str, bool)]) -> Arc<PipelineConfig> {
         description: None,
         version: 1,
         stages: stage_defs,
+        integrations: vec![],
+            columns: vec![],
     })
 }
 

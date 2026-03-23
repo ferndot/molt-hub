@@ -114,10 +114,9 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
         </span>
       </div>
 
-      {/* Meta */}
+      {/* Meta — stage chip omitted; column header already shows the stage */}
       <div class={styles.meta}>
         <span class={styles.agentName}>{props.item.agentName}</span>
-        <span class={styles.stageChip}>{props.item.stage}</span>
       </div>
 
       {/* Attention actions — always visible when attention info present */}

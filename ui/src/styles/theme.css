@@ -50,10 +50,15 @@
   --color-redirect: #3b82f6;
   --color-defer: #9ca3af;
   --color-ack: #2a9d8f;
+
+  /* Mission Control */
+  --attention-border-width: 4px;
+  --sidebar-width: 300px;
 }
 
+/* Dark theme — triggered by system preference OR explicit data-theme="dark" */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg-primary: #1a1a2e;
     --bg-secondary: #13131f;
     --bg-tertiary: #2d2d44;
@@ -67,6 +72,21 @@
     --border: #2a2a3e;
     --border-strong: #3a3a5a;
   }
+}
+
+:root[data-theme="dark"] {
+  --bg-primary: #1a1a2e;
+  --bg-secondary: #13131f;
+  --bg-tertiary: #2d2d44;
+  --bg-elevated: #22223a;
+
+  --text-primary: #e5e7eb;
+  --text-secondary: #d1d5db;
+  --text-muted: #9ca3af;
+  --text-subtle: #6b7280;
+
+  --border: #2a2a3e;
+  --border-strong: #3a3a5a;
 }
 
 /* ============================================================
@@ -91,6 +111,9 @@ body {
   background-color: var(--bg-secondary);
   color: var(--text-primary);
   transition: var(--transition-theme);
+  /* Prevent body scroll — layout handles its own scrolling */
+  overflow: hidden;
+  height: 100vh;
 }
 
 /* Focus outlines use accent */

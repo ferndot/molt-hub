@@ -4,10 +4,11 @@
  * cards; the sidebar provides a flat priority-sorted action list.
  */
 
-import { Component, For, createSignal } from "solid-js";
+import { Component, For, Show, createSignal } from "solid-js";
 import { useMissionControl } from "./missionControlStore";
 import MissionColumn from "./MissionColumn";
 import TriageSidebar from "./TriageSidebar";
+import JiraImport from "../Settings/JiraImport";
 import styles from "./MissionControlView.module.css";
 
 // ---------------------------------------------------------------------------
@@ -19,6 +20,7 @@ const MissionControlView: Component = () => {
   const [_focusZone, _setFocusZone] = createSignal<"board" | "sidebar">(
     "board",
   );
+  const [jiraImportOpen, setJiraImportOpen] = createSignal(false);
 
   return (
     <div class={styles.container}>
@@ -26,17 +28,16 @@ const MissionControlView: Component = () => {
       <div class={styles.header}>
         <h2 class={styles.title}>Mission Control</h2>
         <span class={styles.attentionBadge}>
-          {mc.totalAttentionCount()} need attention
+          {mc.totalAttentionCount() === 0
+            ? "All clear"
+            : `${mc.totalAttentionCount()} need attention`}
         </span>
-        <button class={styles.filterToggle} onClick={mc.toggleGlobalFilter}>
-          {mc.globalFilterActive() ? "Show All" : "Attention Only"}
-        </button>
         <button
-          class={styles.sidebarToggle}
-          onClick={mc.toggleSidebar}
-          title="Toggle triage sidebar"
+          class={styles.filterToggle}
+          classList={{ [styles.filterToggleActive]: mc.globalFilterActive() }}
+          onClick={mc.toggleGlobalFilter}
         >
-          {mc.sidebarCollapsed() ? "\u25C0" : "\u25B6"}
+          {mc.globalFilterActive() ? "Show All" : "Focus"}
         </button>
       </div>
 
@@ -64,18 +65,35 @@ const MissionControlView: Component = () => {
             )}
           </For>
         </div>
+        <Show when={mc.sidebarCollapsed()}>
+          <button
+            class={styles.inboxExpandTab}
+            onClick={mc.toggleSidebar}
+            title="Open inbox"
+          >
+            « Inbox
+          </button>
+        </Show>
         <TriageSidebar
           items={mc.attentionItems()}
           collapsed={mc.sidebarCollapsed()}
           hoveredItemId={mc.hoveredItemId()}
+          onToggle={mc.toggleSidebar}
           onHoverItem={mc.setHoveredItemId}
           onApprove={(triageId) => mc.approve(triageId)}
           onReject={(triageId) => mc.reject(triageId, "")}
           onRedirect={(triageId, stage) => mc.redirect(triageId, stage)}
           onDefer={(triageId) => mc.defer(triageId)}
           onAcknowledge={(triageId) => mc.acknowledge(triageId)}
+          onJiraImport={() => setJiraImportOpen(true)}
         />
       </div>
+
+      {/* Jira import dialog (rendered in a Portal) */}
+      <JiraImport
+        isOpen={jiraImportOpen()}
+        onClose={() => setJiraImportOpen(false)}
+      />
     </div>
   );
 };

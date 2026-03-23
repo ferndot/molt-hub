@@ -207,7 +207,7 @@ const PRIORITY_ORDER: Record<Priority, number> = {
   p3: 3,
 };
 
-export function sortByPriority(tasks: BoardTask[]): BoardTask[] {
+export function sortByPriority<T extends BoardTask>(tasks: T[]): T[] {
   return [...tasks].sort(
     (a, b) => PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority],
   );
@@ -221,7 +221,52 @@ export function tasksForStage(stage: string): BoardTask[] {
 // WebSocket subscription (stub — real handler wired when server sends board events)
 // ---------------------------------------------------------------------------
 
-subscribe("board:*", (_msg) => {
-  // TODO: handle real-time board update events from the server
-  // e.g. task stage changes, new tasks, priority updates
+subscribe("board:*", (msg) => {
+  if (msg.type !== "event") return;
+  const payload = msg.payload as Record<string, unknown>;
+  const taskId = payload.task_id as string | undefined;
+  if (!taskId) return;
+
+  // Check if this is an existing task update or a new task
+  const existing = boardState.tasks.find((t) => t.id === taskId);
+
+  if (existing) {
+    // Update existing task fields from the payload
+    setBoardState("tasks", (tasks) =>
+      tasks.map((t) => {
+        if (t.id !== taskId) return t;
+        return {
+          ...t,
+          ...(payload.stage != null ? { stage: payload.stage as string } : {}),
+          ...(payload.status != null
+            ? { status: payload.status as BoardTaskStatus }
+            : {}),
+          ...(payload.priority != null
+            ? { priority: payload.priority as Priority }
+            : {}),
+          ...(payload.name != null ? { name: payload.name as string } : {}),
+          ...(payload.agent_name != null
+            ? { agentName: payload.agent_name as string }
+            : {}),
+          ...(payload.summary != null
+            ? { summary: payload.summary as string }
+            : {}),
+        };
+      }),
+    );
+  } else if (payload.stage && payload.status) {
+    // New task — append to the board
+    const newTask: BoardTask = {
+      id: taskId,
+      name: (payload.name as string) ?? "Untitled",
+      agentName: (payload.agent_name as string) ?? "unknown",
+      priority: (payload.priority as Priority) ?? "p2",
+      status: payload.status as BoardTaskStatus,
+      stage: payload.stage as string,
+      summary: (payload.summary as string) ?? "",
+      timeInStage: "0m",
+      expanded: false,
+    };
+    setBoardState("tasks", (tasks) => [...tasks, newTask]);
+  }
 });

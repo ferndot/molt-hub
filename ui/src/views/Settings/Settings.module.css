@@ -1,0 +1,455 @@
+/* ==========================================================================
+ * Settings view
+ * ========================================================================== */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 1.5rem;
+  box-sizing: border-box;
+  background: var(--bg-secondary);
+  transition: var(--transition-theme);
+}
+
+.title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 1.25rem;
+  flex-shrink: 0;
+  transition: var(--transition-theme);
+}
+
+/* ---- Split layout: left nav + right detail ---- */
+
+.splitLayout {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  gap: 1.5rem;
+}
+
+.navList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  width: 180px;
+  flex-shrink: 0;
+  padding-top: 0.25rem;
+}
+
+.navItem {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+
+.navItem:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.navItemActive {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.navIcon {
+  font-size: 1rem;
+  width: 1.25rem;
+  text-align: center;
+}
+
+.detail {
+  flex: 1;
+  overflow-y: auto;
+  padding-top: 0.25rem;
+}
+
+/* ---- Section headings ---- */
+
+.sectionTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 1rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* ---- Form elements ---- */
+
+.formGroup {
+  margin-bottom: 1rem;
+}
+
+.label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-secondary, var(--text-muted));
+  margin-bottom: 0.375rem;
+}
+
+.input {
+  width: 100%;
+  max-width: 480px;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  outline: none;
+}
+
+.input:focus {
+  border-color: var(--accent, #3b82f6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+/* ---- Buttons ---- */
+
+.buttonRow {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-top: 1rem;
+}
+
+.btnPrimary {
+  padding: 0.5rem 1rem;
+  background: var(--accent, #3b82f6);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.btnPrimary:hover {
+  opacity: 0.9;
+}
+
+.btnPrimary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnSecondary {
+  padding: 0.5rem 1rem;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btnSecondary:hover {
+  background: var(--bg-secondary);
+}
+
+.btnSecondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnDanger {
+  padding: 0.375rem 0.75rem;
+  background: none;
+  color: #ef4444;
+  border: 1px solid #ef4444;
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btnDanger:hover {
+  background: rgba(239, 68, 68, 0.08);
+}
+
+/* ---- Connection status badge ---- */
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  padding: 0.25rem 0.625rem;
+  border-radius: 9999px;
+}
+
+.statusDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.statusConnected {
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+}
+
+.statusConnected .statusDot {
+  background: #10b981;
+}
+
+.statusError {
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+
+.statusError .statusDot {
+  background: #ef4444;
+}
+
+.statusTesting {
+  background: rgba(245, 158, 11, 0.12);
+  color: #d97706;
+}
+
+.statusTesting .statusDot {
+  background: #f59e0b;
+}
+
+.statusIdle {
+  background: var(--bg-primary);
+  color: var(--text-muted);
+}
+
+.statusIdle .statusDot {
+  background: var(--text-muted, #9ca3af);
+}
+
+.errorMsg {
+  font-size: 0.8125rem;
+  color: #dc2626;
+  margin-top: 0.375rem;
+}
+
+/* ---- Toggle / checkbox rows ---- */
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.toggleLabel {
+  font-size: 0.875rem;
+  color: var(--text-primary);
+}
+
+.toggleSub {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin-left: 0.25rem;
+}
+
+/* ---- Kanban column list ---- */
+
+.columnList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.columnRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+}
+
+.columnDragHandle {
+  color: var(--text-muted);
+  cursor: grab;
+  padding: 0 0.25rem;
+  user-select: none;
+  font-size: 1rem;
+}
+
+.columnInputTitle {
+  flex: 1;
+  min-width: 0;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+}
+
+.columnInputStage {
+  flex: 1.5;
+  min-width: 0;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.8125rem;
+  font-family: monospace;
+}
+
+.columnColor {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 4px;
+  padding: 2px;
+  cursor: pointer;
+  background: none;
+}
+
+.addColumnBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.5rem 0.875rem;
+  background: none;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.addColumnBtn:hover {
+  border-color: var(--accent, #3b82f6);
+  color: var(--accent, #3b82f6);
+}
+
+/* ---- Integration cards ---- */
+
+.integrationsList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  max-width: 400px;
+}
+
+.integrationCard {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.15s;
+}
+
+.integrationCard:hover {
+  border-color: var(--accent);
+}
+
+.integrationIcon {
+  font-size: 1.25rem;
+  width: 2rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.integrationName {
+  display: block;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.integrationStatus {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ---- Back button ---- */
+
+.backBtn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 1rem;
+  transition: color 0.15s;
+}
+
+.backBtn:hover {
+  color: var(--text-primary);
+}
+
+/* ---- Placeholder text ---- */
+
+.placeholder {
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  padding: 1rem 0;
+}
+
+/* ---- OAuth / connected state ---- */
+
+.oauthSection {
+  max-width: 480px;
+}
+
+.oauthDescription {
+  font-size: 0.875rem;
+  color: var(--text-secondary, var(--text-muted));
+  margin-bottom: 1rem;
+  line-height: 1.5;
+}
+
+.connectedSection {
+  max-width: 480px;
+}
+
+.connectedRow {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.siteName {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.siteUrl {
+  font-size: 0.8125rem;
+  color: var(--text-muted);
+  margin-bottom: 1rem;
+  font-family: monospace;
+}

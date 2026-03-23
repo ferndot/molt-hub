@@ -72,7 +72,7 @@ const MissionColumn: Component<MissionColumnProps> = (props) => {
 
   return (
     <div
-      class={`${styles.column}${isDragOver() ? ` ${styles.dropZone}` : ""}`}
+      class={`${styles.column}${isDragOver() ? ` ${styles.dropZone}` : ""}${props.filterActive && props.items.length === 0 ? ` ${styles.columnEmpty}` : ""}`}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -117,7 +117,7 @@ const MissionColumn: Component<MissionColumnProps> = (props) => {
       {/* Hidden count when filter is active */}
       <Show when={props.filterActive && props.hiddenCount > 0}>
         <div class={styles.hiddenCount}>
-          and {props.hiddenCount} more&hellip;
+          {props.hiddenCount} hidden
         </div>
       </Show>
     </div>

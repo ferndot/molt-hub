@@ -3,9 +3,11 @@
  * pipeline stage. Exported as the default component for the /board route.
  */
 
-import { For, type Component } from "solid-js";
-import { boardState, moveTask, tasksForStage } from "./boardStore";
+import { For, Show, createSignal, type Component } from "solid-js";
+import { moveTask, tasksForStage } from "./boardStore";
 import BoardColumn from "./BoardColumn";
+import ColumnEditor from "./ColumnEditor";
+import { settingsState, getSortedColumns, getStagesForColumn } from "../Settings/settingsStore";
 import styles from "./BoardView.module.css";
 
 // ---------------------------------------------------------------------------
@@ -13,6 +15,8 @@ import styles from "./BoardView.module.css";
 // ---------------------------------------------------------------------------
 
 const BoardView: Component = () => {
+  const [editorOpen, setEditorOpen] = createSignal(false);
+
   const handleDrop = (
     taskId: string,
     fromStage: string,
@@ -31,20 +35,47 @@ const BoardView: Component = () => {
     console.log("[board] reject", taskId);
   };
 
+  // Derive columns from settingsStore; fall back to tasks for each stage name
+  const sortedColumns = () => getSortedColumns(settingsState.kanbanColumns);
+
   return (
     <div class={styles.boardWrapper}>
-      <h2 class={styles.boardTitle}>Kanban Board</h2>
+      <div class={styles.boardHeader}>
+        <h2 class={styles.boardTitle}>Kanban Board</h2>
+        <button
+          class={`${styles.settingsBtn}${editorOpen() ? ` ${styles.settingsBtnActive}` : ""}`}
+          onClick={() => setEditorOpen((v) => !v)}
+          title="Configure columns"
+          aria-label="Configure board columns"
+          aria-expanded={editorOpen()}
+        >
+          ⚙
+        </button>
+      </div>
+
+      <Show when={editorOpen()}>
+        <ColumnEditor onClose={() => setEditorOpen(false)} />
+      </Show>
+
       <div class={styles.columnsContainer}>
-        <For each={boardState.stages}>
-          {(stage) => (
-            <BoardColumn
-              stage={stage}
-              tasks={tasksForStage(stage)}
-              onDrop={handleDrop}
-              onApprove={handleApprove}
-              onReject={handleReject}
-            />
-          )}
+        <For each={sortedColumns()}>
+          {(col) => {
+            // A column may span multiple stage names (comma-separated)
+            const stages = getStagesForColumn(col);
+            const tasks = () =>
+              stages.flatMap((s) => tasksForStage(s));
+            // Use the first matched stage as the drop target stage
+            const primaryStage = stages[0] ?? col.id;
+            return (
+              <BoardColumn
+                stage={primaryStage}
+                tasks={tasks()}
+                onDrop={handleDrop}
+                onApprove={handleApprove}
+                onReject={handleReject}
+              />
+            );
+          }}
         </For>
       </div>
     </div>
