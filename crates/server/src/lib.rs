@@ -7,4 +7,6 @@ pub mod actors;
 pub mod approvals;
 pub mod attention;
 pub mod hooks;
+pub mod scheduler;
+pub mod summarizer;
 pub mod ws;
