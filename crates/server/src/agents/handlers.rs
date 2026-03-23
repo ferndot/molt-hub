@@ -4,6 +4,9 @@
 //!   GET  /api/agents             — list all agents with status
 //!   POST /api/agents/spawn       — spawn a new agent
 //!   POST /api/agents/:id/terminate — terminate an agent
+//!   POST /api/agents/:id/pause     — pause an agent
+//!   POST /api/agents/:id/resume    — resume an agent
+//!   GET  /api/agents/:id/output    — get buffered output lines
 
 use axum::{
     extract::{Path, State},
@@ -19,6 +22,8 @@ use tracing::instrument;
 use molt_hub_core::model::AgentId;
 use molt_hub_harness::supervisor::Supervisor;
 
+use super::output_buffer::AgentOutputBuffer;
+
 // ---------------------------------------------------------------------------
 // Shared state
 // ---------------------------------------------------------------------------
@@ -26,6 +31,7 @@ use molt_hub_harness::supervisor::Supervisor;
 /// State shared across agent handlers.
 pub struct AgentState {
     pub supervisor: Arc<Supervisor>,
+    pub output_buffer: Arc<AgentOutputBuffer>,
 }
 
 // ---------------------------------------------------------------------------
@@ -69,6 +75,21 @@ pub struct SpawnRequest {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MessageResponse {
     pub message: String,
+}
+
+/// Response for GET /api/agents/:id/output.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentOutputResponse {
+    pub agent_id: String,
+    pub lines: Vec<OutputLineResponse>,
+    pub count: usize,
+}
+
+/// A single output line in the response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputLineResponse {
+    pub line: String,
+    pub timestamp: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -206,6 +227,28 @@ async fn resume_agent(
     }
 }
 
+/// GET /api/agents/:id/output — return buffered output lines for an agent.
+#[instrument(skip(state))]
+async fn get_agent_output(
+    State(state): State<Arc<AgentState>>,
+    Path(agent_id_str): Path<String>,
+) -> impl IntoResponse {
+    let lines = state.output_buffer.get_lines(&agent_id_str);
+    let count = lines.len();
+
+    Json(AgentOutputResponse {
+        agent_id: agent_id_str,
+        lines: lines
+            .into_iter()
+            .map(|l| OutputLineResponse {
+                line: l.line,
+                timestamp: l.timestamp.to_rfc3339(),
+            })
+            .collect(),
+        count,
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
@@ -214,16 +257,17 @@ async fn resume_agent(
 ///
 /// Mounts:
 ///   GET  /                  — list all agents
-///   POST /spawn             — spawn a new agent (stub — requires adapter selection)
 ///   POST /:id/terminate     — terminate an agent
 ///   POST /:id/pause         — pause an agent
 ///   POST /:id/resume        — resume an agent
+///   GET  /:id/output        — get buffered output lines
 pub fn agent_router(state: Arc<AgentState>) -> Router {
     Router::new()
         .route("/", get(list_agents))
-        .route("/{id}/terminate", post(terminate_agent))
-        .route("/{id}/pause", post(pause_agent))
-        .route("/{id}/resume", post(resume_agent))
+        .route("/:id/terminate", post(terminate_agent))
+        .route("/:id/pause", post(pause_agent))
+        .route("/:id/resume", post(resume_agent))
+        .route("/:id/output", get(get_agent_output))
         .with_state(state)
 }
 
@@ -236,7 +280,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use molt_hub_harness::adapter::{AgentEvent, AgentHandle, AgentMessage, SpawnConfig};
+    use molt_hub_harness::adapter::AgentEvent;
     use molt_hub_harness::supervisor::SupervisorConfig;
     use std::time::Duration;
     use tokio::sync::broadcast;
@@ -255,6 +299,7 @@ mod tests {
     fn make_state() -> Arc<AgentState> {
         Arc::new(AgentState {
             supervisor: make_supervisor(),
+            output_buffer: Arc::new(AgentOutputBuffer::new()),
         })
     }
 
@@ -348,5 +393,58 @@ mod tests {
 
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_get_agent_output_empty() {
+        let state = make_state();
+        let app = agent_router(state);
+
+        let req = Request::builder()
+            .uri("/some-agent/output")
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let parsed: AgentOutputResponse = serde_json::from_slice(&body).unwrap();
+        assert_eq!(parsed.count, 0);
+        assert!(parsed.lines.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_get_agent_output_with_data() {
+        let output_buffer = Arc::new(AgentOutputBuffer::new());
+        output_buffer.push("agent-42", "line one".into());
+        output_buffer.push("agent-42", "line two".into());
+
+        let state = Arc::new(AgentState {
+            supervisor: make_supervisor(),
+            output_buffer,
+        });
+        let app = agent_router(state);
+
+        let req = Request::builder()
+            .uri("/agent-42/output")
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let parsed: AgentOutputResponse = serde_json::from_slice(&body).unwrap();
+        assert_eq!(parsed.agent_id, "agent-42");
+        assert_eq!(parsed.count, 2);
+        assert_eq!(parsed.lines[0].line, "line one");
+        assert_eq!(parsed.lines[1].line, "line two");
+        // Verify timestamps are valid RFC3339.
+        for line in &parsed.lines {
+            assert!(!line.timestamp.is_empty());
+        }
     }
 }

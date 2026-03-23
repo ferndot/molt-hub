@@ -15,6 +15,7 @@ import {
   TbOutlineArrowLeft,
   TbOutlineBell,
   TbOutlineRobot,
+  TbOutlineClipboardList,
 } from "solid-icons/tb";
 import {
   settingsState,
@@ -30,13 +31,14 @@ import {
 } from "./settingsStore";
 import type { Theme, AttentionLevel, AgentAdapter } from "./settingsStore";
 import GitHubImport from "./GitHubImport";
+import AuditLog from "./AuditLog";
 import styles from "./Settings.module.css";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type SectionId = "appearance" | "notifications" | "agent-defaults" | "integrations" | "jira" | "github";
+type SectionId = "appearance" | "notifications" | "agent-defaults" | "integrations" | "jira" | "github" | "audit-log";
 
 // ---------------------------------------------------------------------------
 // Section: Appearance
@@ -366,6 +368,7 @@ const NAV_ITEMS: { id: SectionId; label: string; icon: () => JSX.Element }[] = [
   { id: "notifications", label: "Notifications", icon: () => <TbOutlineBell size={16} /> },
   { id: "agent-defaults", label: "Agent Defaults", icon: () => <TbOutlineRobot size={16} /> },
   { id: "integrations", label: "Integrations", icon: () => <TbOutlinePlug size={16} /> },
+  { id: "audit-log", label: "Audit Log", icon: () => <TbOutlineClipboardList size={16} /> },
 ];
 
 const SettingsView: Component = () => {
@@ -420,6 +423,9 @@ const SettingsView: Component = () => {
           </Show>
           <Show when={activeSection() === "github"}>
             <GitHubPanel onBack={() => setActiveSection("integrations")} />
+          </Show>
+          <Show when={activeSection() === "audit-log"}>
+            <AuditLog />
           </Show>
         </div>
       </div>

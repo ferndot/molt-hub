@@ -1,0 +1,98 @@
+/* ==========================================================================
+ * AuditLog — table of recent audit entries
+ * ========================================================================== */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.filterSelect {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  transition: var(--transition-theme);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+
+.table th {
+  text-align: left;
+  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.table td {
+  padding: 8px 10px;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+  transition: var(--transition-theme);
+}
+
+.table tr:hover td {
+  background: var(--bg-hover);
+}
+
+.timestampCell {
+  color: var(--text-muted);
+  white-space: nowrap;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.actionCell {
+  font-weight: 500;
+}
+
+.actorCell {
+  color: var(--text-subtle);
+}
+
+.detailsCell {
+  color: var(--text-subtle);
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emptyState {
+  text-align: center;
+  padding: 24px 16px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.loadingState {
+  text-align: center;
+  padding: 24px 16px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.errorState {
+  text-align: center;
+  padding: 16px;
+  color: var(--color-reject);
+  font-size: 0.85rem;
+}

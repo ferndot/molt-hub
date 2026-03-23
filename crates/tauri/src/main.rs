@@ -45,7 +45,7 @@ fn main() {
                         tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
                     rt.block_on(async {
                         let dist_dir = resolve_dist_dir();
-                        let (router, manager, _supervisor) = build_router(dist_dir);
+                        let (router, manager, _supervisor, _audit) = build_router(dist_dir);
                         let _metrics_handle = spawn_health_metrics_task(
                             manager,
                             std::time::Duration::from_secs(5),

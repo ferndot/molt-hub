@@ -3,16 +3,22 @@
 //! # Architecture
 //!
 //! ```text
-//! [caller]  --log()-->  [mpsc tx]  -->  [background task]  -->  [Vec / future store]
+//! [caller]  --log()-->  [mpsc tx]  -->  [background task]  -->  [VecDeque / future store]
 //! ```
 //!
 //! The background task is the sole writer; callers never block.  The channel
 //! is bounded so callers experience backpressure if the writer is overwhelmed.
+//!
+//! Entries are also stored in a shared `VecDeque` (capped at 1000) so they
+//! can be queried via the audit HTTP endpoint.
+
+use std::collections::VecDeque;
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, RwLock};
 use tracing::{error, info};
 
 // ---------------------------------------------------------------------------
@@ -31,6 +37,19 @@ pub enum AuditAction {
     Terminate,
     /// An issue was imported from an external system.
     Import,
+}
+
+impl AuditAction {
+    /// Parse from a string (case-insensitive, accepts both snake_case and PascalCase).
+    pub fn from_str_loose(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "spawn" => Some(Self::Spawn),
+            "send" => Some(Self::Send),
+            "terminate" => Some(Self::Terminate),
+            "import" => Some(Self::Import),
+            _ => None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -63,26 +82,35 @@ impl AuditEntry {
 }
 
 // ---------------------------------------------------------------------------
+// Shared entry storage
+// ---------------------------------------------------------------------------
+
+/// Maximum number of audit entries kept in memory.
+const MAX_ENTRIES: usize = 1000;
+
+/// Shared, bounded ring buffer of audit entries.
+pub type SharedEntries = Arc<RwLock<VecDeque<AuditEntry>>>;
+
+fn new_shared_entries() -> SharedEntries {
+    Arc::new(RwLock::new(VecDeque::with_capacity(MAX_ENTRIES)))
+}
+
+// ---------------------------------------------------------------------------
 // AuditWriter — the background task
 // ---------------------------------------------------------------------------
 
 /// Background task that drains the audit channel and persists entries.
 ///
 /// In this implementation entries are written to tracing (INFO level) and
-/// accumulated in memory so tests can verify them.  A future sprint can swap
-/// in SQLite / file persistence without changing the public API.
+/// accumulated in the shared ring buffer.
 struct AuditWriter {
     rx: mpsc::Receiver<AuditEntry>,
-    /// Accumulated entries (used for testing / future persistence).
-    entries: Vec<AuditEntry>,
+    entries: SharedEntries,
 }
 
 impl AuditWriter {
-    fn new(rx: mpsc::Receiver<AuditEntry>) -> Self {
-        Self {
-            rx,
-            entries: Vec::new(),
-        }
+    fn new(rx: mpsc::Receiver<AuditEntry>, entries: SharedEntries) -> Self {
+        Self { rx, entries }
     }
 
     async fn run(mut self) {
@@ -94,10 +122,16 @@ impl AuditWriter {
                 String::new()
             });
             info!(audit = %json, "AUDIT");
-            self.entries.push(entry);
+
+            let mut guard = self.entries.write().await;
+            if guard.len() >= MAX_ENTRIES {
+                guard.pop_front();
+            }
+            guard.push_back(entry);
         }
 
-        info!(count = self.entries.len(), "audit writer stopped");
+        let count = self.entries.read().await.len();
+        info!(count, "audit writer stopped");
     }
 }
 
@@ -107,11 +141,12 @@ impl AuditWriter {
 
 /// A cloneable, non-blocking handle for submitting audit log entries.
 ///
-/// Obtained from [`AuditWriter::new`].  Cloning the handle shares the same
-/// underlying channel.
+/// Obtained from [`start_audit_writer`].  Cloning the handle shares the same
+/// underlying channel and entry storage.
 #[derive(Clone)]
 pub struct AuditHandle {
     tx: mpsc::Sender<AuditEntry>,
+    entries: SharedEntries,
 }
 
 impl AuditHandle {
@@ -151,6 +186,28 @@ impl AuditHandle {
     pub fn log_import(&self, actor_id: impl Into<String>, details: Value) {
         self.log(AuditEntry::now(AuditAction::Import, actor_id, details));
     }
+
+    /// Return the most recent audit entries, optionally filtered by action.
+    ///
+    /// Entries are returned in reverse chronological order (newest first).
+    pub async fn recent(
+        &self,
+        limit: usize,
+        action_filter: Option<AuditAction>,
+    ) -> Vec<AuditEntry> {
+        let guard = self.entries.read().await;
+        guard
+            .iter()
+            .rev()
+            .filter(|e| {
+                action_filter
+                    .as_ref()
+                    .map_or(true, |a| e.action == *a)
+            })
+            .take(limit)
+            .cloned()
+            .collect()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -166,9 +223,10 @@ const CHANNEL_CAPACITY: usize = 512;
 /// sender side closes), at which point it drains remaining entries and exits.
 pub fn start_audit_writer() -> AuditHandle {
     let (tx, rx) = mpsc::channel(CHANNEL_CAPACITY);
-    let writer = AuditWriter::new(rx);
+    let entries = new_shared_entries();
+    let writer = AuditWriter::new(rx, Arc::clone(&entries));
     tokio::spawn(writer.run());
-    AuditHandle { tx }
+    AuditHandle { tx, entries }
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +241,8 @@ mod tests {
     /// Helper: create a handle backed by a direct receiver (no tokio task).
     fn direct_channel(capacity: usize) -> (AuditHandle, mpsc::Receiver<AuditEntry>) {
         let (tx, rx) = mpsc::channel(capacity);
-        (AuditHandle { tx }, rx)
+        let entries = new_shared_entries();
+        (AuditHandle { tx, entries }, rx)
     }
 
     #[test]
@@ -221,7 +280,10 @@ mod tests {
     async fn handle_log_drops_when_channel_full() {
         // Channel capacity = 0 — every send should fail gracefully.
         let (tx, _rx) = mpsc::channel::<AuditEntry>(1);
-        let handle = AuditHandle { tx };
+        let handle = AuditHandle {
+            tx,
+            entries: new_shared_entries(),
+        };
 
         // Fill it up
         handle.log_spawn("a", serde_json::json!({}));
@@ -233,7 +295,8 @@ mod tests {
     #[tokio::test]
     async fn audit_writer_drains_all_entries() {
         let (tx, rx) = mpsc::channel(8);
-        let writer = AuditWriter::new(rx);
+        let entries = new_shared_entries();
+        let writer = AuditWriter::new(rx, Arc::clone(&entries));
         let handle = tokio::spawn(writer.run());
 
         // Send 3 entries then drop sender so the writer stops.
@@ -250,6 +313,9 @@ mod tests {
 
         // Writer task should exit cleanly.
         handle.await.expect("writer task panicked");
+
+        // Shared entries should have all 3.
+        assert_eq!(entries.read().await.len(), 3);
     }
 
     #[test]
@@ -282,5 +348,61 @@ mod tests {
         handle.log_spawn("test-agent", serde_json::json!({ "test": true }));
         // Give the background task a moment.
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    }
+
+    // ── recent() tests ──────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn recent_returns_entries_newest_first() {
+        let handle = start_audit_writer();
+        handle.log_spawn("a1", serde_json::json!({"seq": 1}));
+        handle.log_send("a2", serde_json::json!({"seq": 2}));
+        handle.log_terminate("a3", serde_json::json!({"seq": 3}));
+
+        // Give writer time to drain
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let entries = handle.recent(10, None).await;
+        assert_eq!(entries.len(), 3);
+        // Newest first
+        assert_eq!(entries[0].actor_id, "a3");
+        assert_eq!(entries[2].actor_id, "a1");
+    }
+
+    #[tokio::test]
+    async fn recent_filters_by_action() {
+        let handle = start_audit_writer();
+        handle.log_spawn("s1", serde_json::json!({}));
+        handle.log_send("d1", serde_json::json!({}));
+        handle.log_spawn("s2", serde_json::json!({}));
+
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let spawns = handle.recent(100, Some(AuditAction::Spawn)).await;
+        assert_eq!(spawns.len(), 2);
+        for e in &spawns {
+            assert_eq!(e.action, AuditAction::Spawn);
+        }
+    }
+
+    #[tokio::test]
+    async fn recent_respects_limit() {
+        let handle = start_audit_writer();
+        for i in 0..10 {
+            handle.log_spawn(format!("a{i}"), serde_json::json!({}));
+        }
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let entries = handle.recent(3, None).await;
+        assert_eq!(entries.len(), 3);
+    }
+
+    #[test]
+    fn audit_action_from_str_loose() {
+        assert_eq!(AuditAction::from_str_loose("Spawn"), Some(AuditAction::Spawn));
+        assert_eq!(AuditAction::from_str_loose("send"), Some(AuditAction::Send));
+        assert_eq!(AuditAction::from_str_loose("TERMINATE"), Some(AuditAction::Terminate));
+        assert_eq!(AuditAction::from_str_loose("import"), Some(AuditAction::Import));
+        assert_eq!(AuditAction::from_str_loose("unknown"), None);
     }
 }

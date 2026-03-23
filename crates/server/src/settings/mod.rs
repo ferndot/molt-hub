@@ -1,20 +1,25 @@
-//! User settings persistence — SQLite-backed key/value store with REST API.
-//!
-//! The settings model is intentionally schema-free: the server stores arbitrary
-//! string values under string keys.  The frontend uses a single key
-//! (`app_settings`) whose value is a JSON-serialised settings object.  This
-//! keeps the server decoupled from UI schema changes.
+//! User settings persistence — SQLite-backed key/value store with REST API,
+//! plus a typed JSON-file-backed settings model.
 //!
 //! # Endpoints
 //!
-//! | Method | Path                    | Description                          |
-//! |--------|-------------------------|--------------------------------------|
-//! | GET    | `/api/settings`         | Return all settings as a JSON object |
-//! | PUT    | `/api/settings`         | Upsert settings from a JSON object   |
-//! | DELETE | `/api/settings/:key`    | Delete a specific setting key        |
+//! | Method | Path                         | Description                          |
+//! |--------|------------------------------|--------------------------------------|
+//! | GET    | `/api/settings`              | Return current typed settings as JSON |
+//! | PUT    | `/api/settings`              | Full-replace typed settings           |
+//! | PATCH  | `/api/settings/:section`     | Update a single section               |
+//! | GET    | `/api/settings/kv`           | Return all KV settings (legacy)       |
+//! | PUT    | `/api/settings/kv`           | Upsert KV settings (legacy)           |
+//! | DELETE | `/api/settings/kv/:key`      | Delete a specific KV key (legacy)     |
 
+pub mod file_store;
 pub mod handlers;
+pub mod model;
 pub mod store;
+pub mod typed_handlers;
 
+pub use file_store::SettingsFileStore;
 pub use handlers::{settings_router, SettingsState};
+pub use model::ServerSettings;
 pub use store::SettingsStore;
+pub use typed_handlers::{typed_settings_router, TypedSettingsState};
