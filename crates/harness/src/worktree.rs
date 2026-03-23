@@ -7,7 +7,7 @@ use dashmap::DashMap;
 use thiserror::Error;
 use tokio::process::Command;
 
-use molt_hub_core::model::TaskId;
+use molt_hub_core::model::{AgentId, TaskId};
 
 // ---------------------------------------------------------------------------
 // Errors
@@ -23,6 +23,12 @@ pub enum WorktreeError {
 
     #[error("worktree not found for task {0}")]
     WorktreeNotFound(TaskId),
+
+    #[error("worktree already exists for agent {0}")]
+    AgentWorktreeAlreadyExists(AgentId),
+
+    #[error("worktree not found for agent {0}")]
+    AgentWorktreeNotFound(AgentId),
 
     #[error("git command `{command}` failed: {stderr}")]
     GitCommandFailed { command: String, stderr: String },
@@ -72,6 +78,21 @@ pub struct WorktreeInfo {
 }
 
 // ---------------------------------------------------------------------------
+// AgentWorktreeInfo
+// ---------------------------------------------------------------------------
+
+/// Describes an active worktree created for an agent process.
+#[derive(Debug, Clone)]
+pub struct AgentWorktreeInfo {
+    pub agent_id: AgentId,
+    /// Absolute path to the worktree on disk.
+    pub path: PathBuf,
+    /// The git branch created for this worktree.
+    pub branch_name: String,
+    pub created_at: DateTime<Utc>,
+}
+
+// ---------------------------------------------------------------------------
 // WorktreeManager
 // ---------------------------------------------------------------------------
 
@@ -81,6 +102,8 @@ pub struct WorktreeManager {
     /// Absolute path to the main repository root.
     pub repo_root: PathBuf,
     active: DashMap<TaskId, WorktreeInfo>,
+    /// Agent-keyed worktrees (parallel to `active` for agent-based API).
+    agent_worktrees: DashMap<AgentId, AgentWorktreeInfo>,
 }
 
 impl WorktreeManager {
@@ -96,6 +119,7 @@ impl WorktreeManager {
             config,
             repo_root,
             active: DashMap::new(),
+            agent_worktrees: DashMap::new(),
         })
     }
 
@@ -227,6 +251,101 @@ impl WorktreeManager {
             self.config.branch_prefix,
             sanitize_task_id(&task_id.to_string())
         )
+    }
+
+    // -----------------------------------------------------------------------
+    // Agent-based API
+    // -----------------------------------------------------------------------
+
+    /// Create a new worktree for an agent process.
+    ///
+    /// - Path: `{base_dir}/{agent_id}/`
+    /// - Branch: `agent/{agent_id}`
+    /// - Based on `base_branch` (defaults to `main_branch` from config).
+    pub async fn create_for_agent(
+        &self,
+        agent_id: AgentId,
+        base_branch: Option<&str>,
+    ) -> Result<AgentWorktreeInfo, WorktreeError> {
+        if self.agent_worktrees.contains_key(&agent_id) {
+            return Err(WorktreeError::AgentWorktreeAlreadyExists(agent_id));
+        }
+
+        let id_str = sanitize_task_id(&agent_id.to_string());
+        let branch_name = format!("agent/{}", id_str);
+        let base = base_branch.unwrap_or(&self.config.main_branch);
+
+        let worktree_path = self.config.base_dir.join(&id_str);
+        let worktree_path = if worktree_path.is_absolute() {
+            worktree_path
+        } else {
+            self.repo_root.join(&worktree_path)
+        };
+
+        // Create the branch from base.
+        run_git(&self.repo_root, &["branch", &branch_name, base]).await?;
+
+        // Create the worktree.
+        run_git(
+            &self.repo_root,
+            &[
+                "worktree",
+                "add",
+                worktree_path.to_str().unwrap_or_default(),
+                &branch_name,
+            ],
+        )
+        .await?;
+
+        let info = AgentWorktreeInfo {
+            agent_id: agent_id.clone(),
+            path: worktree_path,
+            branch_name,
+            created_at: Utc::now(),
+        };
+
+        self.agent_worktrees.insert(agent_id, info.clone());
+        Ok(info)
+    }
+
+    /// Look up the worktree info for an agent.
+    pub fn get_agent_worktree(&self, agent_id: &AgentId) -> Option<AgentWorktreeInfo> {
+        self.agent_worktrees.get(agent_id).map(|r| r.clone())
+    }
+
+    /// Remove the worktree and branch for an agent.
+    pub async fn remove_agent_worktree(
+        &self,
+        agent_id: &AgentId,
+    ) -> Result<(), WorktreeError> {
+        let info = self
+            .agent_worktrees
+            .get(agent_id)
+            .map(|r| r.clone())
+            .ok_or_else(|| WorktreeError::AgentWorktreeNotFound(agent_id.clone()))?;
+
+        // Remove the worktree (force to handle dirty state).
+        run_git(
+            &self.repo_root,
+            &[
+                "worktree",
+                "remove",
+                "--force",
+                info.path.to_str().unwrap_or_default(),
+            ],
+        )
+        .await?;
+
+        // Delete the branch.
+        run_git(&self.repo_root, &["branch", "-D", &info.branch_name]).await?;
+
+        self.agent_worktrees.remove(agent_id);
+        Ok(())
+    }
+
+    /// Return a snapshot of all active agent worktrees.
+    pub fn list_agent_worktrees(&self) -> Vec<AgentWorktreeInfo> {
+        self.agent_worktrees.iter().map(|r| r.clone()).collect()
     }
 }
 
@@ -419,6 +538,92 @@ mod tests {
 
     // -----------------------------------------------------------------------
     // cleanup_stale
+    // -----------------------------------------------------------------------
+
+    // -----------------------------------------------------------------------
+    // Agent-based lifecycle: create / get / list / remove
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn agent_create_get_remove_lifecycle() {
+        let repo = make_temp_repo();
+        let cfg = config_for(repo.path());
+        let mgr = WorktreeManager::new(repo.path().to_path_buf(), cfg).unwrap();
+
+        let agent_id = AgentId::new();
+
+        // Create
+        let info = mgr.create_for_agent(agent_id.clone(), None).await.unwrap();
+        assert!(info.path.exists(), "agent worktree directory should exist");
+        assert!(info.branch_name.starts_with("agent/"));
+
+        // Get
+        let fetched = mgr.get_agent_worktree(&agent_id).unwrap();
+        assert_eq!(fetched.branch_name, info.branch_name);
+
+        // List
+        let list = mgr.list_agent_worktrees();
+        assert_eq!(list.len(), 1);
+
+        // Remove
+        mgr.remove_agent_worktree(&agent_id).await.unwrap();
+        assert!(!info.path.exists(), "agent worktree directory should be gone");
+        assert!(mgr.get_agent_worktree(&agent_id).is_none());
+        assert!(mgr.list_agent_worktrees().is_empty());
+    }
+
+    #[tokio::test]
+    async fn agent_create_duplicate_returns_error() {
+        let repo = make_temp_repo();
+        let cfg = config_for(repo.path());
+        let mgr = WorktreeManager::new(repo.path().to_path_buf(), cfg).unwrap();
+
+        let agent_id = AgentId::new();
+        mgr.create_for_agent(agent_id.clone(), None).await.unwrap();
+
+        let second = mgr.create_for_agent(agent_id.clone(), None).await;
+        assert!(
+            matches!(second, Err(WorktreeError::AgentWorktreeAlreadyExists(_))),
+            "expected AgentWorktreeAlreadyExists"
+        );
+
+        // Cleanup
+        mgr.remove_agent_worktree(&agent_id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn agent_create_with_custom_base_branch() {
+        let repo = make_temp_repo();
+        let cfg = config_for(repo.path());
+        let mgr = WorktreeManager::new(repo.path().to_path_buf(), cfg).unwrap();
+
+        let agent_id = AgentId::new();
+        // Use "main" explicitly as base_branch.
+        let info = mgr
+            .create_for_agent(agent_id.clone(), Some("main"))
+            .await
+            .unwrap();
+        assert!(info.path.exists());
+
+        mgr.remove_agent_worktree(&agent_id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn agent_remove_nonexistent_returns_error() {
+        let repo = make_temp_repo();
+        let cfg = config_for(repo.path());
+        let mgr = WorktreeManager::new(repo.path().to_path_buf(), cfg).unwrap();
+
+        let agent_id = AgentId::new();
+        let err = mgr.remove_agent_worktree(&agent_id).await;
+        assert!(
+            matches!(err, Err(WorktreeError::AgentWorktreeNotFound(_))),
+            "expected AgentWorktreeNotFound"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // cleanup_stale (task-based)
     // -----------------------------------------------------------------------
 
     #[tokio::test]

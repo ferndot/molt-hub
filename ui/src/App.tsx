@@ -6,7 +6,7 @@ import TriageView from "./views/Triage/TriageView";
 import AgentDetailView from "./views/AgentDetail/AgentDetailView";
 import AgentsView from "./views/Agents/AgentsView";
 import BoardView from "./views/Board/BoardView";
-import Settings from "./views/Settings/Settings";
+import SettingsView from "./views/Settings/SettingsView";
 
 const MissionControlView = lazy(() => import("./views/MissionControl/MissionControlView"));
 
@@ -26,7 +26,7 @@ const MissionControlPage: Component = () => (
 
 const AgentsPage: Component = () => <AgentsView />;
 
-const SettingsPage: Component = () => <Settings />;
+const SettingsPage: Component = () => <SettingsView />;
 
 // ---------------------------------------------------------------------------
 // App with persistent layout shell

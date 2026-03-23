@@ -4,6 +4,7 @@
 //! WebSocket streams for the UI, and the hook infrastructure that coordinates agent processes.
 
 pub mod actors;
+pub mod agents;
 pub mod approvals;
 pub mod attention;
 pub mod audit;
