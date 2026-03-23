@@ -20,6 +20,19 @@ import { createSignal } from "solid-js";
 
 export type Theme = "light" | "dark" | "system";
 
+export type AttentionLevel = "p0" | "p0p1" | "all";
+
+export type AgentAdapter = "claude-code" | "mock";
+
+export interface NotificationConfig {
+  attentionLevel: AttentionLevel;
+}
+
+export interface AgentDefaultsConfig {
+  timeoutMinutes: number;
+  adapter: AgentAdapter;
+}
+
 export interface JiraConfig {
   baseUrl: string;
   connected: boolean;
@@ -84,6 +97,8 @@ export interface SettingsState {
   githubConfig: GitHubConfig;
   connectionTestStatus: ConnectionTestStatus;
   appearance: AppearanceConfig;
+  notifications: NotificationConfig;
+  agentDefaults: AgentDefaultsConfig;
   kanbanColumns: KanbanColumn[];
   sidebarWidths: SidebarWidths;
 }
@@ -120,7 +135,7 @@ export const DEFAULT_KANBAN_COLUMNS: KanbanColumn[] = [
 export const STORAGE_KEY = "molt-hub-settings";
 
 /** Keys that are persisted to localStorage (excludes transient state) */
-type PersistedState = Pick<SettingsState, "appearance" | "kanbanColumns" | "sidebarWidths"> & {
+type PersistedState = Pick<SettingsState, "appearance" | "notifications" | "agentDefaults" | "kanbanColumns" | "sidebarWidths"> & {
   jiraConfig: Pick<JiraConfig, "baseUrl" | "connected" | "siteName" | "cloudId">;
   githubConfig?: Pick<GitHubConfig, "connected" | "owner">;
 };
@@ -134,6 +149,8 @@ export function loadPersistedSettings(): Partial<SettingsState> {
     const parsed = JSON.parse(raw) as Partial<PersistedState>;
     const result: Partial<SettingsState> = {};
     if (parsed.appearance) result.appearance = parsed.appearance;
+    if (parsed.notifications) result.notifications = parsed.notifications;
+    if (parsed.agentDefaults) result.agentDefaults = parsed.agentDefaults;
     if (parsed.kanbanColumns) result.kanbanColumns = parsed.kanbanColumns;
     if (parsed.sidebarWidths) result.sidebarWidths = parsed.sidebarWidths;
     if (parsed.jiraConfig) {
@@ -161,6 +178,8 @@ export function persistSettings(state: SettingsState): void {
   try {
     const persisted: PersistedState = {
       appearance: state.appearance,
+      notifications: state.notifications,
+      agentDefaults: state.agentDefaults,
       kanbanColumns: state.kanbanColumns,
       sidebarWidths: state.sidebarWidths,
       jiraConfig: {
@@ -199,6 +218,13 @@ const defaultState: SettingsState = {
     theme: "system",
     colorblindMode: false,
   },
+  notifications: {
+    attentionLevel: "p0p1",
+  },
+  agentDefaults: {
+    timeoutMinutes: 30,
+    adapter: "claude-code",
+  },
   kanbanColumns: DEFAULT_KANBAN_COLUMNS,
   sidebarWidths: {
     navSidebar: 240,
@@ -213,6 +239,8 @@ const initialState: SettingsState = {
   jiraConfig: { ...defaultState.jiraConfig, ...(persisted.jiraConfig ?? {}) },
   githubConfig: { ...defaultState.githubConfig, ...(persisted.githubConfig ?? {}) },
   appearance: { ...defaultState.appearance, ...(persisted.appearance ?? {}) },
+  notifications: { ...defaultState.notifications, ...(persisted.notifications ?? {}) },
+  agentDefaults: { ...defaultState.agentDefaults, ...(persisted.agentDefaults ?? {}) },
   sidebarWidths: { ...defaultState.sidebarWidths, ...(persisted.sidebarWidths ?? {}) },
 };
 
@@ -246,6 +274,8 @@ export async function saveToBackend(state: SettingsState): Promise<void> {
   try {
     const persisted: PersistedState = {
       appearance: state.appearance,
+      notifications: state.notifications,
+      agentDefaults: state.agentDefaults,
       kanbanColumns: state.kanbanColumns,
       sidebarWidths: state.sidebarWidths,
       jiraConfig: {
@@ -286,6 +316,8 @@ export async function loadFromBackend(): Promise<Partial<SettingsState> | null> 
     const data = await response.json() as Partial<PersistedState>;
     const result: Partial<SettingsState> = {};
     if (data.appearance) result.appearance = data.appearance;
+    if (data.notifications) result.notifications = data.notifications;
+    if (data.agentDefaults) result.agentDefaults = data.agentDefaults;
     if (data.kanbanColumns) result.kanbanColumns = data.kanbanColumns;
     if (data.sidebarWidths) result.sidebarWidths = data.sidebarWidths;
     if (data.jiraConfig) {
@@ -313,6 +345,8 @@ export async function initSettings(): Promise<void> {
       jiraConfig: { ...current.jiraConfig, ...(backend.jiraConfig ?? {}) },
       githubConfig: { ...current.githubConfig, ...(backend.githubConfig ?? {}) },
       appearance: { ...current.appearance, ...(backend.appearance ?? {}) },
+      notifications: { ...current.notifications, ...(backend.notifications ?? {}) },
+      agentDefaults: { ...current.agentDefaults, ...(backend.agentDefaults ?? {}) },
       sidebarWidths: { ...current.sidebarWidths, ...(backend.sidebarWidths ?? {}) },
     }));
   }
@@ -540,6 +574,30 @@ export function setTheme(theme: Theme): void {
 
 export function setColorblindMode(enabled: boolean): void {
   setSettingsState("appearance", "colorblindMode", enabled);
+}
+
+// ---------------------------------------------------------------------------
+// Notification actions
+// ---------------------------------------------------------------------------
+
+export function setAttentionLevel(level: AttentionLevel): void {
+  setSettingsState("notifications", "attentionLevel", level);
+}
+
+// ---------------------------------------------------------------------------
+// Agent defaults actions
+// ---------------------------------------------------------------------------
+
+export const TIMEOUT_MIN = 1;
+export const TIMEOUT_MAX = 480;
+
+export function setAgentTimeout(minutes: number): void {
+  const clamped = Math.max(TIMEOUT_MIN, Math.min(TIMEOUT_MAX, Math.round(minutes)));
+  setSettingsState("agentDefaults", "timeoutMinutes", clamped);
+}
+
+export function setAgentAdapter(adapter: AgentAdapter): void {
+  setSettingsState("agentDefaults", "adapter", adapter);
 }
 
 // ---------------------------------------------------------------------------

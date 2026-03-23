@@ -5,12 +5,20 @@
 }
 
 .sectionTitle {
+  display: block;
   padding: 0 1rem 0.5rem;
   font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--sidebar-text);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.sectionTitle:hover {
+  color: var(--sidebar-text-active);
 }
 
 .agentItem {

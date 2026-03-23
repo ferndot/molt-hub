@@ -117,10 +117,25 @@ const Sidebar: Component<Props> = (props) => {
         })}
       </nav>
 
-      {/* Agent list (scrollable) */}
-      <div class={styles.agentListWrapper}>
-        <AgentList collapsed={props.collapsed} />
-      </div>
+      {/* Agent list — full list when expanded, icon-only nav when collapsed */}
+      <Show
+        when={!props.collapsed}
+        fallback={
+          <nav class={styles.nav}>
+            <A
+              href="/agents"
+              class={styles.navItem}
+              classList={{ [styles.active]: isActive("/agents") }}
+            >
+              <span class={styles.navIcon}>{NAV_ICONS["/agents"]?.()}</span>
+            </A>
+          </nav>
+        }
+      >
+        <div class={styles.agentListWrapper}>
+          <AgentList collapsed={false} />
+        </div>
+      </Show>
 
       {/* Settings — pinned to bottom */}
       <div class={styles.bottomNav}>

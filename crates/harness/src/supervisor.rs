@@ -186,6 +186,44 @@ impl Supervisor {
         Ok(())
     }
 
+    /// Pause a running agent.
+    ///
+    /// Sends a [`AgentMessage::Pause`] to the adapter. The exact semantics
+    /// depend on the adapter implementation (e.g. status-only tracking or
+    /// SIGSTOP on Unix).
+    pub async fn pause_agent(&self, agent_id: &AgentId) -> Result<(), SupervisorError> {
+        let managed = self
+            .agents
+            .get(agent_id)
+            .ok_or_else(|| SupervisorError::AgentNotFound(agent_id.clone()))?;
+
+        info!(agent_id = %agent_id, "pausing agent");
+        managed
+            .adapter
+            .send(&managed.handle, crate::adapter::AgentMessage::Pause)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Resume a previously paused agent.
+    ///
+    /// Sends a [`AgentMessage::Resume`] to the adapter.
+    pub async fn resume_agent(&self, agent_id: &AgentId) -> Result<(), SupervisorError> {
+        let managed = self
+            .agents
+            .get(agent_id)
+            .ok_or_else(|| SupervisorError::AgentNotFound(agent_id.clone()))?;
+
+        info!(agent_id = %agent_id, "resuming agent");
+        managed
+            .adapter
+            .send(&managed.handle, crate::adapter::AgentMessage::Resume)
+            .await?;
+
+        Ok(())
+    }
+
     /// Immediately kill an agent without waiting for cleanup.
     pub async fn abort_agent(&self, agent_id: &AgentId) -> Result<(), SupervisorError> {
         let managed = self
@@ -573,6 +611,50 @@ mod tests {
         assert!(matches!(err, SupervisorError::AdapterError(_)));
         // Nothing should have been inserted.
         assert_eq!(sup.agent_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_pause_agent() {
+        let (sup, _rx) = make_supervisor(4);
+        let adapter: Arc<dyn AgentAdapter> = Arc::new(MockAdapter::new(AgentStatus::Running));
+
+        let id = sup
+            .spawn_agent(Arc::clone(&adapter), make_spawn_config())
+            .await
+            .unwrap();
+
+        // Pause should succeed without error.
+        sup.pause_agent(&id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_pause_unknown_agent() {
+        let (sup, _rx) = make_supervisor(4);
+        let unknown = AgentId::new();
+        let err = sup.pause_agent(&unknown).await.unwrap_err();
+        assert!(matches!(err, SupervisorError::AgentNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn test_resume_agent() {
+        let (sup, _rx) = make_supervisor(4);
+        let adapter: Arc<dyn AgentAdapter> = Arc::new(MockAdapter::new(AgentStatus::Paused));
+
+        let id = sup
+            .spawn_agent(Arc::clone(&adapter), make_spawn_config())
+            .await
+            .unwrap();
+
+        // Resume should succeed without error.
+        sup.resume_agent(&id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_resume_unknown_agent() {
+        let (sup, _rx) = make_supervisor(4);
+        let unknown = AgentId::new();
+        let err = sup.resume_agent(&unknown).await.unwrap_err();
+        assert!(matches!(err, SupervisorError::AgentNotFound(_)));
     }
 
     #[tokio::test]

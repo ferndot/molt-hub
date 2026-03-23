@@ -19,8 +19,10 @@ import {
   NAV_SIDEBAR_MAX,
   INBOX_SIDEBAR_MIN,
   INBOX_SIDEBAR_MAX,
+  TIMEOUT_MIN,
+  TIMEOUT_MAX,
 } from "../settingsStore";
-import type { KanbanColumn, Theme, SettingsState } from "../settingsStore";
+import type { KanbanColumn, Theme, AttentionLevel, AgentAdapter, SettingsState } from "../settingsStore";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -503,6 +505,8 @@ describe("persistSettings", () => {
       githubConfig: { connected: false, token: "", owner: "", lastError: null },
       connectionTestStatus: "idle",
       appearance: { theme: "dark", colorblindMode: false },
+      notifications: { attentionLevel: "p0p1" },
+      agentDefaults: { timeoutMinutes: 30, adapter: "claude-code" },
       kanbanColumns: DEFAULT_KANBAN_COLUMNS,
       sidebarWidths: { navSidebar: 280, inboxSidebar: 350 },
     };
@@ -523,6 +527,8 @@ describe("persistSettings", () => {
       githubConfig: { connected: false, token: "", owner: "", lastError: null },
       connectionTestStatus: "testing",
       appearance: { theme: "system", colorblindMode: false },
+      notifications: { attentionLevel: "p0p1" },
+      agentDefaults: { timeoutMinutes: 30, adapter: "claude-code" },
       kanbanColumns: DEFAULT_KANBAN_COLUMNS,
       sidebarWidths: { navSidebar: 240, inboxSidebar: 320 },
     };
@@ -540,6 +546,8 @@ describe("persistSettings", () => {
       githubConfig: { connected: false, token: "", owner: "", lastError: null },
       connectionTestStatus: "idle",
       appearance: { theme: "system", colorblindMode: false },
+      notifications: { attentionLevel: "p0p1" },
+      agentDefaults: { timeoutMinutes: 30, adapter: "claude-code" },
       kanbanColumns: DEFAULT_KANBAN_COLUMNS,
       sidebarWidths: { navSidebar: 240, inboxSidebar: 320 },
     };
@@ -623,5 +631,112 @@ describe("sidebar width store actions", () => {
       // restore
       setInboxSidebarWidth(320);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Notification actions
+// ---------------------------------------------------------------------------
+
+describe("notification store actions", () => {
+  describe("setAttentionLevel", () => {
+    it("sets attention level to p0", async () => {
+      const { settingsState, setAttentionLevel } = await import("../settingsStore");
+      setAttentionLevel("p0");
+      expect(settingsState.notifications.attentionLevel).toBe("p0");
+    });
+
+    it("cycles through all attention levels", async () => {
+      const { settingsState, setAttentionLevel } = await import("../settingsStore");
+      const levels: AttentionLevel[] = ["p0", "p0p1", "all"];
+      for (const level of levels) {
+        setAttentionLevel(level);
+        expect(settingsState.notifications.attentionLevel).toBe(level);
+      }
+    });
+
+    it("defaults to p0p1", async () => {
+      const { settingsState, setAttentionLevel } = await import("../settingsStore");
+      setAttentionLevel("p0p1");
+      expect(settingsState.notifications.attentionLevel).toBe("p0p1");
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Agent defaults actions
+// ---------------------------------------------------------------------------
+
+describe("agent defaults store actions", () => {
+  describe("setAgentTimeout", () => {
+    it("sets a valid timeout", async () => {
+      const { settingsState, setAgentTimeout } = await import("../settingsStore");
+      setAgentTimeout(60);
+      expect(settingsState.agentDefaults.timeoutMinutes).toBe(60);
+      // restore
+      setAgentTimeout(30);
+    });
+
+    it("clamps to minimum", async () => {
+      const { settingsState, setAgentTimeout } = await import("../settingsStore");
+      setAgentTimeout(0);
+      expect(settingsState.agentDefaults.timeoutMinutes).toBe(TIMEOUT_MIN);
+      // restore
+      setAgentTimeout(30);
+    });
+
+    it("clamps to maximum", async () => {
+      const { settingsState, setAgentTimeout } = await import("../settingsStore");
+      setAgentTimeout(9999);
+      expect(settingsState.agentDefaults.timeoutMinutes).toBe(TIMEOUT_MAX);
+      // restore
+      setAgentTimeout(30);
+    });
+
+    it("rounds fractional values", async () => {
+      const { settingsState, setAgentTimeout } = await import("../settingsStore");
+      setAgentTimeout(15.7);
+      expect(settingsState.agentDefaults.timeoutMinutes).toBe(16);
+      // restore
+      setAgentTimeout(30);
+    });
+  });
+
+  describe("setAgentAdapter", () => {
+    it("sets adapter to mock", async () => {
+      const { settingsState, setAgentAdapter } = await import("../settingsStore");
+      setAgentAdapter("mock");
+      expect(settingsState.agentDefaults.adapter).toBe("mock");
+    });
+
+    it("sets adapter to claude-code", async () => {
+      const { settingsState, setAgentAdapter } = await import("../settingsStore");
+      setAgentAdapter("claude-code");
+      expect(settingsState.agentDefaults.adapter).toBe("claude-code");
+    });
+
+    it("cycles through all adapter values", async () => {
+      const { settingsState, setAgentAdapter } = await import("../settingsStore");
+      const adapters: AgentAdapter[] = ["claude-code", "mock"];
+      for (const adapter of adapters) {
+        setAgentAdapter(adapter);
+        expect(settingsState.agentDefaults.adapter).toBe(adapter);
+      }
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Timeout constants
+// ---------------------------------------------------------------------------
+
+describe("timeout constants", () => {
+  it("min is less than max", () => {
+    expect(TIMEOUT_MIN).toBeLessThan(TIMEOUT_MAX);
+  });
+
+  it("default timeout (30) is within min/max bounds", () => {
+    expect(30).toBeGreaterThanOrEqual(TIMEOUT_MIN);
+    expect(30).toBeLessThanOrEqual(TIMEOUT_MAX);
   });
 });

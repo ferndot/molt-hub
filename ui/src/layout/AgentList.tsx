@@ -55,7 +55,7 @@ const AgentList: Component<Props> = (props) => {
 
   return (
     <div class={styles.section} classList={{ [styles.collapsed]: props.collapsed }}>
-      <div class={styles.sectionTitle}>Agents</div>
+      <A href="/agents" class={styles.sectionTitle}>Agents</A>
       <div class={styles.searchWrapper}>
         <input
           class={styles.searchInput}

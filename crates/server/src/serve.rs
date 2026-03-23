@@ -12,6 +12,10 @@ use tokio::task::JoinHandle;
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::debug;
 
+use molt_hub_harness::adapter::AgentEvent;
+use molt_hub_harness::supervisor::{Supervisor, SupervisorConfig};
+
+use crate::agents::handlers::{agent_router, AgentState};
 use crate::pipeline::handlers::{pipeline_router, PipelineState};
 use crate::ws::{ws_handler, ConnectionManager};
 use crate::ws_broadcast::{broadcast_metrics, MetricsPayload};
@@ -28,24 +32,35 @@ use crate::ws_broadcast::{broadcast_metrics, MetricsPayload};
 /// The returned router provides:
 /// - `GET /ws` — WebSocket upgrade for real-time UI updates
 /// - `/*`      — Static files from `dist_dir` with `index.html` fallback (SPA routing)
-pub fn build_router(dist_dir: PathBuf) -> (Router, Arc<ConnectionManager>) {
+pub fn build_router(dist_dir: PathBuf) -> (Router, Arc<ConnectionManager>, Arc<Supervisor>) {
     let manager = Arc::new(ConnectionManager::new());
     let index_html = dist_dir.join("index.html");
 
     // Pipeline stages API state
     let pipeline_state = Arc::new(PipelineState::default_stages());
 
+    // Process supervisor
+    let (event_tx, _event_rx) = tokio::sync::broadcast::channel::<AgentEvent>(256);
+    let supervisor = Arc::new(Supervisor::new(SupervisorConfig::default(), event_tx));
+
+    // Agent API state
+    let agent_state = Arc::new(AgentState {
+        supervisor: Arc::clone(&supervisor),
+    });
+
     // Pipeline sub-router has its own state, so we build it independently
     // and nest it as a service to avoid state type mismatches.
     let pipeline = pipeline_router(pipeline_state);
+    let agents = agent_router(agent_state);
 
     let router = Router::new()
         .route("/ws", get(ws_handler))
         .nest_service("/api/pipeline", pipeline)
+        .nest_service("/api/agents", agents)
         .fallback_service(ServeDir::new(dist_dir).fallback(ServeFile::new(index_html)))
         .with_state(Arc::clone(&manager));
 
-    (router, manager)
+    (router, manager, supervisor)
 }
 
 // ---------------------------------------------------------------------------
@@ -176,13 +191,19 @@ mod tests {
 
     #[test]
     fn build_router_does_not_panic() {
-        let (_router, _manager) = build_router(PathBuf::from("/tmp/nonexistent-dist"));
+        let (_router, _manager, _supervisor) = build_router(PathBuf::from("/tmp/nonexistent-dist"));
     }
 
     #[test]
     fn build_router_returns_shared_manager() {
-        let (_router, manager) = build_router(PathBuf::from("/tmp/nonexistent-dist"));
+        let (_router, manager, _supervisor) = build_router(PathBuf::from("/tmp/nonexistent-dist"));
         assert_eq!(manager.connection_count(), 0);
+    }
+
+    #[test]
+    fn build_router_returns_supervisor() {
+        let (_router, _manager, supervisor) = build_router(PathBuf::from("/tmp/nonexistent-dist"));
+        assert_eq!(supervisor.agent_count(), 0);
     }
 
     #[test]
