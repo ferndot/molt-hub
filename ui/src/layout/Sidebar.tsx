@@ -10,7 +10,8 @@ import styles from "./Sidebar.module.css";
 // ---------------------------------------------------------------------------
 
 const NAV_ICONS: Record<string, string> = {
-  "/": "⚡",
+  "/triage": "⚡",
+  "/board": "▦",
   "/agents": "◉",
 };
 
@@ -30,13 +31,11 @@ interface Props {
 const Sidebar: Component<Props> = (props) => {
   const location = useLocation();
 
-  const isActive = (href: string) => {
-    if (href === "/") return location.pathname === "/" || location.pathname === "/mission-control";
-    return location.pathname.startsWith(href);
-  };
+  const isActive = (href: string) => location.pathname === href || (href !== "/" && location.pathname.startsWith(href));
 
   const navItems = [
-    { href: "/", label: "Mission Control" },
+    { href: "/triage", label: "Triage" },
+    { href: "/board", label: "Board" },
     { href: "/agents", label: "Agents" },
   ];
 
@@ -58,7 +57,7 @@ const Sidebar: Component<Props> = (props) => {
       {/* Nav links */}
       <nav class={styles.nav}>
         {navItems.map((item) => {
-          const count = () => item.href === "/" ? attentionCount() : 0;
+          const count = () => item.href === "/triage" ? attentionCount() : 0;
           return (
             <A
               href={item.href}

@@ -16,11 +16,10 @@ import HelpOverlay from "./HelpOverlay";
 // View context helpers
 // ---------------------------------------------------------------------------
 
-type ViewContext = "triage" | "board" | "agents" | "mission-control" | "other";
+type ViewContext = "triage" | "board" | "agents" | "other";
 
 function getViewContext(pathname: string): ViewContext {
-  if (pathname === "/" || pathname === "/mission-control") return "mission-control";
-  if (pathname.startsWith("/triage")) return "triage";
+  if (pathname === "/" || pathname.startsWith("/triage")) return "triage";
   if (pathname.startsWith("/board")) return "board";
   if (pathname.startsWith("/agents")) return "agents";
   return "other";
@@ -98,9 +97,6 @@ const KeyboardManager: ParentComponent = (props) => {
         case "goto-agents":
           navigate("/agents");
           break;
-        case "goto-mission-control":
-          navigate("/");
-          break;
       }
       return;
     }
@@ -128,44 +124,14 @@ const KeyboardManager: ParentComponent = (props) => {
         e.preventDefault();
         window.dispatchEvent(new CustomEvent("molt:nav-enter"));
         break;
-      case "h":
-        if (ctx === "mission-control") {
-          e.preventDefault();
-          window.dispatchEvent(new CustomEvent("molt:nav-left"));
-        }
-        break;
-      case "l":
-        if (ctx === "mission-control") {
-          e.preventDefault();
-          window.dispatchEvent(new CustomEvent("molt:nav-right"));
-        }
-        break;
-      case "f":
-        if (ctx === "mission-control") {
-          e.preventDefault();
-          window.dispatchEvent(new CustomEvent("molt:filter-toggle"));
-        }
-        break;
-      case "[":
-        if (ctx === "mission-control") {
-          e.preventDefault();
-          window.dispatchEvent(new CustomEvent("molt:sidebar-toggle"));
-        }
-        break;
-      case "Tab":
-        if (ctx === "mission-control") {
-          e.preventDefault();
-          window.dispatchEvent(new CustomEvent("molt:focus-zone-switch"));
-        }
-        break;
       case "a":
-        if (ctx === "triage" || ctx === "mission-control") {
+        if (ctx === "triage") {
           e.preventDefault();
           window.dispatchEvent(new CustomEvent("molt:triage-approve"));
         }
         break;
       case "r":
-        if (ctx === "triage" || ctx === "mission-control") {
+        if (ctx === "triage") {
           e.preventDefault();
           window.dispatchEvent(new CustomEvent("molt:triage-reject"));
         }
