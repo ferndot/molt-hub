@@ -7,5 +7,6 @@
 pub mod adapter;
 pub mod claude;
 pub mod cli;
+pub mod health;
 pub mod supervisor;
 pub mod worktree;

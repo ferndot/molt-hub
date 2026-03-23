@@ -1,0 +1,134 @@
+/* ============================================================
+ * Global design system — platform-native theming
+ * Follows system color scheme automatically via prefers-color-scheme.
+ * ============================================================ */
+
+:root {
+  color-scheme: light dark;
+
+  /* Typography */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Mono", "SF Mono", Menlo, Consolas, monospace;
+
+  /* Transition */
+  --transition-theme: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+
+  /* Light mode defaults */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f5;
+  --bg-tertiary: #ebebeb;
+  --bg-elevated: #ffffff;
+
+  --text-primary: #111827;
+  --text-secondary: #374151;
+  --text-muted: #6b7280;
+  --text-subtle: #9ca3af;
+
+  --border: #e5e7eb;
+  --border-strong: #d1d5db;
+
+  /* Sidebar (always dark to anchor the chrome) */
+  --sidebar-bg: #1a1a2e;
+  --sidebar-border: #2a2a3e;
+  --sidebar-hover: #252540;
+  --sidebar-text: #9ca3af;
+  --sidebar-text-active: #ffffff;
+
+  /* Accent — maps to system accent when supported */
+  --accent: #4361ee;
+  accent-color: var(--accent);
+
+  /* Priority — never change with theme */
+  --priority-p0: #e63946;
+  --priority-p1: #f4a261;
+  --priority-p2: #2a9d8f;
+  --priority-p3: #6c757d;
+
+  /* Semantic action colors */
+  --color-approve: #22c55e;
+  --color-reject: #e63946;
+  --color-redirect: #3b82f6;
+  --color-defer: #9ca3af;
+  --color-ack: #2a9d8f;
+
+  /* Mission Control */
+  --attention-border-width: 4px;
+  --sidebar-width: 300px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #1a1a2e;
+    --bg-secondary: #13131f;
+    --bg-tertiary: #2d2d44;
+    --bg-elevated: #22223a;
+
+    --text-primary: #e5e7eb;
+    --text-secondary: #d1d5db;
+    --text-muted: #9ca3af;
+    --text-subtle: #6b7280;
+
+    --border: #2a2a3e;
+    --border-strong: #3a3a5a;
+  }
+}
+
+/* ============================================================
+ * Global resets / base styles
+ * ============================================================ */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  transition: var(--transition-theme);
+}
+
+/* Focus outlines use accent */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Text selection */
+::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--text-primary);
+}
+
+/* Scrollbars — subtle, matches theme */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
+}

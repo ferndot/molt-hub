@@ -1,0 +1,197 @@
+/* UnifiedCard — board card with optional triage attention accent */
+
+.card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s;
+  user-select: none;
+}
+
+.card:hover {
+  border-color: var(--border-strong);
+}
+
+/* Attention left-border accent — default uses p0 color */
+.attention {
+  border-left: var(--attention-border-width, 4px) solid var(--priority-p0);
+}
+
+.attentionP1 {
+  border-left-color: var(--priority-p1);
+}
+
+.attentionP2 {
+  border-left-color: var(--priority-p2);
+}
+
+.attentionP3 {
+  border-left-color: var(--priority-p3);
+}
+
+/* Cross-reference hover highlight */
+.highlighted {
+  background: color-mix(in srgb, var(--bg-elevated), var(--priority-p1) 8%);
+}
+
+/* Keyboard focus ring */
+.focused {
+  outline: 2px solid AccentColor;
+  outline-offset: 2px;
+}
+
+/* Dragging state */
+.dragging {
+  opacity: 0.5;
+}
+
+/* Header row */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.taskName {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.priorityBadge {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 0.0625rem 0.375rem;
+  border-radius: 3px;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.priorityP0 {
+  background: var(--priority-p0);
+}
+
+.priorityP1 {
+  background: var(--priority-p1);
+}
+
+.priorityP2 {
+  background: var(--priority-p2);
+}
+
+.priorityP3 {
+  background: var(--priority-p3);
+}
+
+/* Meta row */
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.agentName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.stageChip {
+  background: var(--bg-secondary);
+  border-radius: 3px;
+  padding: 0 0.25rem;
+  font-size: 0.6875rem;
+}
+
+/* Expanded detail */
+.detail {
+  margin-top: 0.375rem;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+}
+
+.timeInStage {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.125rem;
+}
+
+/* Action buttons */
+.actions {
+  display: flex;
+  gap: 0.25rem;
+  margin-top: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.actionBtn {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.125rem 0.5rem;
+  cursor: pointer;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  transition: background 0.1s, color 0.1s;
+}
+
+.actionBtn:hover {
+  border-color: var(--border-strong);
+}
+
+.approveBtn {
+  color: var(--color-approve);
+}
+
+.approveBtn:hover {
+  background: var(--color-approve);
+  color: #fff;
+}
+
+.rejectBtn {
+  color: var(--color-reject);
+}
+
+.rejectBtn:hover {
+  background: var(--color-reject);
+  color: #fff;
+}
+
+.redirectBtn {
+  color: var(--color-redirect);
+}
+
+.redirectBtn:hover {
+  background: var(--color-redirect);
+  color: #fff;
+}
+
+.deferBtn {
+  color: var(--color-defer);
+}
+
+.deferBtn:hover {
+  background: var(--color-defer);
+  color: #fff;
+}
+
+.ackBtn {
+  color: var(--color-ack, var(--priority-p2));
+}
+
+.ackBtn:hover {
+  background: var(--color-ack, var(--priority-p2));
+  color: #fff;
+}

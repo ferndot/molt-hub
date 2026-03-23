@@ -1,0 +1,49 @@
+.boardWrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 1.5rem;
+  box-sizing: border-box;
+  background: var(--bg-secondary);
+  transition: var(--transition-theme);
+}
+
+.boardTitle {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 1.25rem;
+  flex-shrink: 0;
+  transition: var(--transition-theme);
+}
+
+.columnsContainer {
+  display: flex;
+  gap: 1rem;
+  overflow-x: auto;
+  overflow-y: visible;
+  align-items: flex-start;
+  scroll-behavior: smooth;
+  padding-bottom: 1rem;
+  /* Allow columns to lay out naturally */
+  flex: 1;
+}
+
+/* Custom scrollbar for horizontal scroll */
+.columnsContainer::-webkit-scrollbar {
+  height: 6px;
+}
+
+.columnsContainer::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.columnsContainer::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 3px;
+}
+
+.columnsContainer::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
+}

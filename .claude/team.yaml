@@ -1,0 +1,47 @@
+team: molt-hub
+description: "Mission control for managing many simultaneous AI coding agents — Rust/SolidJS/SQLite stack with event sourcing, triage-first UI, agent-harness agnostic"
+
+defaults:
+  model: sonnet
+  budget: 0.50
+  permission-mode: dontAsk
+
+members:
+  - name: architect
+    role: "Core domain model, event sourcing, state machines, transition rules, config schema"
+    tools: [Read, Write, Edit, Glob, Grep, Bash]
+    owns:
+      - "crates/core/**"
+      - "*.toml"
+      - "docs/**"
+
+  - name: backend
+    role: "Server layer — WebSocket, hooks, concurrency actors, process supervisor, audit, approvals"
+    tools: [Read, Write, Edit, Glob, Grep, Bash]
+    owns:
+      - "crates/server/**"
+      - "crates/harness/**"
+
+  - name: frontend
+    role: "SolidJS UI — triage queue, kanban board, agent detail, layout, keyboard nav, design system"
+    tools: [Read, Write, Edit, Glob, Grep, Bash]
+    owns:
+      - "ui/**"
+
+  - name: infra
+    role: "Credential store, container hooks, git worktree manager, CLI delivery, CI/CD, project scaffolding"
+    tools: [Read, Write, Edit, Glob, Grep, Bash]
+    owns:
+      - "crates/harness/src/worktree*"
+      - "crates/harness/src/sandbox*"
+      - "crates/server/src/credentials/**"
+      - ".github/**"
+      - "Dockerfile*"
+
+  - name: tester
+    role: "End-to-end testing from a product engineer perspective — validates user workflows, writes integration tests, catches UX gaps and broken flows before they ship"
+    tools: [Read, Write, Edit, Glob, Grep, Bash]
+    owns:
+      - "tests/**"
+      - "e2e/**"
+      - "*.test.*"

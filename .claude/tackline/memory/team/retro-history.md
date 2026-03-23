@@ -1,0 +1,35 @@
+# Retrospective History
+
+## Retro: 2026-03-23 (Sprint 1 — Wave 0+1 Foundation)
+- Tasks completed: 7/7 (T01, T02, T03, T04, T06, T07, T14)
+- Commits: 9 (7 feat, 2 chore) — 2,259 lines across 27 files
+- New learnings: 12 across 3 active members (architect: 8, backend: 4, infra: 2)
+- Pruned/archived: 0 entries (first sprint, all fresh)
+- Key insight: Worktree isolation fails when git init happens mid-session; serial dispatch with file-scope isolation is the fallback. Agent design decisions that deviate from spec (rejection routing) must be caught and reviewed before downstream work begins.
+
+## Retro: 2026-03-23 (Sprint 2 — Wave 2 Execution Layer)
+- Tasks completed: 8/8 (T05, T08, T09, T10, T11, T15, T16, T17)
+- Commits: 4 merged (16 total session) — 130 tests across 3 crates
+- New learnings: 16 across 3 active members (architect: 4, backend: 7, infra: 5)
+- Pruned/archived: 0 entries (all files under 25 lines)
+- Key insight: Fix all known compile errors on main BEFORE dispatching agents — all 8 agents independently wasted cycles fixing the same 2 pre-existing bugs. Worktree isolation works perfectly now; 7 parallel agents ran without conflicts.
+
+## Retro: 2026-03-23 (Wave 3)
+- Tasks completed: 4 (T18, T22, T25, T46)
+- Tests: 130 → 206 (+76, +58%)
+- New learnings: 9 across 3 members (backend, frontend, infra)
+- Pruned/archived: 0 entries
+- Fix rate: 0% (all feat commits, no corrections)
+- Key insight: Parallel worktree dispatch of 3 agents with clean auto-merge is the sweet spot. All three Rust agents produced correct code on first try with zero rework. Frontend activation smooth.
+- Process note: T46 had a true dependency on T22 and was correctly sequenced serial.
+
+## Retro: 2026-03-23 (Wave 4)
+- Tasks completed: 4 (T23, T24, T28, integration tests)
+- Tests: 206 → 280 (+74, +36%)
+- New learnings: 11 across 2 members (frontend +8, tester +3)
+- Pruned/archived: 0 entries
+- Fix rate: 12.5% (1 fix commit out of 8 — CSS module types + TS strict comparison)
+- Merge conflict: 1 (T23 App.tsx vs T28 layout — resolved by combining imports)
+- Key insight: 3 frontend agents in parallel worktrees worked despite all touching ui/. Only one merge conflict on App.tsx, easily resolved. Tester agent activated cleanly on first dispatch, produced 36 integration tests.
+- Process note: Build step revealed missing CSS module type declarations — agents should add css.d.ts as standard scaffold step.
+- Tester cold start: Successful. Agent read existing code thoroughly and produced well-structured integration tests covering approval flow, attention flow, and actor lifecycle.
