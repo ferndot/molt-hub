@@ -7,7 +7,7 @@
  */
 
 import type { Component } from "solid-js";
-import { createMemo, For, Show, onCleanup } from "solid-js";
+import { createMemo, createSignal, For, Show, onCleanup } from "solid-js";
 import { createVirtualizer } from "../../lib/virtual";
 import {
   useTriageStore,
@@ -18,6 +18,8 @@ import {
 } from "./triageStore";
 import type { FilterMode, SortMode, TriageItem } from "./triageStore";
 import TriageItemCard from "./TriageItem";
+import ApprovalCard from "./ApprovalCard";
+import type { ApprovalRequest } from "./ApprovalCard";
 import styles from "./TriageView.module.css";
 
 // ---------------------------------------------------------------------------
@@ -101,6 +103,24 @@ const TriageView: Component = () => {
   onCleanup(unsub);
 
   const { state } = useTriageStore();
+
+  // Approval requests — populated by WebSocket or API
+  const [approvalRequests, setApprovalRequests] = createSignal<ApprovalRequest[]>([]);
+
+  function handleApprovalResolved(id: string): void {
+    setApprovalRequests((prev) => prev.filter((r) => r.id !== id));
+  }
+
+  /** Add an approval request (callable from WebSocket handler). */
+  function addApprovalRequest(req: ApprovalRequest): void {
+    setApprovalRequests((prev) => {
+      if (prev.find((r) => r.id === req.id)) return prev;
+      return [req, ...prev];
+    });
+  }
+
+  // Expose addApprovalRequest for external wiring
+  (window as unknown as Record<string, unknown>).__addApprovalRequest = addApprovalRequest;
 
   const filteredItems = createMemo(() =>
     getFilteredItems(state.items, state.filterMode, state.sortMode),
@@ -193,8 +213,28 @@ const TriageView: Component = () => {
         </div>
       </div>
 
+      {/* Approval requests — top priority */}
+      <Show when={approvalRequests().length > 0}>
+        <div>
+          <div class={styles.tierDivider}>
+            <span class={styles.dividerLabel}>Approval Required</span>
+            <div class={styles.dividerLine} />
+          </div>
+          <div>
+            <For each={approvalRequests()}>
+              {(req) => (
+                <ApprovalCard
+                  request={req}
+                  onResolved={handleApprovalResolved}
+                />
+              )}
+            </For>
+          </div>
+        </div>
+      </Show>
+
       {/* Empty state */}
-      <Show when={allItems().length === 0}>
+      <Show when={allItems().length === 0 && approvalRequests().length === 0}>
         <div class={styles.empty}>No items match the current filter.</div>
       </Show>
 

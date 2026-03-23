@@ -1,7 +1,7 @@
-import { createSignal, createMemo, For, Show, type Component } from "solid-js";
+import { createSignal, createMemo, For, Show, onMount, onCleanup, type Component } from "solid-js";
 import { A } from "@solidjs/router";
 import { TbOutlineSearch } from "solid-icons/tb";
-import { useAgentDetailStore, type AgentDetail } from "../AgentDetail/agentStore";
+import { useAgentDetailStore, startAgentPolling, type AgentDetail } from "../AgentDetail/agentStore";
 import styles from "./AgentsView.module.css";
 
 // ---------------------------------------------------------------------------
@@ -63,6 +63,13 @@ const TABS: { label: string; value: ListStatus | "all" }[] = [
 
 const AgentsView: Component = () => {
   const { state } = useAgentDetailStore();
+
+  // Poll real agent data from the backend every 3 seconds
+  onMount(() => {
+    const stopPolling = startAgentPolling(3000);
+    onCleanup(stopPolling);
+  });
+
   const [query, setQuery] = createSignal("");
   const [activeTab, setActiveTab] = createSignal<ListStatus | "all">("all");
 

@@ -90,7 +90,7 @@ async fn run_serve(args: ServeArgs) {
         );
     }
 
-    let (app, manager, _supervisor) = build_router(dist_dir);
+    let (app, manager, _supervisor, _audit) = build_router(dist_dir);
 
     // Spawn periodic health metrics broadcast (every 5 seconds).
     let _metrics_handle = spawn_health_metrics_task(
@@ -221,10 +221,10 @@ mod tests {
     }
 
     /// Verify the router compiles with both /ws and static fallback.
-    #[test]
-    fn router_builds_without_panic() {
+    #[tokio::test]
+    async fn router_builds_without_panic() {
         let dist = PathBuf::from("/tmp/nonexistent-dist");
-        let (_app, _mgr, _sup) = build_router(dist);
+        let (_app, _mgr, _sup, _audit) = build_router(dist);
         // If we got here, the router compiled and wired correctly.
     }
 }

@@ -9,6 +9,7 @@
 
 import { createStore } from "solid-js/store";
 import { subscribe } from "../../lib/ws";
+import { api } from "../../lib/api";
 import type { Priority } from "../../types/domain";
 
 // ---------------------------------------------------------------------------
@@ -230,6 +231,18 @@ export async function initBoardStages(): Promise<void> {
     setBoardState("pipelineStages", fetched);
   }
   setBoardState("stagesLoaded", true);
+}
+
+/**
+ * Push the current pipeline stages to the backend API.
+ * Called after column edits in the ColumnEditor.
+ */
+export async function pushStagesToApi(): Promise<void> {
+  try {
+    await api.updateStages({ stages: boardState.pipelineStages });
+  } catch {
+    // Silently ignore — the board still works with local state
+  }
 }
 
 // ---------------------------------------------------------------------------

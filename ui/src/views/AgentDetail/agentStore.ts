@@ -7,6 +7,7 @@
 
 import { createStore } from "solid-js/store";
 import { subscribe } from "../../lib/ws";
+import { api } from "../../lib/api";
 import type { Priority } from "../../types/domain";
 
 // ---------------------------------------------------------------------------
@@ -242,6 +243,63 @@ export function useAgentDetailStore() {
 // ---------------------------------------------------------------------------
 // WebSocket subscription (stub)
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// API fetch — load real agents from the backend
+// ---------------------------------------------------------------------------
+
+interface ApiAgent {
+  id: string;
+  name: string;
+  task_name?: string;
+  task_description?: string;
+  current_stage?: string;
+  status?: string;
+  priority?: string;
+  assigned_at?: string;
+}
+
+function mapApiAgent(a: ApiAgent): AgentDetail {
+  return {
+    id: a.id,
+    name: a.name,
+    taskName: a.task_name ?? "",
+    taskDescription: a.task_description ?? "",
+    currentStage: a.current_stage ?? "unknown",
+    stageHistory: [],
+    status: (a.status as AgentDetail["status"]) ?? "idle",
+    priority: (a.priority as Priority) ?? "p2",
+    assignedAt: a.assigned_at ?? new Date().toISOString(),
+    outputLines: [],
+  };
+}
+
+/**
+ * Fetch agents from the backend and merge into the store.
+ * Falls back silently to existing mock data if the API is unreachable.
+ */
+export async function fetchAgents(): Promise<void> {
+  try {
+    const data = await api.getAgents();
+    const agents = (data.agents as ApiAgent[]) ?? [];
+    if (agents.length > 0) {
+      setState("agents", agents.map(mapApiAgent));
+    }
+  } catch {
+    // Keep existing mock data
+  }
+}
+
+/**
+ * Start polling agents every `intervalMs` milliseconds.
+ * Returns a cleanup function that stops the polling interval.
+ */
+export function startAgentPolling(intervalMs = 3000): () => void {
+  // Initial fetch
+  fetchAgents();
+  const timer = setInterval(fetchAgents, intervalMs);
+  return () => clearInterval(timer);
+}
 
 export function setupAgentSubscription(agentId: string): () => void {
   const topic = `agent:${agentId}`;

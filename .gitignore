@@ -28,3 +28,15 @@
 *.db-wal
 *.db-shm
 .claude/worktrees/
+
+# Claude Code local state
+.claude/projects/
+.claude/tackline/
+.claude/worktrees/
+.claude/launch.json
+
+# Dependencies
+node_modules/
+
+# Vitest cache
+.vite/

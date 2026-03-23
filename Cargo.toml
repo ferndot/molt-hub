@@ -74,5 +74,8 @@ base64 = "0.22"
 # System keychain
 keyring = "3"
 
+# Platform directories (XDG / macOS conventions)
+dirs = "6"
+
 # Low-level Unix bindings
 libc = "0.2"

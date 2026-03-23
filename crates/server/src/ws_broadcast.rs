@@ -131,18 +131,29 @@ pub fn broadcast_metrics(manager: &ConnectionManager, metrics: &MetricsPayload) 
 // ---------------------------------------------------------------------------
 
 /// Payload for an agent output line pushed to `agent:{id}`.
+///
+/// Wire format matches the spec:
+/// ```json
+/// {"type": "agent_output", "agent_id": "...", "line": "...", "timestamp": "..."}
+/// ```
 #[derive(Debug, Serialize)]
 pub struct AgentOutputPayload {
+    #[serde(rename = "type")]
+    pub msg_type: String,
     pub agent_id: String,
-    pub output: String,
+    pub line: String,
     pub timestamp: String,
 }
 
 /// Broadcast an agent output line to clients subscribed to `agent:{id}`.
-pub fn broadcast_agent_output(manager: &ConnectionManager, agent_id: &str, output: &str) {
+///
+/// Also writes to the provided [`AgentOutputBuffer`] so late-joining clients
+/// can fetch recent output via REST.
+pub fn broadcast_agent_output(manager: &ConnectionManager, agent_id: &str, line: &str) {
     let payload = AgentOutputPayload {
+        msg_type: "agent_output".into(),
         agent_id: agent_id.to_owned(),
-        output: output.to_owned(),
+        line: line.to_owned(),
         timestamp: Utc::now().to_rfc3339(),
     };
     let topic = format!("agent:{agent_id}");
@@ -298,8 +309,9 @@ mod tests {
         match msg {
             ServerMessage::Event { topic, payload } => {
                 assert_eq!(topic, "agent:agent-42");
+                assert_eq!(payload["type"], "agent_output");
                 assert_eq!(payload["agent_id"], "agent-42");
-                assert_eq!(payload["output"], "Running tests...");
+                assert_eq!(payload["line"], "Running tests...");
                 assert!(payload["timestamp"].is_string());
             }
             other => panic!("expected Event, got {:?}", other),
