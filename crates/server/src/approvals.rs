@@ -652,6 +652,8 @@ mod tests {
                 hooks: vec![],
                 transition_rules: vec![],
             }],
+            integrations: vec![],
+            columns: vec![],
         })
     }
 

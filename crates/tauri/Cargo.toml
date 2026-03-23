@@ -1,0 +1,20 @@
+[package]
+name = "molt-hub-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Tauri v2 desktop shell for Molt Hub"
+
+[[bin]]
+name = "molt-hub-desktop"
+path = "src/main.rs"
+
+[dependencies]
+molt-hub-server = { path = "../server" }
+tauri = { version = "2", features = [] }
+axum = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }

@@ -26,4 +26,7 @@
 ## Cross-Agent Notes
 - T23/T24 should import createVirtualizer from ui/src/lib/virtual.ts, not directly from @tanstack/solid-virtual (added: 2026-03-23, dispatch: T22)
 - T25 can call setP0Count/setP1Count from attentionStore.ts to drive sidebar badge (added: 2026-03-23, dispatch: T28)
-- BoardView needs wiring into App.tsx routes — T24 did NOT modify App.tsx per constraints (added: 2026-03-23, dispatch: T24)
+- RESOLVED: BoardView now wired into App.tsx routes and reads columns from settingsStore (updated: 2026-03-23)
+- settingsStore.ts at ui/src/views/Settings/settingsStore.ts: exports jira config, appearance, kanban columns actions. BoardView reads from getSortedColumns/getStagesForColumn. (added: 2026-03-23, dispatch: Settings+Jira)
+- JiraImport uses createResource with nullable trigger signal + Portal for modal rendering. (added: 2026-03-23, dispatch: Settings+Jira)
+- StatusIndicator already exists from prior sprint — no rebuild needed, just wire into new components. (added: 2026-03-23, dispatch: T30)

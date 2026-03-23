@@ -1,0 +1,259 @@
+//! GitHub REST API v3 client.
+//!
+//! Wraps the GitHub REST API with a thin async client.  Authentication
+//! uses a personal access token or GitHub App installation token passed
+//! as a Bearer header.
+
+use reqwest::{Client, StatusCode};
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+// ---------------------------------------------------------------------------
+// Error type
+// ---------------------------------------------------------------------------
+
+/// Errors returned by [`GitHubClient`] operations.
+#[derive(Debug, Error)]
+pub enum GitHubError {
+    /// HTTP-level transport error (connection refused, timeout, etc.).
+    #[error("HTTP error: {0}")]
+    HttpError(#[from] reqwest::Error),
+
+    /// The server returned HTTP 401 or 403.
+    #[error("authentication failed (HTTP {status})")]
+    AuthError { status: u16 },
+
+    /// The response body could not be deserialised.
+    #[error("parse error: {0}")]
+    ParseError(String),
+}
+
+// ---------------------------------------------------------------------------
+// API response types
+// ---------------------------------------------------------------------------
+
+/// A GitHub issue as returned by the REST API.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitHubIssue {
+    /// Issue number within the repository.
+    pub number: i64,
+    /// Human-readable title.
+    pub title: String,
+    /// State: `"open"` or `"closed"`.
+    pub state: String,
+    /// Full body text (Markdown).
+    pub body: Option<String>,
+    /// Browser URL to the issue.
+    pub html_url: String,
+    /// Labels attached to the issue.
+    pub labels: Vec<GitHubLabel>,
+}
+
+/// A label on a GitHub issue.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitHubLabel {
+    /// Label display name.
+    pub name: String,
+}
+
+/// A GitHub repository as returned by the REST API.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitHubRepo {
+    /// Full repository name, e.g. `"owner/repo"`.
+    pub full_name: String,
+    /// Repository description.
+    pub description: Option<String>,
+    /// Browser URL to the repository.
+    pub html_url: String,
+}
+
+// ---------------------------------------------------------------------------
+// GitHubClient
+// ---------------------------------------------------------------------------
+
+/// Async GitHub REST API v3 client.
+///
+/// Authenticates via Bearer token against `https://api.github.com`.
+pub struct GitHubClient {
+    http: Client,
+    token: String,
+    base_url: String,
+}
+
+impl GitHubClient {
+    /// Create a client from a personal access token or installation token.
+    pub fn new(token: String) -> Self {
+        Self {
+            http: Client::new(),
+            token,
+            base_url: "https://api.github.com".to_owned(),
+        }
+    }
+
+    /// Create a client with a custom base URL (useful for testing).
+    #[cfg(test)]
+    pub fn with_base_url(token: String, base_url: String) -> Self {
+        Self {
+            http: Client::new(),
+            token,
+            base_url,
+        }
+    }
+
+    /// List repositories accessible to the authenticated user.
+    pub async fn list_repos(&self) -> Result<Vec<GitHubRepo>, GitHubError> {
+        let url = format!("{}/user/repos", self.base_url);
+        let response = self
+            .http
+            .get(&url)
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "molt-hub")
+            .query(&[("per_page", "100"), ("sort", "updated")])
+            .send()
+            .await?;
+
+        Self::check_auth(&response)?;
+
+        let repos: Vec<GitHubRepo> = response
+            .json()
+            .await
+            .map_err(|e| GitHubError::ParseError(e.to_string()))?;
+
+        Ok(repos)
+    }
+
+    /// Search issues in a repository.
+    ///
+    /// `query` is appended to the GitHub search qualifier
+    /// `repo:{owner}/{repo}`.
+    pub async fn search_issues(
+        &self,
+        owner: &str,
+        repo: &str,
+        query: &str,
+    ) -> Result<Vec<GitHubIssue>, GitHubError> {
+        let q = format!("repo:{owner}/{repo} {query}");
+        let url = format!("{}/search/issues", self.base_url);
+        let response = self
+            .http
+            .get(&url)
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "molt-hub")
+            .query(&[("q", q.as_str()), ("per_page", "50")])
+            .send()
+            .await?;
+
+        Self::check_auth(&response)?;
+
+        let body: SearchResult = response
+            .json()
+            .await
+            .map_err(|e| GitHubError::ParseError(e.to_string()))?;
+
+        Ok(body.items)
+    }
+
+    /// Check for 401/403 status codes and return an `AuthError`.
+    fn check_auth(response: &reqwest::Response) -> Result<(), GitHubError> {
+        let status = response.status();
+        if status == StatusCode::UNAUTHORIZED || status == StatusCode::FORBIDDEN {
+            return Err(GitHubError::AuthError {
+                status: status.as_u16(),
+            });
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Internal API response shapes
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct SearchResult {
+    items: Vec<GitHubIssue>,
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn github_client_new_sets_base_url() {
+        let client = GitHubClient::new("ghp_test123".into());
+        assert_eq!(client.base_url, "https://api.github.com");
+        assert_eq!(client.token, "ghp_test123");
+    }
+
+    #[test]
+    fn github_client_with_base_url() {
+        let client =
+            GitHubClient::with_base_url("tok".into(), "http://localhost:9999".into());
+        assert_eq!(client.base_url, "http://localhost:9999");
+    }
+
+    #[test]
+    fn github_error_display() {
+        let err = GitHubError::AuthError { status: 401 };
+        assert!(err.to_string().contains("401"));
+
+        let err2 = GitHubError::ParseError("bad json".into());
+        assert!(err2.to_string().contains("bad json"));
+    }
+
+    #[test]
+    fn github_issue_deserializes() {
+        let json = serde_json::json!({
+            "number": 42,
+            "title": "Fix the thing",
+            "state": "open",
+            "body": "Detailed description",
+            "html_url": "https://github.com/owner/repo/issues/42",
+            "labels": [{"name": "bug"}, {"name": "urgent"}]
+        });
+        let issue: GitHubIssue = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(issue.number, 42);
+        assert_eq!(issue.title, "Fix the thing");
+        assert_eq!(issue.state, "open");
+        assert_eq!(issue.body, Some("Detailed description".into()));
+        assert_eq!(issue.labels.len(), 2);
+        assert_eq!(issue.labels[0].name, "bug");
+    }
+
+    #[test]
+    fn github_repo_deserializes() {
+        let json = serde_json::json!({
+            "full_name": "owner/repo",
+            "description": "A cool repo",
+            "html_url": "https://github.com/owner/repo"
+        });
+        let repo: GitHubRepo = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(repo.full_name, "owner/repo");
+        assert_eq!(repo.description, Some("A cool repo".into()));
+    }
+
+    #[test]
+    fn search_result_deserializes() {
+        let json = serde_json::json!({
+            "total_count": 1,
+            "incomplete_results": false,
+            "items": [{
+                "number": 1,
+                "title": "Issue 1",
+                "state": "open",
+                "body": null,
+                "html_url": "https://github.com/o/r/issues/1",
+                "labels": []
+            }]
+        });
+        let result: SearchResult = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(result.items.len(), 1);
+        assert_eq!(result.items[0].number, 1);
+    }
+}

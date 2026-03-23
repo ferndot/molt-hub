@@ -408,6 +408,8 @@ mod tests {
                     transition_rules: vec![],
                 },
             ],
+            integrations: vec![],
+            columns: vec![],
         };
 
         let mut engine = TemplateEngine::new();

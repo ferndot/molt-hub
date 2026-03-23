@@ -21,3 +21,6 @@
 
 ## Cross-Agent Notes
 - RESOLVED: Worktree isolation via Agent tool now works. (updated: 2026-03-23)
+- AgentAdapter lives in molt-hub-harness (not core or server). Server depends on harness without circular deps. (added: 2026-03-23, dispatch: T32+T19)
+- keyring v3 has no prefix-scan API — list() cannot enumerate by prefix. Need separate alias index if enumeration required. (added: 2026-03-23, dispatch: T32)
+- HookExecutor parallel path constructs inline — update inline construction when adding fields to HookExecutor. (added: 2026-03-23, dispatch: T19)

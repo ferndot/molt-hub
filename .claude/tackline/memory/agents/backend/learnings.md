@@ -23,3 +23,7 @@
 
 ## Cross-Agent Notes
 - RESOLVED: Rust toolchain now installed. (updated: 2026-03-23)
+- Package name is `molt-hub-server` (not `molt-server`) — use `-p molt-hub-server` in cargo commands. (added: 2026-03-23, dispatch: Jira+T13)
+- No `base64` dep in workspace — use reqwest `.basic_auth(email, Some(token))` for Jira auth. (added: 2026-03-23, dispatch: Jira+T13)
+- DomainEvent has no `TaskImported` variant yet — import uses `TaskCreated` + `AgentOutput` as carrier. Add proper variant later. (added: 2026-03-23, dispatch: Jira+T13)
+- Audit writer: bounded mpsc (512) + non-blocking try_send + background tokio task. AuditHandle is Clone. (added: 2026-03-23, dispatch: T13)

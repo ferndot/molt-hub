@@ -332,6 +332,8 @@ mod tests {
                     transition_rules: vec![],
                 },
             ],
+            integrations: vec![],
+            columns: vec![],
         }
     }
 
@@ -383,6 +385,8 @@ mod tests {
                     transition_rules: vec![],
                 },
             ],
+            integrations: vec![],
+            columns: vec![],
         }
     }
 

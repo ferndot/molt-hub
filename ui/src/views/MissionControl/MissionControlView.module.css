@@ -12,6 +12,9 @@
   gap: 1rem;
   padding: 1rem 1.5rem;
   border-bottom: 1px solid var(--border);
+  /* Window drag region for native title bar */
+  -webkit-app-region: drag;
+  app-region: drag;
 }
 
 .title {
@@ -27,7 +30,12 @@
 }
 
 .filterToggle,
-.sidebarToggle {
+.attentionBadge {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.filterToggle {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -38,9 +46,38 @@
   transition: background 0.1s, border-color 0.1s;
 }
 
-.filterToggle:hover,
-.sidebarToggle:hover {
+.filterToggle:hover {
   border-color: var(--border-strong);
+}
+
+.filterToggleActive {
+  background: var(--priority-p0);
+  color: #fff;
+  border-color: var(--priority-p0);
+}
+
+.filterToggleActive:hover {
+  opacity: 0.9;
+}
+
+.inboxExpandTab {
+  align-self: flex-start;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-right: none;
+  border-radius: 6px 0 0 6px;
+  padding: 0.5rem 0.625rem;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  writing-mode: horizontal-tb;
+  margin-top: 1rem;
+  transition: background 0.15s, color 0.15s;
+}
+
+.inboxExpandTab:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .body {
@@ -55,4 +92,7 @@
   overflow-x: auto;
   padding: 1rem;
   gap: 1rem;
+  /* Ensure card DnD works — opt out of window drag region */
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }

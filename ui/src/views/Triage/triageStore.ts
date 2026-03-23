@@ -210,9 +210,41 @@ export function setSortMode(mode: SortMode): void {
 // ---------------------------------------------------------------------------
 
 export function setupTriageSubscription(): () => void {
-  const unsubscribe = subscribe("triage:*", (_msg) => {
-    // TODO: handle incoming triage events from server
-    // e.g. new item added, item resolved by another operator
+  const unsubscribe = subscribe("triage:*", (msg) => {
+    if (msg.type !== "event") return;
+    const payload = msg.payload as Record<string, unknown>;
+
+    // Determine the sub-topic from the full topic string (e.g. "triage:new")
+    const topic = (msg as { topic?: string }).topic ?? "";
+
+    if (topic === "triage:new" || topic === "triage:item") {
+      // Add a new triage item from the server
+      const item: TriageItem = {
+        id: (payload.id as string) ?? "",
+        taskId: (payload.task_id as string) ?? "",
+        taskName: (payload.task_name as string) ?? "",
+        agentName: (payload.agent_name as string) ?? "",
+        stage: (payload.stage as string) ?? "",
+        priority: (payload.priority as Priority) ?? "p2",
+        type: (payload.type as "decision" | "info") ?? "info",
+        createdAt: (payload.created_at as string) ?? new Date().toISOString(),
+        summary: (payload.summary as string) ?? "",
+      };
+      // Only add if not already present
+      if (!state.items.find((i) => i.id === item.id)) {
+        setState(
+          produce((s) => {
+            s.items = sortItems([...s.items, item]);
+          }),
+        );
+      }
+    } else if (topic === "triage:resolved" || topic === "triage:removed") {
+      // Remove a triage item that was resolved elsewhere
+      const id = payload.id as string | undefined;
+      if (id) {
+        removeItem(id);
+      }
+    }
   });
   return unsubscribe;
 }

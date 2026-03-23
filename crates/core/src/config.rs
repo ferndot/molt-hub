@@ -7,6 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use thiserror::Error;
 
+use crate::integrations::config::IntegrationConfig;
+
 // ─── Error type ──────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Error)]
@@ -97,6 +99,71 @@ pub struct StageDefinition {
     pub transition_rules: Vec<TransitionDefinition>,
 }
 
+// ─── Column types ─────────────────────────────────────────────────────────────
+
+/// WIP limits, auto-assignment, and gating behavior for a kanban column.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ColumnBehavior {
+    /// Maximum number of tasks allowed in the column at once.
+    pub wip_limit: Option<u32>,
+    /// Automatically assign an agent when a task enters this column.
+    #[serde(default)]
+    pub auto_assign: bool,
+    /// Automatically move tasks to this stage name when a condition is met.
+    pub auto_transition: Option<String>,
+    /// Require human approval before a task is allowed to leave this column.
+    #[serde(default)]
+    pub require_approval: bool,
+}
+
+/// Hook IDs that fire when tasks enter, exit, or stall in a column.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ColumnHooks {
+    /// Hook IDs to run when a task enters this column.
+    #[serde(default)]
+    pub on_enter: Vec<String>,
+    /// Hook IDs to run when a task leaves this column.
+    #[serde(default)]
+    pub on_exit: Vec<String>,
+    /// Hook IDs to run when a task stalls (exceeds inactivity threshold) in this column.
+    #[serde(default)]
+    pub on_stall: Vec<String>,
+}
+
+/// A kanban column definition, including display settings, stage mapping, and behavior.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ColumnConfig {
+    /// Stable identifier for this column, used in hook references and API calls.
+    pub id: String,
+    /// Human-readable column heading shown in the UI.
+    pub title: String,
+    /// Stage name patterns (exact or glob) that this column renders.
+    #[serde(default)]
+    pub stage_match: Vec<String>,
+    /// Optional hex color code for the column header, e.g. `"#FF5733"`.
+    pub color: Option<String>,
+    /// Display order among sibling columns (lower = further left).
+    pub order: u32,
+    /// WIP and gating behavior.
+    #[serde(default)]
+    pub behavior: ColumnBehavior,
+    /// Lifecycle hooks for this column.
+    #[serde(default)]
+    pub hooks: ColumnHooks,
+}
+
+// ─── Integration section ───────────────────────────────────────────────────────
+
+/// An entry in the `integrations` section of a pipeline config.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IntegrationEntry {
+    /// Human-readable label for this integration entry.
+    pub name: String,
+    /// The typed connection settings.
+    #[serde(flatten)]
+    pub config: IntegrationConfig,
+}
+
 // ─── Pipeline config (top-level) ──────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +172,12 @@ pub struct PipelineConfig {
     pub description: Option<String>,
     pub version: u32,
     pub stages: Vec<StageDefinition>,
+    /// Optional external integrations configured for this pipeline.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub integrations: Vec<IntegrationEntry>,
+    /// Kanban column definitions for this pipeline's board view.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<ColumnConfig>,
 }
 
 impl PipelineConfig {

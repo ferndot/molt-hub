@@ -1,5 +1,4 @@
-import type { Component } from "solid-js";
-import { For } from "solid-js";
+import { createSignal, For, type Component } from "solid-js";
 import { A } from "@solidjs/router";
 import styles from "./AgentList.module.css";
 
@@ -21,9 +20,9 @@ interface MockAgent {
 // ---------------------------------------------------------------------------
 
 const MOCK_AGENTS: MockAgent[] = [
-  { id: "agent-001", name: "frontend", status: "running", stage: "Implementing" },
-  { id: "agent-002", name: "backend-api", status: "waiting", stage: "Awaiting Review" },
-  { id: "agent-003", name: "core-engine", status: "blocked", stage: "Needs Decision" },
+  { id: "agent-001", name: "frontend", status: "running", stage: "Working" },
+  { id: "agent-002", name: "backend-api", status: "waiting", stage: "Needs Review" },
+  { id: "agent-003", name: "core-engine", status: "blocked", stage: "Blocked" },
   { id: "agent-004", name: "infra", status: "done", stage: "Completed" },
 ];
 
@@ -43,10 +42,32 @@ interface Props {
 }
 
 const AgentList: Component<Props> = (props) => {
+  const [query, setQuery] = createSignal("");
+
+  const filteredAgents = () => {
+    const q = query().toLowerCase().trim();
+    if (!q) return MOCK_AGENTS;
+    return MOCK_AGENTS.filter(
+      (a) =>
+        a.name.toLowerCase().includes(q) ||
+        a.stage.toLowerCase().includes(q),
+    );
+  };
+
   return (
     <div class={styles.section}>
       <div class={styles.sectionTitle}>Agents</div>
-      <For each={MOCK_AGENTS}>
+      <div class={styles.searchWrapper}>
+        <input
+          class={styles.searchInput}
+          type="search"
+          placeholder="Search agents..."
+          value={query()}
+          onInput={(e) => setQuery(e.currentTarget.value)}
+          aria-label="Search agents"
+        />
+      </div>
+      <For each={filteredAgents()}>
         {(agent) => (
           <A href={`/agents/${agent.id}`} class={styles.agentItem}>
             <span

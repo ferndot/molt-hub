@@ -33,3 +33,19 @@
 - Key insight: 3 frontend agents in parallel worktrees worked despite all touching ui/. Only one merge conflict on App.tsx, easily resolved. Tester agent activated cleanly on first dispatch, produced 36 integration tests.
 - Process note: Build step revealed missing CSS module type declarations — agents should add css.d.ts as standard scaffold step.
 - Tester cold start: Successful. Agent read existing code thoroughly and produced well-structured integration tests covering approval flow, attention flow, and actor lifecycle.
+
+## Retro: 2026-03-23 (Waves 7-9 — Jira + OAuth + UX)
+- Tasks completed: ~15 across 3 waves
+- Commits: 23 this session (15 feat, 2 fix, 6 merge)
+- Tests: 387 → 534+ (+147, +38%)
+- New learnings: 13 across 4 members
+- Fix rate: 8.7% (2 fix / 23 — missing DomainEvent match arms after core changes merged)
+- Key insight: After merging core enum changes, run cargo check on main BEFORE dispatching downstream agents. Two fix commits were needed for match arms the architect's new DomainEvent variants broke in classifier.rs and router.rs.
+- Process: 11 agents across 3 waves. User feedback mid-sprint (OAuth to PKCE, column config to Board, Triage to Inbox) incorporated via follow-up dispatch waves.
+- UX decisions: header to status bar, column config on Board not Settings, OAuth PKCE for distributable, settings persist to backend SQLite, status bar shows CPU/agent metrics.
+
+## Retro: 2026-03-23 (Bug Fix Sprint — UI Polish)
+- Tasks completed: 2 (status bar flashing, redundant stage chip)
+- Commits: 4 (2 fix, 1 revert, 1 fix) — net 2 meaningful changes
+- Fix rate: 25% (1 misdiagnosed component, reverted)
+- Key insight: When user reports a UI bug with specific visible text, grep for that exact string first — semantic exploration found the wrong component. Also: small <10-line fixes are faster as direct edits than worktree agent dispatches.

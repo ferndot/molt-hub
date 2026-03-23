@@ -226,6 +226,15 @@ fn event_summary(event: &DomainEvent) -> String {
         } => {
             format!("Decision by {decided_by}: {decision:?}")
         }
+        DomainEvent::TaskImported {
+            source,
+            external_id,
+            ..
+        } => format!("Task imported from {source}: {external_id}"),
+        DomainEvent::IntegrationConfigured {
+            integration_type,
+            project_scope,
+        } => format!("Integration configured: {integration_type} for {project_scope}"),
     }
 }
 

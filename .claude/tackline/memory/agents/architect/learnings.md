@@ -21,3 +21,6 @@
 
 ## Cross-Agent Notes
 - RESOLVED: Rust toolchain now installed. (updated: 2026-03-23)
+- MoltIntegration trait uses synchronous methods — server crate wraps in async (spawn_blocking). Implementors must be Send + Sync. (added: 2026-03-23, dispatch: T31+Jira)
+- When adding fields to PipelineConfig, update test helpers in transitions.rs (two_stage_pipeline, three_stage_pipeline) and templates.rs struct literals. Use `#[serde(default)]` for optional fields. (added: 2026-03-23, dispatch: T31+Jira)
+- machine.rs::event_name() is manual &'static str match — must update when adding DomainEvent variants. (added: 2026-03-23, dispatch: T31+Jira)

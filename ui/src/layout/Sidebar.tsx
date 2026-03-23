@@ -1,8 +1,14 @@
 import type { Component } from "solid-js";
-import { Show } from "solid-js";
+import { Show, createSignal } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { attentionCount } from "./attentionStore";
 import AgentList from "./AgentList";
+import {
+  settingsState,
+  setNavSidebarWidth,
+  NAV_SIDEBAR_MIN,
+  NAV_SIDEBAR_MAX,
+} from "../views/Settings/settingsStore";
 import styles from "./Sidebar.module.css";
 
 // ---------------------------------------------------------------------------
@@ -10,9 +16,9 @@ import styles from "./Sidebar.module.css";
 // ---------------------------------------------------------------------------
 
 const NAV_ICONS: Record<string, string> = {
-  "/triage": "⚡",
-  "/board": "▦",
+  "/": "⚡",
   "/agents": "◉",
+  "/settings": "⚙",
 };
 
 // ---------------------------------------------------------------------------
@@ -30,34 +36,66 @@ interface Props {
 
 const Sidebar: Component<Props> = (props) => {
   const location = useLocation();
+  const [isDragging, setIsDragging] = createSignal(false);
 
-  const isActive = (href: string) => location.pathname === href || (href !== "/" && location.pathname.startsWith(href));
+  const isActive = (href: string) => {
+    if (href === "/") return location.pathname === "/" || location.pathname === "/mission-control";
+    return location.pathname.startsWith(href);
+  };
 
   const navItems = [
-    { href: "/triage", label: "Triage" },
-    { href: "/board", label: "Board" },
+    { href: "/", label: "Mission Control" },
     { href: "/agents", label: "Agents" },
+    { href: "/settings", label: "Settings" },
   ];
+
+  // ---- Drag-to-resize logic ------------------------------------------------
+  // Update the DOM directly during drag to avoid the store → effect →
+  // localStorage chain on every mousemove. Commit to the store on mouseup.
+
+  let sidebarRef: HTMLElement | undefined;
+
+  const startResize = (e: MouseEvent) => {
+    e.preventDefault();
+    setIsDragging(true);
+    const startX = e.clientX;
+    const startWidth = settingsState.sidebarWidths.navSidebar;
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+      const clamped = Math.max(NAV_SIDEBAR_MIN, Math.min(NAV_SIDEBAR_MAX, startWidth + delta));
+      if (sidebarRef) sidebarRef.style.width = `${clamped}px`;
+    };
+
+    const onUp = (upEvent: MouseEvent) => {
+      setIsDragging(false);
+      const delta = upEvent.clientX - startX;
+      setNavSidebarWidth(startWidth + delta);
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    };
+
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  };
+
+  const sidebarWidth = () =>
+    props.collapsed ? 56 : settingsState.sidebarWidths.navSidebar;
 
   return (
     <aside
+      ref={sidebarRef}
       class={styles.sidebar}
-      classList={{ [styles.collapsed]: props.collapsed }}
+      classList={{ [styles.collapsed]: props.collapsed, [styles.dragging]: isDragging() }}
+      style={{ width: `${sidebarWidth()}px` }}
     >
-      {/* Toggle button */}
-      <button
-        class={styles.collapseBtn}
-        onClick={props.onToggle}
-        title={props.collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        aria-label={props.collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      >
-        {props.collapsed ? "→" : "←"}
-      </button>
+      {/* Traffic light spacer — window drag region */}
+      <div class={styles.trafficLightSpacer} />
 
       {/* Nav links */}
       <nav class={styles.nav}>
         {navItems.map((item) => {
-          const count = () => item.href === "/triage" ? attentionCount() : 0;
+          const count = () => item.href === "/" ? attentionCount() : 0;
           return (
             <A
               href={item.href}
@@ -81,9 +119,22 @@ const Sidebar: Component<Props> = (props) => {
         })}
       </nav>
 
-      {/* Agent list */}
+      {/* Agent list (scrollable) */}
       <Show when={!props.collapsed}>
-        <AgentList />
+        <div class={styles.agentListWrapper}>
+          <AgentList />
+        </div>
+      </Show>
+
+      {/* Drag handle */}
+      <Show when={!props.collapsed}>
+        <div
+          class={styles.resizeHandle}
+          classList={{ [styles.dragging]: isDragging() }}
+          onMouseDown={startResize}
+          title="Drag to resize sidebar"
+          aria-hidden="true"
+        />
       </Show>
     </aside>
   );

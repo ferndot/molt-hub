@@ -6,7 +6,13 @@
 pub mod actors;
 pub mod approvals;
 pub mod attention;
+pub mod audit;
+pub mod credentials;
 pub mod hooks;
+pub mod integrations;
 pub mod scheduler;
+pub mod settings;
 pub mod summarizer;
+pub mod serve;
 pub mod ws;
+pub mod ws_broadcast;

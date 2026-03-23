@@ -12,7 +12,7 @@ export interface ChordState {
   timestamp: number;
 }
 
-export type ChordAction = "goto-triage" | "goto-board" | "goto-agents";
+export type ChordAction = "goto-triage" | "goto-board" | "goto-agents" | "goto-mission-control";
 
 export interface ChordResult {
   action: ChordAction;
@@ -27,6 +27,7 @@ const CHORD_MAP: Record<string, Record<string, ChordAction>> = {
     t: "goto-triage",
     b: "goto-board",
     a: "goto-agents",
+    m: "goto-mission-control",
   },
 };
 

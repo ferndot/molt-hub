@@ -21,7 +21,7 @@ export type MessageHandler = (msg: ServerMessage) => void;
 // Reconnect configuration
 // ---------------------------------------------------------------------------
 
-const RECONNECT_BASE_MS = 500;
+const RECONNECT_BASE_MS = 2000;
 const RECONNECT_MAX_MS = 30_000;
 const RECONNECT_JITTER_MS = 200;
 
@@ -121,8 +121,9 @@ export function connect(url = "/ws"): void {
   });
 
   ws.addEventListener("error", () => {
-    setStatus("error");
-    // close event fires after error, which handles reconnect
+    // Skip the transient "error" state — the close event fires immediately
+    // after and sets "disconnected", which avoids a status flash in the UI.
+    setStatus("disconnected");
   });
 }
 
