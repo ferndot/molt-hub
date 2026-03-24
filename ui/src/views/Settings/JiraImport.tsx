@@ -45,10 +45,36 @@ type ImportStatus = "idle" | "importing" | "success" | "error";
 // API helpers
 // ---------------------------------------------------------------------------
 
+/** Server returns `{ error: string }` on failure; surface that instead of bare status codes. */
+function formatJiraHttpError(status: number, bodyText: string): string {
+  let detail: string | null = null;
+  const t = bodyText.trim();
+  if (t) {
+    try {
+      const j = JSON.parse(t) as { error?: unknown };
+      if (typeof j.error === "string" && j.error.length > 0) detail = j.error;
+    } catch {
+      detail = t.length > 200 ? `${t.slice(0, 200)}…` : t;
+    }
+  }
+  const core = detail ?? `HTTP ${status}`;
+  if (status === 401 || status === 403) {
+    return `${core} — Connect Jira in Settings → Integrations, or disconnect and sign in again if the token expired.`;
+  }
+  return core;
+}
+
+async function parseJsonOrThrow<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(formatJiraHttpError(response.status, text));
+  }
+  return JSON.parse(text) as T;
+}
+
 async function fetchProjects(): Promise<JiraProject[]> {
   const response = await fetch("/api/integrations/jira/projects");
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json() as Promise<JiraProject[]>;
+  return parseJsonOrThrow<JiraProject[]>(response);
 }
 
 /** Server `GET /search` expects `jql` (optional `cloud_id`). */
@@ -71,8 +97,7 @@ async function searchIssues(
   const jql = buildJiraSearchJql(projectKey, userJql);
   const params = new URLSearchParams({ jql });
   const response = await fetch(`/api/integrations/jira/search?${params}`);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json() as Promise<JiraIssue[]>;
+  return parseJsonOrThrow<JiraIssue[]>(response);
 }
 
 async function importIssues(
@@ -87,8 +112,7 @@ async function importIssues(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json() as Promise<{ imported: string[] }>;
+  return parseJsonOrThrow<{ imported: string[] }>(response);
 }
 
 // ---------------------------------------------------------------------------
