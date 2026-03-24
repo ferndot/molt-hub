@@ -18,6 +18,7 @@ pub mod scheduler;
 pub mod serve;
 pub mod settings;
 pub mod summarizer;
+pub mod system;
 pub mod ws;
 pub mod ws_broadcast;
 

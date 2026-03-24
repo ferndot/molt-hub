@@ -217,19 +217,36 @@ const ProjectsPanel: Component = () => {
   });
 
   const pickFolder = async () => {
-    if (!isTauriShell()) {
-      return;
-    }
+    setFormError(null);
     try {
-      // Static import: a dynamic `import()` before `open()` yields and can drop the
-      // user-activation chain, so WebKit/macOS may refuse to show the folder picker.
-      const chosen = await openNativeDialog({
-        directory: true,
-        multiple: false,
-        title: "Choose Git repository folder",
-      });
-      if (typeof chosen === "string") {
-        setRepoPath(chosen);
+      if (isTauriShell()) {
+        // Static import: a dynamic `import()` before `open()` yields and can drop the
+        // user-activation chain, so WebKit/macOS may refuse to show the folder picker.
+        const chosen = await openNativeDialog({
+          directory: true,
+          multiple: false,
+          title: "Choose Git repository folder",
+        });
+        if (typeof chosen === "string") {
+          setRepoPath(chosen);
+        }
+        return;
+      }
+
+      const res = await fetch("/api/system/pick-repo-folder", { method: "POST" });
+      const data = (await res.json().catch(() => ({}))) as {
+        path?: string | null;
+        error?: string | null;
+      };
+      if (!res.ok) {
+        setFormError(
+          data.error ??
+            `Could not open folder picker (HTTP ${res.status}). Enter the path manually.`,
+        );
+        return;
+      }
+      if (data.path) {
+        setRepoPath(data.path);
       }
     } catch (err) {
       console.error("folder dialog failed", err);
@@ -259,7 +276,8 @@ const ProjectsPanel: Component = () => {
       <h3 class={styles.sectionTitle}>Projects</h3>
       <p class={styles.oauthDescription}>
         Add a project with a display name and the path to its Git repository on disk.
-        In the desktop app you can choose a folder; in the browser, enter the path manually.
+        Choose folder… opens a system picker (desktop shell or browser when the server runs on
+        this machine). You can always type the path instead.
       </p>
 
       <form class={styles.formGroup} onSubmit={onSubmit}>
@@ -285,11 +303,9 @@ const ProjectsPanel: Component = () => {
             autocomplete="off"
             style={{ flex: "1", "min-width": "200px" }}
           />
-          <Show when={isTauriShell()}>
-            <button type="button" class={styles.btnPrimary} onClick={() => void pickFolder()}>
-              Choose folder…
-            </button>
-          </Show>
+          <button type="button" class={styles.btnPrimary} onClick={() => void pickFolder()}>
+            Choose folder…
+          </button>
         </div>
         <div class={styles.buttonRow} style={{ "margin-top": "12px" }}>
           <button type="submit" class={styles.btnPrimary} disabled={submitting()}>

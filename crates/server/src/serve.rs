@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use sqlx::sqlite::SqlitePoolOptions;
 use tokio::task::JoinHandle;
@@ -36,6 +36,7 @@ use crate::pipeline::handlers::{pipeline_router, PipelineState};
 use crate::projects::handlers::{project_router, ProjectConfigStore};
 use crate::projects::runtime::{ProjectRuntime, ProjectRuntimeRegistry};
 use crate::settings::{typed_settings_router, SettingsFileStore, TypedSettingsState};
+use crate::system::pick_repo_folder;
 use crate::ws::{ws_handler, ConnectionManager};
 use crate::ws_broadcast::{broadcast_metrics, MetricsPayload};
 
@@ -64,6 +65,7 @@ fn default_events_db_path() -> PathBuf {
 /// The returned router provides:
 /// - `GET /ws` — WebSocket upgrade for real-time UI updates
 /// - `GET /api/health` — JSON `{ "ok": true }` for startup / port checks
+/// - `POST /api/system/pick-repo-folder` — native folder picker on the server host (browser UI)
 /// - `GET /api/events` — query events (by task_id or since timestamp)
 /// - `GET /api/events/:id` — get a single event
 /// - `POST /api/events` — append an event
@@ -179,6 +181,10 @@ pub async fn build_router(
     let mut router = Router::new()
         .route("/ws", get(ws_handler))
         .route("/api/health", get(api_health))
+        .route(
+            "/api/system/pick-repo-folder",
+            post(pick_repo_folder),
+        )
         .nest_service("/api/pipeline", pipeline)
         .nest_service("/api/agents", agents)
         .nest_service("/api/audit", audit)
