@@ -239,6 +239,12 @@ const ProjectsPanel: Component = () => {
         error?: string | null;
       };
       if (!res.ok) {
+        if (res.status === 405 || res.status === 404) {
+          setFormError(
+            "This Molt Hub server does not expose the folder picker (often an old binary still running). Stop it, rebuild from the repo (`cargo build -p molt-hub-server`), start `molt-hub serve` again—or type the repository path manually.",
+          );
+          return;
+        }
         setFormError(
           data.error ??
             `Could not open folder picker (HTTP ${res.status}). Enter the path manually.`,
@@ -276,8 +282,10 @@ const ProjectsPanel: Component = () => {
       <h3 class={styles.sectionTitle}>Projects</h3>
       <p class={styles.oauthDescription}>
         Add a project with a display name and the path to its Git repository on disk.
-        Choose folder… opens a system picker (desktop shell or browser when the server runs on
-        this machine). You can always type the path instead.
+        A browser-only folder dialog never gives the page a full disk path (that is intentional in
+        web security), so Molt Hub cannot learn where to run Git from JavaScript alone. Choose
+        folder… asks the OS on the machine running the app (Tauri or the local Rust server) and
+        pastes that path here. You can always type the path instead.
       </p>
 
       <form class={styles.formGroup} onSubmit={onSubmit}>
