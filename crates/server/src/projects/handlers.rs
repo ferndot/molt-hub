@@ -14,6 +14,12 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use crate::agents::handlers::{
+    delete_project_agent, get_project_agent, list_project_agents,
+};
+use crate::pipeline::handlers::{
+    get_project_pipeline_stages, patch_project_pipeline_stage, put_project_pipeline_stages,
+};
 use chrono::Utc;
 use molt_hub_core::model::ProjectId;
 use molt_hub_core::project::{Project, ProjectStatus, ProjectValidationError};
@@ -387,7 +393,12 @@ pub async fn archive_project(
 // Router builder
 // ---------------------------------------------------------------------------
 
-/// Build the `/api/projects` sub-router.
+/// Build the `/api/projects` sub-router (for use with `nest_service`).
+///
+/// This includes both the base project CRUD routes and the project-scoped
+/// agent/pipeline sub-routes. The project-scoped handlers use
+/// `Extension<Arc<ProjectRuntimeRegistry>>` (not `State`) so they are
+/// compatible with the `Arc<ProjectConfigStore>` state of this router.
 pub fn project_router(state: Arc<ProjectConfigStore>) -> Router {
     Router::new()
         .route("/", get(list_projects).post(create_project))
@@ -396,6 +407,24 @@ pub fn project_router(state: Arc<ProjectConfigStore>) -> Router {
             get(get_project)
                 .patch(update_project)
                 .delete(archive_project),
+        )
+        // Project-scoped agent routes (Extension-based, no State conflict)
+        .route(
+            "/:pid/agents",
+            get(list_project_agents),
+        )
+        .route(
+            "/:pid/agents/:aid",
+            get(get_project_agent).delete(delete_project_agent),
+        )
+        // Project-scoped pipeline routes
+        .route(
+            "/:pid/pipeline/stages",
+            get(get_project_pipeline_stages).put(put_project_pipeline_stages),
+        )
+        .route(
+            "/:pid/pipeline/stages/:sid",
+            axum::routing::patch(patch_project_pipeline_stage),
         )
         .with_state(state)
 }

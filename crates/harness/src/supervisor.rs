@@ -98,6 +98,8 @@ pub struct ManagedAgent {
     pub adapter: Arc<dyn AgentAdapter>,
     pub started_at: DateTime<Utc>,
     pub last_health_check: DateTime<Utc>,
+    /// Optional project this agent belongs to. `None` means the global / default context.
+    pub project_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +143,7 @@ impl Supervisor {
 
         let agent_id = spawn_config.agent_id.clone();
         let task_id = spawn_config.task_id.clone();
+        let project_id = spawn_config.project_id.clone();
 
         info!(
             agent_id = %agent_id,
@@ -158,6 +161,7 @@ impl Supervisor {
             adapter,
             started_at: now,
             last_health_check: now,
+            project_id,
         };
 
         self.agents.insert(agent_id.clone(), managed);
@@ -321,6 +325,29 @@ impl Supervisor {
                     error: "status unavailable".into(),
                 });
             result.push((agent_id, task_id, status));
+        }
+
+        result
+    }
+
+    /// Return a snapshot of all active agents with their project IDs:
+    /// `(AgentId, TaskId, AgentStatus, Option<String>)`.
+    pub async fn list_agents_with_project(&self) -> Vec<(AgentId, TaskId, AgentStatus, Option<String>)> {
+        let mut result = Vec::with_capacity(self.agents.len());
+
+        for entry in self.agents.iter() {
+            let agent_id = entry.key().clone();
+            let task_id = entry.value().task_id.clone();
+            let project_id = entry.value().project_id.clone();
+            let status = entry
+                .value()
+                .adapter
+                .status(&entry.value().handle)
+                .await
+                .unwrap_or(AgentStatus::Crashed {
+                    error: "status unavailable".into(),
+                });
+            result.push((agent_id, task_id, status, project_id));
         }
 
         result
@@ -517,6 +544,7 @@ mod tests {
             env: HashMap::new(),
             timeout: None,
             adapter_config: serde_json::Value::Null,
+            project_id: None,
         }
     }
 

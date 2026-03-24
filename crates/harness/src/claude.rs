@@ -628,6 +628,7 @@ mod tests {
             env: HashMap::new(),
             timeout: None,
             adapter_config: serde_json::json!({}),
+            project_id: None,
         }
     }
 
@@ -956,6 +957,7 @@ mod tests {
             env: HashMap::new(),
             timeout: None,
             adapter_config: serde_json::json!({}),
+            project_id: None,
         }
     }
 
