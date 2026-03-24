@@ -31,6 +31,31 @@ function isTauriShell(): boolean {
   return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 }
 
+/**
+ * Tauri `invoke` rejects with a plain string for `Result::Err(String)` from Rust.
+ * `catch (e)` then sees a non-Error value and our old code showed the useless "Network error".
+ */
+function formatInvokeRejection(err: unknown): string {
+  if (typeof err === "string" && err.length > 0) {
+    return err;
+  }
+  if (err instanceof Error && err.message.length > 0) {
+    return err.message;
+  }
+  if (
+    err &&
+    typeof err === "object" &&
+    "message" in err &&
+    typeof (err as { message: unknown }).message === "string"
+  ) {
+    const m = (err as { message: string }).message;
+    if (m.length > 0) {
+      return m;
+    }
+  }
+  return "Network error";
+}
+
 /** Shown when /api OAuth returns non-JSON or the desktop API never came up. */
 function oauthApiMissingHint(): string {
   if (isTauriShell()) {
@@ -483,8 +508,7 @@ export async function connectJira(): Promise<void> {
     // Start polling for when the user completes OAuth in the other tab
     startJiraStatusPolling();
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Network error";
-    setJiraConnected(false, "", "", message);
+    setJiraConnected(false, "", "", formatInvokeRejection(err));
   }
 }
 
@@ -610,7 +634,7 @@ export async function connectGitHub(): Promise<void> {
     // Start polling for when the user completes OAuth in the other tab
     startGithubStatusPolling();
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Network error";
+    const message = formatInvokeRejection(err);
     setSettingsState(
       produce((s) => {
         s.githubConfig.lastError = message;
@@ -658,7 +682,11 @@ export async function fetchGithubStatus(): Promise<boolean> {
     setSettingsState(
       produce((s) => {
         s.githubConfig.connected = data.connected;
-        if (data.owner) s.githubConfig.owner = data.owner;
+        if (!data.connected) {
+          s.githubConfig.owner = "";
+        } else if (data.owner) {
+          s.githubConfig.owner = data.owner;
+        }
         if (data.connected) s.githubConfig.lastError = null;
       }),
     );

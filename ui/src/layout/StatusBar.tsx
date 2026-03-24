@@ -1,6 +1,9 @@
 /**
  * StatusBar — slim 24px bottom bar with connection status, agent metrics,
  * and keyboard hint.
+ *
+ * The green "Connected" state is the WebSocket link to the local Molt Hub API,
+ * not Jira/GitHub OAuth (those show under Settings).
  */
 
 import { createMemo, createSignal, createEffect, on, type Component } from "solid-js";

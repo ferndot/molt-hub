@@ -44,7 +44,9 @@ fn oauth_auth_start_url(provider: String) -> Result<String, String> {
         _ => return Err(format!("unknown OAuth provider: {provider}")),
     };
     let url = format!("http://127.0.0.1:{port}{path}");
+    // Never send loopback through HTTP(S)_PROXY — corporate proxies often break localhost.
     let client = reqwest::blocking::Client::builder()
+        .no_proxy()
         .timeout(Duration::from_secs(30))
         .build()
         .map_err(|e| e.to_string())?;
@@ -89,6 +91,7 @@ fn forward_oauth_deep_links(urls: Vec<Url>) {
         let target = format!("http://127.0.0.1:{port}{api_path}?{query}");
         std::thread::spawn(move || {
             let client = reqwest::blocking::Client::builder()
+                .no_proxy()
                 .timeout(Duration::from_secs(60))
                 .build()
                 .unwrap_or_else(|_| reqwest::blocking::Client::new());
