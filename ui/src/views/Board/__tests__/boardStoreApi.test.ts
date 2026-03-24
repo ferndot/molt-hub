@@ -30,7 +30,7 @@ describe("boardStore API integration", () => {
     });
 
     const { fetchBoardStages } = await import("../boardStore");
-    const result = await fetchBoardStages("default", "default");
+    const result = await fetchBoardStages("default");
     expect(mockFetch).toHaveBeenCalledWith(
       "/api/projects/default/boards/default/stages",
     );
@@ -41,7 +41,7 @@ describe("boardStore API integration", () => {
     mockFetch.mockRejectedValueOnce(new Error("Network error"));
 
     const { fetchBoardStages } = await import("../boardStore");
-    const result = await fetchBoardStages("default", "default");
+    const result = await fetchBoardStages("default");
     expect(result).toBeNull();
   });
 
@@ -52,7 +52,7 @@ describe("boardStore API integration", () => {
     });
 
     const { fetchBoardStages } = await import("../boardStore");
-    const result = await fetchBoardStages("default", "default");
+    const result = await fetchBoardStages("default");
     expect(result).toBeNull();
   });
 
@@ -66,7 +66,7 @@ describe("boardStore API integration", () => {
     });
 
     const { fetchBoardStages } = await import("../boardStore");
-    const result = await fetchBoardStages("default", "default");
+    const result = await fetchBoardStages("default");
     expect(result).toBeNull();
   });
 

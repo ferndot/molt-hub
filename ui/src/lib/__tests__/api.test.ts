@@ -73,34 +73,19 @@ describe("api client", () => {
     });
   });
 
-  it("getProjectPipelineStages sends GET /api/projects/:pid/pipeline/stages", async () => {
+  it("listBoards sends GET /api/projects/default/boards", async () => {
+    mockJsonResponse({ boards: [{ id: "default", name: "Default" }] });
+    const result = await api.listBoards();
+    expect(mockFetch).toHaveBeenCalledWith("/api/projects/default/boards");
+    expect(result.boards).toHaveLength(1);
+  });
+
+  it("getBoardStages sends GET /api/projects/default/boards/:id/stages", async () => {
     const data = { stages: [{ id: "backlog", label: "Backlog", wip_limit: null }] };
     mockJsonResponse(data);
-    const result = await api.getProjectPipelineStages("proj-1");
-    expect(mockFetch).toHaveBeenCalledWith("/api/projects/proj-1/pipeline/stages");
+    const result = await api.getBoardStages("my-board");
+    expect(mockFetch).toHaveBeenCalledWith("/api/projects/default/boards/my-board/stages");
     expect(result.stages).toHaveLength(1);
-  });
-
-  it("updateProjectPipelineStages sends PUT to project pipeline", async () => {
-    const payload = { stages: [] };
-    mockJsonResponse(payload);
-    await api.updateProjectPipelineStages("proj-1", payload);
-    expect(mockFetch).toHaveBeenCalledWith("/api/projects/proj-1/pipeline/stages", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  });
-
-  it("patchProjectPipelineStage sends PATCH to project stage", async () => {
-    const body = { label: "Done" };
-    mockJsonResponse({ id: "backlog", label: "Done", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false, color: null, order: 0 });
-    await api.patchProjectPipelineStage("proj-1", "backlog", body);
-    expect(mockFetch).toHaveBeenCalledWith("/api/projects/proj-1/pipeline/stages/backlog", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
   });
 
   // ---- Agents ----
@@ -220,14 +205,6 @@ describe("api client", () => {
       headers: { "Content-Type": "application/json" },
       body: undefined,
     });
-  });
-
-  it("getGithubStatus appends projectId when provided", async () => {
-    mockJsonResponse({ connected: false });
-    await api.getGithubStatus("01ARZ3NDEKTSV4RRFFQ69G5FAV");
-    expect(mockFetch).toHaveBeenCalledWith(
-      "/api/integrations/github/status?projectId=01ARZ3NDEKTSV4RRFFQ69G5FAV",
-    );
   });
 
   // ---- Error handling ----

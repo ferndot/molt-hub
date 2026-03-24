@@ -5,15 +5,12 @@
  * which the Vite dev server proxies to the Rust backend at 127.0.0.1:13401.
  */
 
+import { WORKSPACE_ID } from "./workspace";
+
 const BASE = "/api";
 
-/** Optional monitored-project ULID for per-project integration OAuth tokens. */
-function integrationPath(path: string, projectId?: string): string {
-  const id = projectId?.trim();
-  if (!id || id === "default") return path;
-  const sep = path.includes("?") ? "&" : "?";
-  return `${path}${sep}projectId=${encodeURIComponent(id)}`;
-}
+/** `/projects/{workspace}/…` segment (boards and per-board pipeline). */
+const WS_PROJECT = `/projects/${WORKSPACE_ID}`;
 
 function jsonHeaders(): HeadersInit {
   return { "Content-Type": "application/json" };
@@ -121,74 +118,44 @@ function normalizeAuditRows(raw: unknown): AuditEntry[] {
 // Public API surface
 // ---------------------------------------------------------------------------
 
-export const projectApi = {
-  agents: (pid: string) => `/api/projects/${pid}/agents`,
-  pipelineStages: (pid: string) => `/api/projects/${pid}/pipeline/stages`,
-};
-
 export const api = {
   // Settings
   getSettings: () => get<Record<string, unknown>>("/settings"),
   updateSettings: (settings: unknown) =>
     put<Record<string, unknown>>("/settings", settings),
 
-  // Pipeline (legacy global routes — prefer project-scoped for multi-tenant UI)
+  // Pipeline (legacy global routes)
   getStages: () => get<{ stages: PipelineStage[] }>("/pipeline/stages"),
   updateStages: (stages: unknown) =>
     put<{ stages: PipelineStage[] }>("/pipeline/stages", stages),
   patchStage: (id: string, fields: Partial<PipelineStage>) =>
     patch<PipelineStage>(`/pipeline/stages/${id}`, fields),
 
-  /** Per-project pipeline (matches `/api/projects/:pid/pipeline/...` on the server). */
-  getProjectPipelineStages: (projectId: string) =>
-    get<{ stages: PipelineStage[] }>(
-      `/projects/${projectId}/pipeline/stages`,
-    ),
-  updateProjectPipelineStages: (projectId: string, body: unknown) =>
-    put<{ stages: PipelineStage[] }>(
-      `/projects/${projectId}/pipeline/stages`,
-      body,
-    ),
-  patchProjectPipelineStage: (
-    projectId: string,
-    stageId: string,
-    fields: Partial<PipelineStage>,
-  ) =>
-    patch<PipelineStage>(
-      `/projects/${projectId}/pipeline/stages/${stageId}`,
-      fields,
-    ),
-
-  /** Named boards per project (`default` is always present). */
-  listProjectBoards: (projectId: string) =>
-    get<{ boards: BoardSummary[] }>(`/projects/${projectId}/boards`),
-  createProjectBoard: (projectId: string, body: { id: string; name?: string }) =>
-    post<{ boards: BoardSummary[] }>(`/projects/${projectId}/boards`, body),
-  deleteProjectBoard: (projectId: string, boardId: string) =>
+  /** Named kanban boards (`default` is always present). */
+  listBoards: () =>
+    get<{ boards: BoardSummary[] }>(`${WS_PROJECT}/boards`),
+  createBoard: (body: { id: string; name?: string }) =>
+    post<{ boards: BoardSummary[] }>(`${WS_PROJECT}/boards`, body),
+  deleteBoard: (boardId: string) =>
     del<{ boards: BoardSummary[] }>(
-      `/projects/${projectId}/boards/${encodeURIComponent(boardId)}`,
+      `${WS_PROJECT}/boards/${encodeURIComponent(boardId)}`,
     ),
-  getProjectBoardStages: (projectId: string, boardId: string) =>
+  getBoardStages: (boardId: string) =>
     get<{ stages: PipelineStage[] }>(
-      `/projects/${projectId}/boards/${encodeURIComponent(boardId)}/stages`,
+      `${WS_PROJECT}/boards/${encodeURIComponent(boardId)}/stages`,
     ),
-  updateProjectBoardStages: (
-    projectId: string,
-    boardId: string,
-    body: unknown,
-  ) =>
+  updateBoardStages: (boardId: string, body: unknown) =>
     put<{ stages: PipelineStage[] }>(
-      `/projects/${projectId}/boards/${encodeURIComponent(boardId)}/stages`,
+      `${WS_PROJECT}/boards/${encodeURIComponent(boardId)}/stages`,
       body,
     ),
-  patchProjectBoardStage: (
-    projectId: string,
+  patchBoardStage: (
     boardId: string,
     stageId: string,
     fields: Partial<PipelineStage>,
   ) =>
     patch<PipelineStage>(
-      `/projects/${projectId}/boards/${encodeURIComponent(boardId)}/stages/${encodeURIComponent(stageId)}`,
+      `${WS_PROJECT}/boards/${encodeURIComponent(boardId)}/stages/${encodeURIComponent(stageId)}`,
       fields,
     ),
 
@@ -221,7 +188,6 @@ export const api = {
     title: string;
     description?: string;
     initialStage?: string;
-    projectId?: string;
   }) => post<{ taskId: string }>("/tasks/create", body),
 
   // Audit — server returns a JSON array; normalize to `{ entries }` for the UI.
@@ -231,18 +197,10 @@ export const api = {
   },
 
   // GitHub Integration (OAuth)
-  getGithubStatus: (projectId?: string) =>
-    get<GitHubStatus>(
-      integrationPath("/integrations/github/status", projectId),
-    ),
-  getGithubAuthUrl: (projectId?: string) =>
-    get<{ url: string }>(
-      integrationPath("/integrations/github/auth", projectId),
-    ),
-  disconnectGithub: (projectId?: string) =>
-    post<Record<string, unknown>>(
-      integrationPath("/integrations/github/disconnect", projectId),
-    ),
+  getGithubStatus: () => get<GitHubStatus>("/integrations/github/status"),
+  getGithubAuthUrl: () => get<{ url: string }>("/integrations/github/auth"),
+  disconnectGithub: () =>
+    post<Record<string, unknown>>("/integrations/github/disconnect"),
 };
 
 // ---------------------------------------------------------------------------

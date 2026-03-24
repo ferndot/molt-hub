@@ -1,7 +1,7 @@
 import type { Component } from "solid-js";
 import { createEffect, onCleanup, onMount } from "solid-js";
 import { Router, Route } from "@solidjs/router";
-import { WORKSPACE_PROJECT_ID } from "./stores/projectStore";
+import { WORKSPACE_ID } from "./lib/workspace";
 import { initBoardStages, handleBoardWsMessage } from "./views/Board/boardStore";
 import { subscribe, projectTopic } from "./lib/ws";
 import AppLayout from "./layout/AppLayout";
@@ -37,7 +37,7 @@ const App: Component = () => {
   });
 
   createEffect(() => {
-    const topic = projectTopic(WORKSPACE_PROJECT_ID, "board:*");
+    const topic = projectTopic(WORKSPACE_ID, "board:*");
     const unsub = subscribe(topic, handleBoardWsMessage);
     onCleanup(unsub);
   });

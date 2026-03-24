@@ -1,6 +1,6 @@
 /**
  * Board store — stages and tasks per named board. Fetches
- * GET /api/projects/default/boards and .../boards/:bid/stages.
+ * GET /api/projects/{workspace}/boards and per-board stages (see `lib/workspace`).
  * WebSocket `board:*` updates apply to the shared task list; the active board
  * filters columns by its stage ids (see missionControlStore).
  */
@@ -8,7 +8,6 @@
 import { createStore } from "solid-js/store";
 import type { ServerMessage } from "../../types";
 import { api, type BoardSummary, type PipelineStage } from "../../lib/api";
-import { WORKSPACE_PROJECT_ID } from "../../stores/projectStore";
 import type { Priority } from "../../types/domain";
 
 // ---------------------------------------------------------------------------
@@ -66,9 +65,7 @@ const DEFAULT_PIPELINE_STAGES: PipelineStage[] = [
   { id: "deployed", label: "Deployed", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: true, color: "#10b981", order: 4 },
 ];
 
-function boardStorageKey(projectId: string): string {
-  return `molt:active-board:${projectId}`;
-}
+const BOARD_STORAGE_KEY = "molt:active-board";
 
 // ---------------------------------------------------------------------------
 // API fetch
@@ -78,11 +75,10 @@ function boardStorageKey(projectId: string): string {
  * Fetch stages for a project board. Returns null on failure.
  */
 export async function fetchBoardStages(
-  projectId: string,
   boardId: string,
 ): Promise<PipelineStage[] | null> {
   try {
-    const data = await api.getProjectBoardStages(projectId, boardId);
+    const data = await api.getBoardStages(boardId);
     if (!Array.isArray(data.stages) || data.stages.length === 0) return null;
     return data.stages;
   } catch {
@@ -126,13 +122,12 @@ async function applyStagesFromFetch(fetched: PipelineStage[] | null): Promise<vo
  * Call when the app mounts (and after external board changes if needed).
  */
 export async function initBoardStages(): Promise<void> {
-  const projectId = WORKSPACE_PROJECT_ID;
   setBoardState("tasks", []);
   setBoardState("stagesLoaded", false);
 
   let boards: BoardSummary[] = [];
   try {
-    const res = await api.listProjectBoards(projectId);
+    const res = await api.listBoards();
     boards = res.boards ?? [];
   } catch {
     boards = [];
@@ -142,28 +137,26 @@ export async function initBoardStages(): Promise<void> {
   }
   setBoardState("boards", boards);
 
-  const key = boardStorageKey(projectId);
-  const stored = localStorage.getItem(key);
+  const stored = localStorage.getItem(BOARD_STORAGE_KEY);
   const pick =
     stored && boards.some((b) => b.id === stored)
       ? stored
       : boards[0].id;
   setBoardState("activeBoardId", pick);
 
-  const fetched = await fetchBoardStages(projectId, pick);
+  const fetched = await fetchBoardStages(pick);
   await applyStagesFromFetch(fetched);
   setBoardState("stagesLoaded", true);
 }
 
 /**
- * Refresh only the board list for the active project (no stage reload, no task clear).
+ * Refresh only the board list from the server (no stage reload, no task clear).
  * Use on the boards index page so navigation does not reset the workboard.
  */
-export async function refreshProjectBoards(): Promise<void> {
-  const projectId = WORKSPACE_PROJECT_ID;
+export async function refreshBoardList(): Promise<void> {
   let boards: BoardSummary[] = [];
   try {
-    const res = await api.listProjectBoards(projectId);
+    const res = await api.listBoards();
     boards = res.boards ?? [];
   } catch {
     boards = [];
@@ -178,20 +171,18 @@ export async function refreshProjectBoards(): Promise<void> {
  * Switch the visible board; persists per project. Does not clear tasks.
  */
 export async function setActiveBoard(boardId: string): Promise<void> {
-  const projectId = WORKSPACE_PROJECT_ID;
   if (!boardState.boards.some((b) => b.id === boardId)) return;
   setBoardState("activeBoardId", boardId);
-  localStorage.setItem(boardStorageKey(projectId), boardId);
+  localStorage.setItem(BOARD_STORAGE_KEY, boardId);
   setBoardState("stagesLoaded", false);
-  const fetched = await fetchBoardStages(projectId, boardId);
+  const fetched = await fetchBoardStages(boardId);
   await applyStagesFromFetch(fetched);
   setBoardState("stagesLoaded", true);
 }
 
 /** Create a new board (empty default stages on the server). */
 export async function createBoard(id: string, name?: string): Promise<void> {
-  const projectId = WORKSPACE_PROJECT_ID;
-  const res = await api.createProjectBoard(projectId, {
+  const res = await api.createBoard({
     id: id.trim(),
     ...(name?.trim() ? { name: name.trim() } : {}),
   });
@@ -202,9 +193,8 @@ export async function createBoard(id: string, name?: string): Promise<void> {
 /** Delete a board (not `default`). */
 export async function deleteBoard(boardId: string): Promise<void> {
   if (boardId === "default") return;
-  const projectId = WORKSPACE_PROJECT_ID;
   const wasActive = boardState.activeBoardId === boardId;
-  const res = await api.deleteProjectBoard(projectId, boardId);
+  const res = await api.deleteBoard(boardId);
   const list = res.boards ?? [];
   setBoardState("boards", list);
   if (wasActive) {
@@ -218,11 +208,9 @@ export async function deleteBoard(boardId: string): Promise<void> {
  */
 export async function pushStagesToApi(): Promise<void> {
   try {
-    await api.updateProjectBoardStages(
-      WORKSPACE_PROJECT_ID,
-      boardState.activeBoardId,
-      { stages: boardState.pipelineStages },
-    );
+    await api.updateBoardStages(boardState.activeBoardId, {
+      stages: boardState.pipelineStages,
+    });
   } catch {
     // Silently ignore — the board still works with local state
   }
@@ -299,12 +287,7 @@ export async function patchStage(
     stages.map((s) => (s.id === id ? { ...s, ...fields } : s)),
   );
   try {
-    await api.patchProjectBoardStage(
-      WORKSPACE_PROJECT_ID,
-      boardState.activeBoardId,
-      id,
-      fields,
-    );
+    await api.patchBoardStage(boardState.activeBoardId, id, fields);
   } catch {
     // Silently ignore — the board still works with local state
   }

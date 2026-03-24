@@ -211,15 +211,15 @@ export function useWebSocket() {
 }
 
 // ---------------------------------------------------------------------------
-// Project topic helper
+// Workspace topic helper (wire prefix is still `project:` for server compatibility)
 // ---------------------------------------------------------------------------
 
 /**
- * Build a project-namespaced WS topic string.
- * e.g. projectTopic("proj-123", "board:update") → "project:proj-123:board:update"
+ * Build a workspace-namespaced WS topic string.
+ * e.g. projectTopic("default", "board:*") → "project:default:board:*"
  */
-export function projectTopic(projectId: string, topic: string): string {
-  return `project:${projectId}:${topic}`;
+export function projectTopic(workspaceId: string, topic: string): string {
+  return `project:${workspaceId}:${topic}`;
 }
 
 // ---------------------------------------------------------------------------

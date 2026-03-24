@@ -12,7 +12,7 @@ import {
   boardState,
   createBoard,
   deleteBoard,
-  refreshProjectBoards,
+  refreshBoardList,
   setActiveBoard,
 } from "../Board/boardStore";
 import styles from "./BoardsView.module.css";
@@ -26,7 +26,7 @@ const BoardsView: Component = () => {
   const [error, setError] = createSignal<string | null>(null);
 
   onMount(() => {
-    void refreshProjectBoards();
+    void refreshBoardList();
   });
 
   const filtered = createMemo(() => {
