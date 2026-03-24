@@ -87,13 +87,22 @@
 /* ---- Search controls ---- */
 
 .searchRow {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
   gap: 0.5rem;
   margin-bottom: 0.75rem;
+  align-items: center;
+}
+
+@media (max-width: 520px) {
+  .searchRow {
+    grid-template-columns: 1fr;
+  }
 }
 
 .projectSelect {
-  flex: 1;
+  min-width: 0;
+  width: 100%;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
@@ -109,7 +118,9 @@
 }
 
 .jqlInput {
-  flex: 2;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
@@ -126,6 +137,7 @@
 }
 
 .searchBtn {
+  justify-self: start;
   padding: 0.5rem 1rem;
   background: var(--accent, #3b82f6);
   color: #fff;

@@ -260,6 +260,15 @@ fn jira_error_to_http(e: &JiraError) -> (StatusCode, String) {
         JiraError::NotFound { .. } => (StatusCode::NOT_FOUND, e.to_string()),
         JiraError::HttpError(_) => (StatusCode::BAD_GATEWAY, e.to_string()),
         JiraError::ParseError(_) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        JiraError::ApiError { status, message } => {
+            let code = StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY);
+            let http = if code.is_client_error() {
+                code
+            } else {
+                StatusCode::BAD_GATEWAY
+            };
+            (http, message.clone())
+        }
     }
 }
 
@@ -296,6 +305,17 @@ mod tests {
         let err = JiraError::ParseError("bad json".into());
         let (status, _) = jira_error_to_http(&err);
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn jira_error_to_http_maps_api_error_client_status() {
+        let err = JiraError::ApiError {
+            status: 400,
+            message: "Invalid JQL".into(),
+        };
+        let (status, msg) = jira_error_to_http(&err);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(msg, "Invalid JQL");
     }
 
     #[tokio::test]

@@ -30,6 +30,10 @@ pub enum JiraError {
     /// The response body could not be deserialised.
     #[error("parse error: {0}")]
     ParseError(String),
+
+    /// Jira returned a non-success HTTP status (e.g. invalid JQL → 400).
+    #[error("Jira API error (HTTP {status}): {message}")]
+    ApiError { status: u16, message: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -107,6 +111,44 @@ struct ProjectRaw {
     name: String,
 }
 
+/// Typical Jira REST error envelope (`errorMessages`, `errors`).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JiraRestErrorEnvelope {
+    #[serde(default)]
+    error_messages: Vec<String>,
+    #[serde(default)]
+    errors: std::collections::HashMap<String, serde_json::Value>,
+}
+
+fn summarize_jira_error_response(body: &str) -> String {
+    if let Ok(env) = serde_json::from_str::<JiraRestErrorEnvelope>(body) {
+        let mut parts: Vec<String> = env
+            .error_messages
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect();
+        for (k, v) in env.errors {
+            let vstr = match v {
+                serde_json::Value::String(s) => s,
+                other => other.to_string(),
+            };
+            parts.push(format!("{k}: {vstr}"));
+        }
+        if !parts.is_empty() {
+            return parts.join("; ");
+        }
+    }
+    let t = body.trim();
+    if t.is_empty() {
+        "(empty response body)".to_owned()
+    } else if t.len() > 400 {
+        format!("{}…", &t[..400])
+    } else {
+        t.to_owned()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // JiraClient
 // ---------------------------------------------------------------------------
@@ -125,6 +167,21 @@ pub struct JiraClient {
 }
 
 impl JiraClient {
+    /// Read the response body as text, then map non-success statuses to [`JiraError::ApiError`].
+    async fn response_text(response: reqwest::Response) -> Result<String, JiraError> {
+        Self::check_auth_response(&response)?;
+        let status = response.status();
+        let bytes = response.bytes().await?;
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        if !status.is_success() {
+            return Err(JiraError::ApiError {
+                status: status.as_u16(),
+                message: summarize_jira_error_response(text.trim()),
+            });
+        }
+        Ok(text)
+    }
+
     /// Create a client from an OAuth 2.0 access token and Atlassian cloud ID.
     ///
     /// `cloud_id` is the UUID obtained from the accessible-resources endpoint
@@ -159,12 +216,10 @@ impl JiraClient {
             .send()
             .await?;
 
-        Self::check_auth_response(&response)?;
-
-        let body: SearchResponse = response
-            .json()
-            .await
-            .map_err(|e| JiraError::ParseError(e.to_string()))?;
+        let text = Self::response_text(response).await?;
+        let body: SearchResponse = serde_json::from_str(text.trim()).map_err(|e| {
+            JiraError::ParseError(format!("invalid search response JSON: {e}"))
+        })?;
 
         Ok(body.issues.into_iter().map(raw_to_issue).collect())
     }
@@ -182,17 +237,26 @@ impl JiraClient {
             .await?;
 
         Self::check_auth_response(&response)?;
+        let status = response.status();
+        let bytes = response.bytes().await?;
+        let text = String::from_utf8_lossy(&bytes);
 
-        if response.status() == StatusCode::NOT_FOUND {
+        if status == StatusCode::NOT_FOUND {
             return Err(JiraError::NotFound {
                 key: issue_key.to_owned(),
             });
         }
 
-        let raw: IssueRaw = response
-            .json()
-            .await
-            .map_err(|e| JiraError::ParseError(e.to_string()))?;
+        if !status.is_success() {
+            return Err(JiraError::ApiError {
+                status: status.as_u16(),
+                message: summarize_jira_error_response(text.trim()),
+            });
+        }
+
+        let raw: IssueRaw = serde_json::from_str(text.trim()).map_err(|e| {
+            JiraError::ParseError(format!("invalid issue JSON: {e}"))
+        })?;
 
         Ok(raw_to_issue(raw))
     }
@@ -208,12 +272,10 @@ impl JiraClient {
             .send()
             .await?;
 
-        Self::check_auth_response(&response)?;
-
-        let projects: Vec<ProjectRaw> = response
-            .json()
-            .await
-            .map_err(|e| JiraError::ParseError(e.to_string()))?;
+        let text = Self::response_text(response).await?;
+        let projects: Vec<ProjectRaw> = serde_json::from_str(text.trim()).map_err(|e| {
+            JiraError::ParseError(format!("invalid project list JSON: {e}"))
+        })?;
 
         Ok(projects
             .into_iter()
@@ -452,5 +514,20 @@ mod tests {
 
         let err2 = JiraError::AuthError { status: 401 };
         assert!(err2.to_string().contains("401"));
+    }
+
+    #[test]
+    fn summarize_jira_error_extracts_error_messages() {
+        let body = r#"{"errorMessages":["Expected operator but got 0."],"errors":{}}"#;
+        assert_eq!(
+            summarize_jira_error_response(body),
+            "Expected operator but got 0."
+        );
+    }
+
+    #[test]
+    fn summarize_jira_error_joins_errors_map() {
+        let body = r#"{"errorMessages":[],"errors":{"jql":"invalid"}}"#;
+        assert_eq!(summarize_jira_error_response(body), "jql: invalid");
     }
 }
