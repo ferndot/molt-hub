@@ -46,18 +46,79 @@ fn required_https_bridge(field: &'static str, opt: &Option<String>) -> String {
         })
 }
 
+/// Atlassian and GitHub OAuth apps must register a **public** HTTPS callback (see
+/// `oauth-bridge/`). Loopback URLs produce `redirect_uri is not registered` from the
+/// provider because the bridge URL is what gets sent in `/authorize`, not
+/// `http://127.0.0.1:…/api/…/callback` (that path is only hit after `molthub://` deep link).
+fn is_loopback_http_oauth_redirect(uri: &str) -> bool {
+    let lower = uri.trim().to_ascii_lowercase();
+    lower.starts_with("http://127.0.0.1")
+        || lower.starts_with("http://localhost")
+        || lower.starts_with("http://[::1]")
+}
+
+fn reject_loopback_oauth_redirect(provider_env_prefix: &'static str, uri: &str) {
+    let u = uri.trim();
+    if is_loopback_http_oauth_redirect(u) {
+        panic!(
+            "{provider_env_prefix}_REDIRECT_URI must not be a loopback HTTP URL (got {u:?}). \
+             Unset it to use oauth-bridge/redirect-uris.json, or set it to the same HTTPS \
+             bridge URL you registered in the developer console (…/oauth-bridge/jira.html or github.html)."
+        );
+    }
+}
+
 /// Jira (Atlassian 3LO) redirect URI — must match the developer console entry exactly.
 pub fn jira_redirect_uri() -> String {
-    if let Ok(v) = std::env::var("MOLTHUB_JIRA_REDIRECT_URI") {
-        return v;
-    }
-    required_https_bridge("jira", &redirect_table().jira)
+    let uri = if let Ok(v) = std::env::var("MOLTHUB_JIRA_REDIRECT_URI") {
+        v
+    } else {
+        required_https_bridge("jira", &redirect_table().jira)
+    };
+    reject_loopback_oauth_redirect("MOLTHUB_JIRA", &uri);
+    uri
 }
 
 /// GitHub OAuth App redirect URI (single callback per app).
 pub fn github_redirect_uri() -> String {
-    if let Ok(v) = std::env::var("MOLTHUB_GITHUB_REDIRECT_URI") {
-        return v;
+    let uri = if let Ok(v) = std::env::var("MOLTHUB_GITHUB_REDIRECT_URI") {
+        v
+    } else {
+        required_https_bridge("github", &redirect_table().github)
+    };
+    reject_loopback_oauth_redirect("MOLTHUB_GITHUB", &uri);
+    uri
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_loopback_http_oauth_redirect;
+
+    #[test]
+    fn loopback_http_redirect_detected() {
+        for bad in [
+            "http://127.0.0.1:13401/api/integrations/jira/oauth/callback",
+            "http://localhost:13401/cb",
+            "  HTTP://LOCALHOST/x  ",
+            "http://[::1]:8080/callback",
+        ] {
+            assert!(
+                is_loopback_http_oauth_redirect(bad),
+                "expected loopback: {bad:?}"
+            );
+        }
     }
-    required_https_bridge("github", &redirect_table().github)
+
+    #[test]
+    fn public_https_redirect_allowed() {
+        for ok in [
+            "https://ferndot.github.io/molt-hub/oauth-bridge/jira.html",
+            "http://192.168.1.10/callback",
+        ] {
+            assert!(
+                !is_loopback_http_oauth_redirect(ok),
+                "expected non-loopback: {ok:?}"
+            );
+        }
+    }
 }
