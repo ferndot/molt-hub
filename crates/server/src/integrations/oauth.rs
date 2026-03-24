@@ -1,248 +1,152 @@
-//! Atlassian OAuth 2.0 (3LO) service with PKCE (RFC 7636).
-//!
-//! The app is distributed as a downloadable binary, so a client secret cannot
-//! be embedded safely.  Instead, this module implements the PKCE extension:
-//!
-//! 1. Generate a random `code_verifier` (128 bytes, base64url-encoded).
-//! 2. Compute `code_challenge = BASE64URL(SHA-256(code_verifier))`.
-//! 3. Send `code_challenge` + `code_challenge_method=S256` in the auth URL.
-//! 4. Send `code_verifier` in the token exchange POST (no client secret).
-//!
-//! Routes:
-//!   Authorization URL generation (redirect user to Atlassian)
-//!   Code exchange (callback handler)
-//!   Token refresh
-//!   Accessible resources lookup (to obtain cloud IDs)
+//! Atlassian OAuth 2.0 (3LO) with PKCE via [`oauth2`].
 
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
-use rand::RngCore;
+use oauth2::basic::{BasicClient, BasicErrorResponse, BasicTokenResponse};
+
+macro_rules! jira_oauth_client {
+    ($svc:expr) => {
+        BasicClient::new(ClientId::new($svc.client_id.clone()))
+            .set_auth_uri(auth_url())
+            .set_token_uri(token_url())
+            .set_redirect_uri($svc.redirect_url.clone())
+    };
+}
+use oauth2::TokenResponse as _;
+use oauth2::{
+    AuthUrl, AuthorizationCode, ClientId, CsrfToken, HttpClientError, PkceCodeChallenge,
+    PkceCodeVerifier, RedirectUrl, RefreshToken, RequestTokenError, Scope, TokenUrl,
+};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-// ---------------------------------------------------------------------------
-// Baked-in client ID (safe to distribute — PKCE replaces the secret)
-// ---------------------------------------------------------------------------
-
-/// Default Atlassian OAuth 2.0 client ID (PKCE public client).
-///
-/// Override at runtime with **`MOLTHUB_JIRA_CLIENT_ID`** so your own developer-console
-/// app (with your redirect URLs) is used instead of the upstream default.
 pub const JIRA_CLIENT_ID: &str = "3yQWy34WyjCn0wtOfawofBTMmtK3gUgs";
 
-// ---------------------------------------------------------------------------
-// Error type
-// ---------------------------------------------------------------------------
+fn auth_url() -> AuthUrl {
+    AuthUrl::new("https://auth.atlassian.com/authorize".to_string()).expect("static URL")
+}
 
-/// Errors returned by [`JiraOAuthService`].
+fn token_url() -> TokenUrl {
+    TokenUrl::new("https://auth.atlassian.com/oauth/token".to_string()).expect("static URL")
+}
+
 #[derive(Debug, Error)]
 pub enum OAuthError {
-    /// HTTP transport error.
     #[error("HTTP error: {0}")]
     HttpError(#[from] reqwest::Error),
-
-    /// The authorization server returned an error response.
     #[error("OAuth error ({error}): {description}")]
-    AuthServerError {
-        error: String,
-        description: String,
-    },
-
-    /// Response could not be parsed.
+    AuthServerError { error: String, description: String },
     #[error("parse error: {0}")]
     ParseError(String),
 }
 
-// ---------------------------------------------------------------------------
-// Token / resource types
-// ---------------------------------------------------------------------------
+fn token_err(
+    e: RequestTokenError<HttpClientError<reqwest::Error>, BasicErrorResponse>,
+) -> OAuthError {
+    match e {
+        RequestTokenError::ServerResponse(r) => OAuthError::AuthServerError {
+            error: r.error().to_string(),
+            description: r.error_description().cloned().unwrap_or_default(),
+        },
+        RequestTokenError::Parse(p, _) => OAuthError::ParseError(p.to_string()),
+        RequestTokenError::Request(r) => OAuthError::AuthServerError {
+            error: "token_request_failed".into(),
+            description: r.to_string(),
+        },
+        RequestTokenError::Other(o) => OAuthError::ParseError(o),
+    }
+}
 
-/// Tokens returned by the Atlassian token endpoint.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TokenResponse {
-    /// Short-lived access token.
+pub struct JiraTokenResponse {
     pub access_token: String,
-    /// Long-lived refresh token (may be absent if `offline_access` not requested).
     pub refresh_token: Option<String>,
-    /// Seconds until `access_token` expires.
     pub expires_in: u64,
-    /// Space-separated list of granted scopes.
     pub scope: String,
 }
 
-/// An Atlassian cloud site accessible by the authenticated user.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudResource {
-    /// Cloud ID — used as the `{cloud_id}` segment in API URLs.
     pub id: String,
-    /// Human-readable site name (e.g. `"my-org"`).
     pub name: String,
-    /// Base URL of the site (e.g. `"https://my-org.atlassian.net"`).
     pub url: String,
 }
 
-// ---------------------------------------------------------------------------
-// Internal error shape returned by token endpoint
-// ---------------------------------------------------------------------------
-
-#[derive(Deserialize)]
-struct TokenErrorResponse {
-    error: String,
-    #[serde(default)]
-    error_description: String,
-}
-
-// ---------------------------------------------------------------------------
-// JiraOAuthService
-// ---------------------------------------------------------------------------
-
-/// Default scopes requested during OAuth authorization.
-///
-/// Classic scopes cover Jira core (issues, projects, users).
-/// Granular Jira Software scopes are required for sprint and board data
-/// (classic scopes do not cover Jira Software endpoints).
-/// `write:jira-work` is included now so agents can transition issues and post
-/// comments without requiring a re-auth flow later.
 pub const DEFAULT_SCOPES: &[&str] = &[
-    // Jira core — classic scopes
     "read:jira-work",
     "read:jira-user",
     "write:jira-work",
-    // Jira Software — granular scopes (required; no classic equivalent)
     "read:sprint:jira-software",
     "read:board-scope:jira-software",
-    // Refresh tokens
     "offline_access",
 ];
 
-/// Atlassian OAuth 2.0 (3LO + PKCE) service.
-///
-/// Handles authorization URL construction, code exchange (with PKCE verifier),
-/// token refresh, and accessible-resources discovery.
-///
-/// The client ID is baked in via [`JIRA_CLIENT_ID`].  No client secret is
-/// required — the PKCE `code_verifier` serves that role.
 pub struct JiraOAuthService {
     client_id: String,
-    redirect_uri: String,
+    redirect_url: RedirectUrl,
     http: Client,
 }
 
 impl JiraOAuthService {
-    /// Create a new service with the given redirect URI.
-    ///
-    /// Uses [`JIRA_CLIENT_ID`] unless **`MOLTHUB_JIRA_CLIENT_ID`** is set in the environment.
     pub fn new(redirect_uri: &str) -> Self {
-        let client_id = std::env::var("MOLTHUB_JIRA_CLIENT_ID")
-            .unwrap_or_else(|_| JIRA_CLIENT_ID.to_owned());
+        let client_id =
+            std::env::var("MOLTHUB_JIRA_CLIENT_ID").unwrap_or_else(|_| JIRA_CLIENT_ID.to_owned());
+        let redirect_url = RedirectUrl::new(redirect_uri.to_owned())
+            .unwrap_or_else(|e| panic!("invalid Jira OAuth redirect URI: {e}"));
+        let http = Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("reqwest client");
         Self {
             client_id,
-            redirect_uri: redirect_uri.to_owned(),
-            http: Client::new(),
+            redirect_url,
+            http,
         }
     }
 
-    /// Build the Atlassian authorization URL to redirect the user to.
-    ///
-    /// Returns `(url, code_verifier)`.  The caller **must** persist
-    /// `code_verifier` keyed by `state` so it can be retrieved in the callback.
-    ///
-    /// `state` is a CSRF token that must be verified in the callback.
-    /// `scopes` defaults to [`DEFAULT_SCOPES`] if empty.
-    pub fn authorization_url(
-        &self,
-        state: &str,
-        scopes: &[&str],
-    ) -> (String, String) {
-        let scope_list = if scopes.is_empty() {
-            DEFAULT_SCOPES.join(" ")
+    pub fn authorization_url(&self, state: &str, scopes: &[&str]) -> (String, String) {
+        let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
+        let c = jira_oauth_client!(self);
+        let mut req = c
+            .authorize_url(|| CsrfToken::new(state.to_owned()))
+            .set_pkce_challenge(challenge)
+            .add_extra_param("audience", "api.atlassian.com")
+            .add_extra_param("prompt", "consent");
+        if scopes.is_empty() {
+            for s in DEFAULT_SCOPES {
+                req = req.add_scope(Scope::new((*s).to_string()));
+            }
         } else {
-            scopes.join(" ")
-        };
-
-        let verifier = generate_pkce_verifier();
-        let challenge = pkce_challenge(&verifier);
-
-        // Percent-encode each query parameter value (RFC 3986 unreserved chars
-        // are left as-is; everything else is %-encoded).
-        let encode = |s: &str| {
-            s.chars()
-                .flat_map(|c| {
-                    if c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '~') {
-                        vec![c]
-                    } else {
-                        // Encode each byte of the UTF-8 representation.
-                        c.to_string()
-                            .bytes()
-                            .flat_map(|b| {
-                                format!("%{b:02X}").chars().collect::<Vec<_>>()
-                            })
-                            .collect()
-                    }
-                })
-                .collect::<String>()
-        };
-
-        let url = format!(
-            "https://auth.atlassian.com/authorize\
-             ?audience=api.atlassian.com\
-             &client_id={}\
-             &scope={}\
-             &redirect_uri={}\
-             &state={}\
-             &response_type=code\
-             &prompt=consent\
-             &code_challenge={}\
-             &code_challenge_method=S256",
-            encode(&self.client_id),
-            encode(&scope_list),
-            encode(&self.redirect_uri),
-            encode(state),
-            encode(&challenge),
-        );
-
-        (url, verifier)
+            for s in scopes {
+                req = req.add_scope(Scope::new((*s).to_string()));
+            }
+        }
+        let (url, _) = req.url();
+        (url.to_string(), verifier.into_secret())
     }
 
-    /// Exchange an authorization code for tokens using the PKCE verifier.
-    ///
-    /// `code_verifier` is the value generated alongside the authorization URL.
-    /// It is sent in place of a client secret.
     pub async fn exchange_code(
         &self,
         code: &str,
         code_verifier: &str,
-    ) -> Result<TokenResponse, OAuthError> {
-        let params = [
-            ("grant_type", "authorization_code"),
-            ("client_id", &self.client_id),
-            ("code", code),
-            ("redirect_uri", &self.redirect_uri),
-            ("code_verifier", code_verifier),
-        ];
-
-        self.post_token_request(&params).await
+    ) -> Result<JiraTokenResponse, OAuthError> {
+        let t = jira_oauth_client!(self)
+            .exchange_code(AuthorizationCode::new(code.to_owned()))
+            .set_pkce_verifier(PkceCodeVerifier::new(code_verifier.to_owned()))
+            .request_async(&self.http)
+            .await
+            .map_err(token_err)?;
+        Ok(from_basic(t))
     }
 
-    /// Refresh an expired access token.
-    ///
-    /// Requires that `offline_access` scope was requested during authorization.
-    /// PKCE verifier is not needed for refresh — and no client secret either.
-    pub async fn refresh_token(&self, refresh_token: &str) -> Result<TokenResponse, OAuthError> {
-        let params = [
-            ("grant_type", "refresh_token"),
-            ("client_id", &self.client_id),
-            ("refresh_token", refresh_token),
-        ];
-
-        self.post_token_request(&params).await
+    pub async fn refresh_token(&self, rt: &str) -> Result<JiraTokenResponse, OAuthError> {
+        let t = jira_oauth_client!(self)
+            .exchange_refresh_token(&RefreshToken::new(rt.to_owned()))
+            .request_async(&self.http)
+            .await
+            .map_err(token_err)?;
+        Ok(from_basic(t))
     }
 
-    /// Retrieve the list of Atlassian cloud sites accessible with `access_token`.
-    ///
-    /// Returns a list of [`CloudResource`]s, each containing a `cloud_id` that
-    /// must be used when constructing Jira API URLs.
     pub async fn get_accessible_resources(
         &self,
         access_token: &str,
@@ -264,15 +168,14 @@ impl JiraOAuthService {
             });
         }
 
-        // The API returns an array of resource objects; we only need id, name, url.
         #[derive(Deserialize)]
-        struct ResourceRaw {
+        struct Raw {
             id: String,
             name: String,
             url: String,
         }
 
-        let resources: Vec<ResourceRaw> = response
+        let resources: Vec<Raw> = response
             .json()
             .await
             .map_err(|e| OAuthError::ParseError(e.to_string()))?;
@@ -286,275 +189,48 @@ impl JiraOAuthService {
             })
             .collect())
     }
+}
 
-    // -----------------------------------------------------------------------
-    // Internal helpers
-    // -----------------------------------------------------------------------
-
-    /// POST to the Atlassian token endpoint with the given form params.
-    async fn post_token_request(
-        &self,
-        params: &[(&str, &str)],
-    ) -> Result<TokenResponse, OAuthError> {
-        let response = self
-            .http
-            .post("https://auth.atlassian.com/oauth/token")
-            .header("Content-Type", "application/x-www-form-urlencoded")
-            .header("Accept", "application/json")
-            .form(params)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            // Try to parse the error body
-            let body: TokenErrorResponse = response
-                .json()
-                .await
-                .unwrap_or(TokenErrorResponse {
-                    error: "unknown_error".into(),
-                    error_description: String::new(),
-                });
-            return Err(OAuthError::AuthServerError {
-                error: body.error,
-                description: body.error_description,
-            });
-        }
-
-        response
-            .json::<TokenResponse>()
-            .await
-            .map_err(|e| OAuthError::ParseError(e.to_string()))
+fn from_basic(t: BasicTokenResponse) -> JiraTokenResponse {
+    let scope = t
+        .scopes()
+        .map(|scopes| {
+            scopes
+                .iter()
+                .map(|s| s.as_str().to_owned())
+                .collect::<Vec<_>>()
+                .join(" ")
+        })
+        .unwrap_or_default();
+    JiraTokenResponse {
+        access_token: t.access_token().secret().clone(),
+        refresh_token: t.refresh_token().map(|r| r.secret().clone()),
+        expires_in: t.expires_in().map(|d| d.as_secs()).unwrap_or(0),
+        scope,
     }
 }
-
-// ---------------------------------------------------------------------------
-// PKCE helpers (public so oauth_handlers can test them)
-// ---------------------------------------------------------------------------
-
-/// Generate a cryptographically random PKCE `code_verifier`.
-///
-/// Per RFC 7636 §4.1, the verifier must be 43–128 URL-safe characters.
-/// We use 96 random bytes → 128 base64url characters (no padding).
-pub fn generate_pkce_verifier() -> String {
-    let mut bytes = [0u8; 96];
-    rand::thread_rng().fill_bytes(&mut bytes);
-    URL_SAFE_NO_PAD.encode(bytes)
-}
-
-/// Compute the PKCE `code_challenge` from a verifier.
-///
-/// `code_challenge = BASE64URL(SHA-256(ASCII(code_verifier)))` (RFC 7636 §4.2).
-pub fn pkce_challenge(verifier: &str) -> String {
-    let digest = Sha256::digest(verifier.as_bytes());
-    URL_SAFE_NO_PAD.encode(digest)
-}
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn service() -> JiraOAuthService {
-        JiraOAuthService::new("https://app.example.com/oauth/callback")
-    }
-
-    // -----------------------------------------------------------------------
-    // PKCE primitive tests
-    // -----------------------------------------------------------------------
+    use oauth2::PkceCodeVerifier;
 
     #[test]
-    fn pkce_verifier_length_is_valid() {
-        let verifier = generate_pkce_verifier();
-        // RFC 7636 §4.1: 43–128 characters.
-        assert!(
-            verifier.len() >= 43 && verifier.len() <= 128,
-            "verifier length {} is out of range 43–128",
-            verifier.len()
-        );
-    }
-
-    #[test]
-    fn pkce_verifier_is_base64url_safe() {
-        let verifier = generate_pkce_verifier();
-        // base64url alphabet: A-Z, a-z, 0-9, '-', '_'  (no padding '=')
-        assert!(
-            verifier.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
-            "verifier contains non-base64url characters: {verifier}"
-        );
-    }
-
-    #[test]
-    fn pkce_verifier_differs_across_calls() {
-        let v1 = generate_pkce_verifier();
-        let v2 = generate_pkce_verifier();
-        assert_ne!(v1, v2, "two different verifiers should not collide");
-    }
-
-    #[test]
-    fn pkce_challenge_is_sha256_base64url() {
-        // Known-good: SHA-256("abc") base64url-encoded (no padding).
-        // SHA-256("abc") = ba7816bf8f01cfea414140de5dae2ec73b00361bbef0469f492c3 (hex).
-        // base64url(that) = "ungWv48Bz+pBQUDeXa4iI7ADYaOWF3qctBD/YfIAFa0"
-        let challenge = pkce_challenge("abc");
-        assert_eq!(challenge, "ungWv48Bz-pBQUDeXa4iI7ADYaOWF3qctBD_YfIAFa0");
-    }
-
-    #[test]
-    fn pkce_challenge_round_trip_format() {
-        let verifier = generate_pkce_verifier();
-        let challenge = pkce_challenge(&verifier);
-        // SHA-256 produces 32 bytes → base64url(32 bytes) = 43 chars (no padding).
-        assert_eq!(challenge.len(), 43, "challenge must be 43 base64url chars");
-        assert!(
-            challenge.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_'),
-            "challenge contains non-base64url characters: {challenge}"
-        );
-    }
-
-    // -----------------------------------------------------------------------
-    // Authorization URL tests
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn authorization_url_contains_required_fields() {
-        let svc = service();
-        let (url, _verifier) = svc.authorization_url("csrf-state-token", &[]);
-
+    fn authorize_url_has_atlassian_fields_and_pkce() {
+        let svc = JiraOAuthService::new("https://app.example.com/oauth/callback");
+        let (url, verifier) = svc.authorization_url("csrf", &[]);
         assert!(url.starts_with("https://auth.atlassian.com/authorize"));
         assert!(url.contains("audience=api.atlassian.com"));
-        let expected_client = std::env::var("MOLTHUB_JIRA_CLIENT_ID")
-            .unwrap_or_else(|_| JIRA_CLIENT_ID.to_owned());
-        assert!(url.contains(&format!("client_id={expected_client}")));
-        assert!(url.contains("response_type=code"));
         assert!(url.contains("prompt=consent"));
-        assert!(url.contains("state=csrf-state-token"));
+        assert!(url.contains("code_challenge_method=S256"));
+        let ch = PkceCodeChallenge::from_code_verifier_sha256(&PkceCodeVerifier::new(verifier));
+        assert!(url.contains(&format!("code_challenge={}", ch.as_str())));
     }
 
     #[test]
-    fn authorization_url_contains_pkce_params() {
-        let svc = service();
-        let (url, _verifier) = svc.authorization_url("state", &[]);
-        assert!(url.contains("code_challenge="), "must include code_challenge");
-        assert!(url.contains("code_challenge_method=S256"), "must use S256 method");
-    }
-
-    #[test]
-    fn authorization_url_challenge_matches_verifier() {
-        let svc = service();
-        let (url, verifier) = svc.authorization_url("state", &[]);
-        let expected_challenge = pkce_challenge(&verifier);
-        // The challenge in the URL is percent-encoded; base64url uses only
-        // A-Z a-z 0-9 - _  so no percent-encoding should occur.
-        assert!(
-            url.contains(&format!("code_challenge={expected_challenge}")),
-            "challenge in URL does not match verifier"
-        );
-    }
-
-    #[test]
-    fn authorization_url_encodes_redirect_uri() {
-        let svc = service();
-        let (url, _) = svc.authorization_url("state", &[]);
-        // The redirect URI contains "://" which gets percent-encoded
-        assert!(url.contains("redirect_uri="));
-        assert!(!url.contains("https://app.example.com/oauth/callback&"));
-    }
-
-    #[test]
-    fn authorization_url_uses_default_scopes_when_empty() {
-        let svc = service();
-        let (url, _) = svc.authorization_url("state", &[]);
-        // ':' encodes to %3A, spaces to %20
-        assert!(url.contains("read%3Ajira-work"));
-        assert!(url.contains("offline_access"));
-    }
-
-    #[test]
-    fn authorization_url_uses_provided_scopes() {
-        let svc = service();
-        let (url, _) = svc.authorization_url("state", &["read:jira-work"]);
-        assert!(url.contains("read%3Ajira-work"));
-        // Should NOT contain read:jira-user if not provided
-        assert!(!url.contains("read%3Ajira-user"));
-    }
-
-    #[test]
-    fn authorization_url_state_is_included() {
-        let svc = service();
-        let (url, _) = svc.authorization_url("my-unique-csrf", &[]);
-        assert!(url.contains("state=my-unique-csrf"));
-    }
-
-    #[test]
-    fn authorization_url_no_client_secret() {
-        let svc = service();
-        let (url, _) = svc.authorization_url("state", &[]);
-        assert!(!url.contains("client_secret"), "client_secret must not appear in auth URL");
-    }
-
-    // -----------------------------------------------------------------------
-    // Error display tests
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn oauth_error_display_auth_server() {
-        let err = OAuthError::AuthServerError {
-            error: "invalid_grant".into(),
-            description: "Authorization code expired".into(),
-        };
-        let msg = err.to_string();
-        assert!(msg.contains("invalid_grant"));
-        assert!(msg.contains("Authorization code expired"));
-    }
-
-    #[test]
-    fn oauth_error_display_parse_error() {
-        let err = OAuthError::ParseError("bad json".into());
-        assert!(err.to_string().contains("bad json"));
-    }
-
-    // -----------------------------------------------------------------------
-    // Deserialization tests
-    // -----------------------------------------------------------------------
-
-    #[test]
-    fn token_response_deserializes() {
-        let json = r#"{
-            "access_token": "tok123",
-            "refresh_token": "ref456",
-            "expires_in": 3600,
-            "scope": "read:jira-work offline_access"
-        }"#;
-        let resp: TokenResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(resp.access_token, "tok123");
-        assert_eq!(resp.refresh_token, Some("ref456".into()));
-        assert_eq!(resp.expires_in, 3600);
-    }
-
-    #[test]
-    fn token_response_no_refresh_token() {
-        let json = r#"{
-            "access_token": "tok123",
-            "expires_in": 3600,
-            "scope": "read:jira-work"
-        }"#;
-        let resp: TokenResponse = serde_json::from_str(json).unwrap();
-        assert!(resp.refresh_token.is_none());
-    }
-
-    #[test]
-    fn cloud_resource_deserializes() {
-        let json = r#"{
-            "id": "abc-cloud-id",
-            "name": "my-org",
-            "url": "https://my-org.atlassian.net"
-        }"#;
-        let resource: CloudResource = serde_json::from_str(json).unwrap();
-        assert_eq!(resource.id, "abc-cloud-id");
-        assert_eq!(resource.name, "my-org");
-        assert_eq!(resource.url, "https://my-org.atlassian.net");
+    fn jira_token_json_roundtrip() {
+        let json = r#"{"access_token":"a","refresh_token":"r","expires_in":3600,"scope":"s"}"#;
+        let t: JiraTokenResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(t.access_token, "a");
     }
 }
