@@ -156,6 +156,25 @@ export async function initBoardStages(): Promise<void> {
 }
 
 /**
+ * Refresh only the board list for the active project (no stage reload, no task clear).
+ * Use on the boards index page so navigation does not reset the workboard.
+ */
+export async function refreshProjectBoards(): Promise<void> {
+  const projectId = projectState.activeProjectId;
+  let boards: BoardSummary[] = [];
+  try {
+    const res = await api.listProjectBoards(projectId);
+    boards = res.boards ?? [];
+  } catch {
+    boards = [];
+  }
+  if (boards.length === 0) {
+    boards = [{ id: "default", name: "Default" }];
+  }
+  setBoardState("boards", boards);
+}
+
+/**
  * Switch the visible board; persists per project. Does not clear tasks.
  */
 export async function setActiveBoard(boardId: string): Promise<void> {

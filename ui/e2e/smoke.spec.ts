@@ -7,9 +7,16 @@ import { test, expect } from "@playwright/test";
 test.describe("Smoke", () => {
   test("app loads and shows the sidebar", async ({ page }) => {
     await page.goto("/");
-    // The sidebar contains the Boards nav link.
+    // The sidebar contains the Workboard nav link.
     await expect(page.locator("nav")).toBeVisible();
-    await expect(page.getByText("Boards")).toBeVisible();
+    await expect(page.getByText("Workboard")).toBeVisible();
+  });
+
+  test("can navigate to Boards list", async ({ page }) => {
+    await page.goto("/boards");
+    await expect(page.getByRole("heading", { name: "Boards" })).toBeVisible({
+      timeout: 10_000,
+    });
   });
 
   test("can navigate to Board view", async ({ page }) => {

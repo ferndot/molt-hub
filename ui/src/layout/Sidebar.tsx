@@ -1,10 +1,16 @@
 import type { Component, JSX } from "solid-js";
 import { Show, createSignal } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
-import { TbOutlineLayoutDashboard, TbOutlineRobot, TbOutlineSettings } from "solid-icons/tb";
+import {
+  TbOutlineLayoutDashboard,
+  TbOutlineLayoutList,
+  TbOutlineRobot,
+  TbOutlineSettings,
+} from "solid-icons/tb";
 import { attentionCount } from "./attentionStore";
 import { ProjectSwitcher } from "../components/ProjectSwitcher";
 import AgentList from "./AgentList";
+import BoardList from "./BoardList";
 import {
   settingsState,
   setNavSidebarWidth,
@@ -19,6 +25,7 @@ import styles from "./Sidebar.module.css";
 
 const NAV_ICONS: Record<string, () => JSX.Element> = {
   "/": () => <TbOutlineLayoutDashboard size={16} />,
+  "/boards": () => <TbOutlineLayoutList size={16} />,
   "/agents": () => <TbOutlineRobot size={16} />,
   "/settings": () => <TbOutlineSettings size={16} />,
 };
@@ -40,13 +47,18 @@ const Sidebar: Component<Props> = (props) => {
   const [isDragging, setIsDragging] = createSignal(false);
 
   const isActive = (href: string) => {
-    if (href === "/") return location.pathname === "/" || location.pathname === "/mission-control";
+    if (href === "/") {
+      return (
+        location.pathname === "/" ||
+        location.pathname === "/mission-control" ||
+        location.pathname === "/board" ||
+        /\/projects\/[^/]+\/board$/.test(location.pathname)
+      );
+    }
     return location.pathname.startsWith(href);
   };
 
-  const navItems = [
-    { href: "/", label: "Boards" },
-  ];
+  const navItems = [{ href: "/", label: "Workboard" }];
 
   // ---- Drag-to-resize logic ------------------------------------------------
   // Update the DOM directly during drag to avoid the store → effect →
@@ -121,11 +133,18 @@ const Sidebar: Component<Props> = (props) => {
         })}
       </nav>
 
-      {/* Agent list — full list when expanded, icon-only nav when collapsed */}
+      {/* Board + agent lists when expanded; icon links when collapsed */}
       <Show
         when={!props.collapsed}
         fallback={
           <nav class={styles.nav}>
+            <A
+              href="/boards"
+              class={styles.navItem}
+              classList={{ [styles.active]: isActive("/boards") }}
+            >
+              <span class={styles.navIcon}>{NAV_ICONS["/boards"]?.()}</span>
+            </A>
             <A
               href="/agents"
               class={styles.navItem}
@@ -137,6 +156,7 @@ const Sidebar: Component<Props> = (props) => {
         }
       >
         <div class={styles.agentListWrapper}>
+          <BoardList />
           <AgentList collapsed={false} />
         </div>
       </Show>

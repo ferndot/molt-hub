@@ -9,6 +9,7 @@ import TriageView from "./views/Triage/TriageView";
 import AgentDetailView from "./views/AgentDetail/AgentDetailView";
 import TaskDetailView from "./views/TaskDetail/TaskDetailView";
 import AgentsView from "./views/Agents/AgentsView";
+import BoardsView from "./views/Boards/BoardsView";
 import BoardView from "./views/Board/BoardView";
 import SettingsView from "./views/Settings/SettingsView";
 
@@ -21,6 +22,8 @@ const TriagePage: Component = () => <TriageView />;
 const WorkboardPage: Component = () => <BoardView />;
 
 const AgentsPage: Component = () => <AgentsView />;
+
+const BoardsPage: Component = () => <BoardsView />;
 
 const SettingsPage: Component = () => <SettingsView />;
 
@@ -50,6 +53,7 @@ const App: Component = () => {
       <Route path="/mission-control" component={WorkboardPage} />
       <Route path="/triage" component={TriagePage} />
       <Route path="/board" component={WorkboardPage} />
+      <Route path="/boards" component={BoardsPage} />
       <Route path="/agents" component={AgentsPage} />
       <Route path="/agents/:id" component={AgentDetailView} />
       <Route path="/tasks/:id" component={TaskDetailView} />

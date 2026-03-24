@@ -39,7 +39,7 @@ const GROUPS: ShortcutGroup[] = [
     title: "View switching",
     rows: [
       { keys: ["g", "t"], desc: "Go to Triage", chord: true },
-      { keys: ["g", "b"], desc: "Go to Board", chord: true },
+      { keys: ["g", "b"], desc: "Go to Workboard", chord: true },
       { keys: ["g", "a"], desc: "Go to Agents", chord: true },
     ],
   },

@@ -26,7 +26,7 @@ describe("filterCommands", () => {
       expect(labels).toContain("Go to Triage");
     });
 
-    it("finds 'Go to Board' by label", () => {
+    it("finds workboard command by label substring 'board'", () => {
       const results = filterCommands("board");
       expect(results.some((c) => c.id === "goto-board")).toBe(true);
     });

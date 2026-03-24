@@ -1,0 +1,129 @@
+.section {
+  padding: 0.75rem 0;
+  border-bottom: 1px solid var(--sidebar-border);
+}
+
+.sectionTitle {
+  display: block;
+  padding: 0 1rem 0.5rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--sidebar-text);
+  text-decoration: none;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.sectionTitle:hover {
+  color: var(--sidebar-text-active);
+}
+
+.sectionTitleActive {
+  color: var(--sidebar-text-active);
+}
+
+.boardItem {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.375rem 1rem;
+  cursor: pointer;
+  text-decoration: none;
+  color: var(--sidebar-text);
+  font-size: 0.8125rem;
+  transition: background 0.15s;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+  box-sizing: border-box;
+}
+
+.boardItem:hover {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text-active);
+}
+
+.boardItem.active {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text-active);
+  border-left: 3px solid var(--accent);
+  padding-left: calc(1rem - 3px);
+}
+
+.boardIcon {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--accent) 70%, var(--sidebar-text));
+}
+
+.boardInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.boardName {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--sidebar-text-active);
+  font-size: 0.8125rem;
+  line-height: 1.3;
+}
+
+.boardId {
+  font-size: 0.6875rem;
+  color: var(--sidebar-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.searchWrapper {
+  padding: 0 0.75rem 0.5rem;
+}
+
+.searchInput {
+  width: 100%;
+  padding: 0.25rem 0.5rem;
+  background: color-mix(in srgb, var(--sidebar-text) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--sidebar-text) 15%, transparent);
+  border-radius: 4px;
+  color: var(--sidebar-text-active);
+  font-size: 0.8125rem;
+  outline: none;
+  box-sizing: border-box;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.searchInput::placeholder {
+  color: var(--sidebar-text);
+  opacity: 0.7;
+}
+
+.searchInput:focus {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--sidebar-text) 14%, transparent);
+}
+
+.collapsed .sectionTitle,
+.collapsed .boardInfo,
+.collapsed .searchWrapper {
+  display: none;
+}
+
+.collapsed .boardItem {
+  justify-content: center;
+  padding: 0.5rem 0;
+  gap: 0;
+}
+
+.collapsed .boardIcon {
+  width: 8px;
+  height: 8px;
+}

@@ -22,10 +22,17 @@ export const COMMANDS: Command[] = [
   },
   {
     id: "goto-board",
-    label: "Go to Boards",
+    label: "Go to Workboard",
     description: "Open the main workboard (home)",
     category: "navigation",
-    keywords: ["board", "kanban", "columns", "home"],
+    keywords: ["board", "kanban", "columns", "home", "workboard"],
+  },
+  {
+    id: "goto-boards-list",
+    label: "Go to Boards list",
+    description: "View all boards and create new ones",
+    category: "navigation",
+    keywords: ["boards", "list", "create"],
   },
   {
     id: "goto-agents",

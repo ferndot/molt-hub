@@ -37,6 +37,9 @@ const CommandPalette: Component<Props> = (props) => {
       case "goto-board":
         navigate("/");
         break;
+      case "goto-boards-list":
+        navigate("/boards");
+        break;
       case "goto-agents":
         navigate("/agents");
         break;
