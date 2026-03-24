@@ -78,9 +78,9 @@ const AuditLog: Component = () => {
             onChange={(e) => setActionFilter(e.currentTarget.value)}
           >
             <option value="all">All</option>
-            <For each={actionTypes()}>
-              {(action) => <option value={action}>{action}</option>}
-            </For>
+            {actionTypes().map((action) => (
+              <option value={action}>{action}</option>
+            ))}
           </select>
         </label>
       </div>

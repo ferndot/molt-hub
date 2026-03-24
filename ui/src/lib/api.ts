@@ -47,6 +47,57 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+/** Backend returns a JSON array; older clients expected `{ entries }`. */
+function normalizeAuditRows(raw: unknown): AuditEntry[] {
+  const list = Array.isArray(raw)
+    ? raw
+    : raw &&
+        typeof raw === "object" &&
+        Array.isArray((raw as { entries?: unknown }).entries)
+      ? (raw as { entries: unknown[] }).entries
+      : [];
+  return list.map((row, index) => {
+    if (!row || typeof row !== "object") {
+      return {
+        id: `invalid-${index}`,
+        timestamp: "",
+        action: "",
+        actor: "",
+        details: "",
+      };
+    }
+    const r = row as Record<string, unknown>;
+    const action = String(r.action ?? "");
+    const timestamp =
+      typeof r.timestamp === "string"
+        ? r.timestamp
+        : r.timestamp != null
+          ? String(r.timestamp)
+          : "";
+    const actor =
+      typeof r.actor === "string"
+        ? r.actor
+        : typeof r.actor_id === "string"
+          ? r.actor_id
+          : "";
+    let details = "";
+    const d = r.details;
+    if (typeof d === "string") details = d;
+    else if (d !== undefined && d !== null) {
+      try {
+        details = JSON.stringify(d);
+      } catch {
+        details = String(d);
+      }
+    }
+    const id =
+      typeof r.id === "string"
+        ? r.id
+        : `${timestamp}:${index}:${action}:${actor}`;
+    return { id, timestamp, action, actor, details };
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Public API surface
 // ---------------------------------------------------------------------------
@@ -95,9 +146,11 @@ export const api = {
   getTaskEvents: (id: string) =>
     get<{ events: TaskEvent[] }>(`/tasks/${id}/events`),
 
-  // Audit
-  getAuditLog: (limit = 100) =>
-    get<{ entries: AuditEntry[] }>(`/audit?limit=${limit}`),
+  // Audit — server returns a JSON array; normalize to `{ entries }` for the UI.
+  getAuditLog: async (limit = 100) => {
+    const raw = await get<unknown>(`/audit?limit=${limit}`);
+    return { entries: normalizeAuditRows(raw) };
+  },
 
   // GitHub Integration (OAuth)
   getGithubStatus: () =>

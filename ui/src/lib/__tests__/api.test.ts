@@ -150,6 +150,21 @@ describe("api client", () => {
     expect(mockFetch).toHaveBeenCalledWith("/api/audit?limit=100");
   });
 
+  it("getAuditLog normalizes raw JSON array from server", async () => {
+    mockJsonResponse([
+      {
+        timestamp: "2024-01-01T00:00:00Z",
+        action: "spawn",
+        actor_id: "agent-1",
+        details: { pid: 100 },
+      },
+    ]);
+    const result = await api.getAuditLog(10);
+    expect(result.entries).toHaveLength(1);
+    expect(result.entries[0].actor).toBe("agent-1");
+    expect(result.entries[0].details).toBe('{"pid":100}');
+  });
+
   // ---- GitHub Integration ----
 
   it("getGithubStatus sends GET /api/integrations/github/status", async () => {
