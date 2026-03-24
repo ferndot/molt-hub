@@ -29,8 +29,13 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# Backend
-(cd "$ROOT" && $CARGO run --bin molt-hub -- serve 2>&1 \
+# Backend (skip auto-opening the system browser when using the Tauri shell)
+if [ "$DESKTOP" = true ]; then
+  BACKEND_SERVE=(run --bin molt-hub -- serve --no-open)
+else
+  BACKEND_SERVE=(run --bin molt-hub -- serve)
+fi
+(cd "$ROOT" && $CARGO "${BACKEND_SERVE[@]}" 2>&1 \
   | sed "s/^/$(printf "${RED}[backend]${NC} ")/") &
 
 # Frontend
@@ -48,7 +53,7 @@ echo " Molt Hub dev servers starting..."
 echo "   Backend:  http://localhost:13401"
 echo "   Frontend: http://localhost:5173"
 if [ "$DESKTOP" = true ]; then
-  echo "   Desktop:  Tauri window"
+  echo "   Desktop:  Tauri window (browser will not auto-open)"
 fi
 echo "   Press Ctrl+C to stop all"
 echo "================================================"
