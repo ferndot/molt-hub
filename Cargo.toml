@@ -74,8 +74,19 @@ base64 = "0.22"
 # System keychain
 keyring = "3"
 
+# Optional `.env` for local secrets (see `molt_hub_server::load_dotenv_files`)
+dotenvy = "0.15"
+
 # Platform directories (XDG / macOS conventions)
 dirs = "6"
 
 # Low-level Unix bindings
 libc = "0.2"
+
+# GitHub App JWT (RS256)
+jsonwebtoken = { version = "9", default-features = false, features = ["use_pem"] }
+
+# Webhook HMAC verification
+hmac = "0.12"
+subtle = "2.5"
+hex = "0.4"

@@ -113,6 +113,8 @@ cargo build --release --bin molt-hub
 - macOS: Xcode Command Line Tools (`xcode-select --install`)
 
 > **OAuth:** Uses HTTPS pages from [`oauth-bridge/redirect-uris.json`](oauth-bridge/redirect-uris.json) (see [`oauth-bridge/README.md`](oauth-bridge/README.md)). **Desktop:** bridge → **`molthub://`** → local API. **Browser dev:** use **Finish in browser (local API)** on the bridge page while `molt-hub serve` is running. **GitHub:** **`MOLTHUB_GITHUB_CLIENT_SECRET`** or **`GITHUB_CLIENT_SECRET`**. **Jira (Atlassian 3LO):** **`MOLTHUB_JIRA_CLIENT_SECRET`** or **`JIRA_CLIENT_SECRET`** (required for the token exchange; same OAuth app as the client ID). Optional: `MOLTHUB_*_REDIRECT_URI`, `MOLTHUB_JIRA_CLIENT_ID`.
+>
+> **`.env`:** Put a `.env` file in the repo root (or any parent of the process working directory). `molt-hub` and the desktop app load it on startup and do **not** override variables already set in your shell. See [`.env.example`](.env.example).
 
 ## License
 

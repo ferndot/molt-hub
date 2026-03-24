@@ -20,6 +20,7 @@ use tauri_plugin_deep_link::DeepLinkExt;
 use tauri_plugin_dialog::DialogExt;
 use url::Url;
 
+use molt_hub_server::load_dotenv_files;
 use molt_hub_server::serve::{build_router, spawn_health_metrics_task};
 
 /// Port for the embedded Axum server.
@@ -142,6 +143,7 @@ fn webview_url() -> String {
 }
 
 fn main() {
+    load_dotenv_files();
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
@@ -317,4 +319,3 @@ fn resolve_dist_dir_from_exe_or_cwd() -> PathBuf {
 
     PathBuf::from("ui/dist")
 }
-

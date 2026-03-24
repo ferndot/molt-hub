@@ -13,6 +13,7 @@ use clap::{Parser, Subcommand};
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
+use molt_hub_server::load_dotenv_files;
 use molt_hub_server::serve::{build_router, spawn_health_metrics_task};
 
 // ---------------------------------------------------------------------------
@@ -54,6 +55,7 @@ struct ServeArgs {
 
 #[tokio::main]
 async fn main() {
+    load_dotenv_files();
     // Initialise tracing. RUST_LOG overrides; default to info.
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env().add_directive(tracing::Level::INFO.into()))
@@ -93,11 +95,8 @@ async fn run_serve(args: ServeArgs) {
     let (app, manager, supervisor, _audit) = build_router(dist_dir).await;
 
     // Spawn periodic health metrics broadcast (every 5 seconds).
-    let _metrics_handle = spawn_health_metrics_task(
-        manager,
-        supervisor,
-        std::time::Duration::from_secs(5),
-    );
+    let _metrics_handle =
+        spawn_health_metrics_task(manager, supervisor, std::time::Duration::from_secs(5));
 
     let addr: SocketAddr = format!("{}:{}", args.host, args.port)
         .parse()

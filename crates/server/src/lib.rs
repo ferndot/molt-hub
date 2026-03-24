@@ -15,8 +15,11 @@ pub mod integrations;
 pub mod pipeline;
 pub mod projects;
 pub mod scheduler;
+pub mod serve;
 pub mod settings;
 pub mod summarizer;
-pub mod serve;
 pub mod ws;
 pub mod ws_broadcast;
+
+mod env_bootstrap;
+pub use env_bootstrap::load_dotenv_files;
