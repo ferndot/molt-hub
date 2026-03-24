@@ -50,8 +50,8 @@ fi
 
 echo "================================================"
 echo " Molt Hub dev servers starting..."
-echo "   Backend:  http://localhost:13401"
-echo "   Frontend: http://localhost:5173"
+echo "   Backend:  http://127.0.0.1:13401"
+echo "   Frontend: http://127.0.0.1:5173"
 if [ "$DESKTOP" = true ]; then
   echo "   Desktop:  Tauri window (browser will not auto-open)"
 fi

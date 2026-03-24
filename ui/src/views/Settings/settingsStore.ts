@@ -32,8 +32,7 @@ function isTauriShell(): boolean {
 }
 
 /**
- * Tauri `invoke` rejects with a plain string for `Result::Err(String)` from Rust.
- * `catch (e)` then sees a non-Error value and our old code showed the useless "Network error".
+ * Normalize errors from `fetch`, Tauri plugins, etc. Some paths reject with a plain string.
  */
 function formatInvokeRejection(err: unknown): string {
   if (typeof err === "string" && err.length > 0) {
@@ -60,7 +59,7 @@ function formatInvokeRejection(err: unknown): string {
 function oauthApiMissingHint(): string {
   if (isTauriShell()) {
     if (import.meta.env.DEV) {
-      return "This desktop window does not bundle the API. Run `molt-hub serve` (or `cargo run --bin molt-hub -- serve`) on port 13401, or use `./dev.sh` with the Vite dev server.";
+      return "The API on port 13401 is not reachable from this window. Run `molt-hub serve` on 13401 and keep `npm run dev` (Vite proxies `/api` there), or use `./dev.sh`.";
     }
     return "The built-in server on port 13401 did not return API data (often port conflict or startup failure). Quit other copies of Molt Hub, stop `molt-hub serve` if you want the app to own the port, then restart.";
   }
@@ -97,24 +96,10 @@ async function parseOAuthAuthJson(response: Response): Promise<{ url: string } |
 }
 
 /**
- * OAuth start URL: in the Tauri shell, use native HTTP (`invoke`) so WKWebView never
- * mis-handles `/api/*` (e.g. SPA HTML with 200). Browser / Vitest keep using `fetch`.
+ * OAuth start URL: always use same-origin `fetch` so dev (Vite → proxy → API) and
+ * release (embedded Axum) share one code path. Avoids Tauri custom commands / ACL drift.
  */
 async function getOAuthAuthorizationUrl(provider: "jira" | "github"): Promise<string> {
-  if (isTauriShell()) {
-    const { invoke } = await import("@tauri-apps/api/core");
-    const url = await invoke<string>("oauth_auth_start_url", { provider });
-    if (typeof url !== "string" || url.length === 0) {
-      throw new Error(oauthApiMissingHint());
-    }
-    try {
-      new URL(url);
-    } catch {
-      throw new Error(oauthApiMissingHint());
-    }
-    return url;
-  }
-
   const path =
     provider === "jira"
       ? "/api/integrations/jira/auth"

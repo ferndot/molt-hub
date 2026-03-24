@@ -4,15 +4,17 @@ import solidPlugin from "vite-plugin-solid";
 export default defineConfig({
   plugins: [solidPlugin()],
   server: {
+    host: "127.0.0.1",
     port: 5173,
+    strictPort: true,
     proxy: {
       "/ws": {
-        target: "ws://localhost:13401",
+        target: "ws://127.0.0.1:13401",
         ws: true,
         rewriteWsOrigin: true,
       },
       "/api": {
-        target: "http://localhost:13401",
+        target: "http://127.0.0.1:13401",
         changeOrigin: true,
       },
     },

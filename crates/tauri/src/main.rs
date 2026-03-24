@@ -2,7 +2,7 @@
 //!
 //! In release mode, spawns the Axum server and opens a webview to 127.0.0.1:13401.
 //! In debug mode (`cargo run`), skips the embedded server and points the webview
-//! at the Vite dev server (localhost:5173) for hot module reloading.
+//! at the Vite dev server (127.0.0.1:5173) for hot module reloading.
 //!
 //! OAuth (HTTPS bridge → `molthub://oauth/{jira|github}?…`): the deep-link plugin
 //! forwards `code`/`state` to the local API so PKCE can complete on the same process
@@ -31,38 +31,6 @@ fn local_api_port() -> u16 {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(SERVER_PORT)
-}
-
-/// Fetch OAuth authorization URL via native HTTP (not the WebView `fetch`).
-/// WKWebView can return the SPA shell for `/api/*` in some setups; reqwest always hits Axum.
-#[tauri::command]
-fn oauth_auth_start_url(provider: String) -> Result<String, String> {
-    let port = local_api_port();
-    let path = match provider.as_str() {
-        "jira" => "/api/integrations/jira/auth",
-        "github" => "/api/integrations/github/auth",
-        _ => return Err(format!("unknown OAuth provider: {provider}")),
-    };
-    let url = format!("http://127.0.0.1:{port}{path}");
-    // Never send loopback through HTTP(S)_PROXY — corporate proxies often break localhost.
-    let client = reqwest::blocking::Client::builder()
-        .no_proxy()
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|e| e.to_string())?;
-    let resp = client.get(&url).send().map_err(|e| e.to_string())?;
-    if !resp.status().is_success() {
-        return Err(format!("API returned HTTP {}", resp.status()));
-    }
-    let text = resp.text().map_err(|e| e.to_string())?;
-    let v: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| format!("API did not return JSON ({e})"))?;
-    let u = v
-        .get("url")
-        .and_then(|x| x.as_str())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| "JSON missing non-empty \"url\"".to_string())?;
-    Ok(u.to_string())
 }
 
 /// Forward `molthub://oauth/jira|github?…` to the local HTTP OAuth callback (PKCE verifier lives there).
@@ -113,8 +81,9 @@ fn forward_oauth_deep_links(urls: Vec<Url>) {
 fn webview_url() -> String {
     if cfg!(debug_assertions) {
         // In dev, use Vite for HMR. Start `npm run dev` in ui/ separately.
+        // Use 127.0.0.1 to match release (embedded server) and avoid ::1 vs IPv4 mismatches.
         let port = std::env::var("VITE_PORT").unwrap_or_else(|_| "5173".to_string());
-        format!("http://localhost:{port}")
+        format!("http://127.0.0.1:{port}")
     } else {
         // Match the embedded listener (127.0.0.1) so we never rely on `localhost` → ::1
         // resolving while the server is IPv4-only.
@@ -131,7 +100,6 @@ fn main() {
         .init();
 
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![oauth_auth_start_url])
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {

@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * Playwright configuration for Molt Hub e2e tests.
  *
- * Assumes the Vite dev server is already running on localhost:5173.
+ * Assumes the Vite dev server is already running on 127.0.0.1:5173.
  * Run `npm run dev` in the ui/ directory before executing e2e tests.
  */
 export default defineConfig({
@@ -15,7 +15,7 @@ export default defineConfig({
   reporter: "list",
 
   use: {
-    baseURL: "http://localhost:5173",
+    baseURL: "http://127.0.0.1:5173",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },

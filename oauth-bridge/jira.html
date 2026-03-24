@@ -7,30 +7,44 @@
     <style>
       body {
         font-family: system-ui, sans-serif;
-        max-width: 32rem;
+        max-width: 28rem;
         margin: 3rem auto;
         padding: 0 1rem;
         line-height: 1.5;
       }
+      .btn {
+        display: inline-block;
+        margin-top: 1rem;
+        padding: 0.65rem 1.25rem;
+        background: #2563eb;
+        color: #fff;
+        text-decoration: none;
+        border-radius: 8px;
+        font-weight: 600;
+      }
+      .btn:focus {
+        outline: 2px solid #93c5fd;
+        outline-offset: 2px;
+      }
       code {
         font-size: 0.9em;
+      }
+      .muted {
+        color: #555;
+        font-size: 0.9rem;
+        margin-top: 1.25rem;
       }
     </style>
   </head>
   <body>
-    <p>Redirecting to Molt Hub…</p>
+    <h1 style="font-size: 1.25rem">Jira authorized</h1>
+    <p>Open Molt Hub to finish connecting. Most browsers block jumping to a desktop app unless you use a link or button (not an automatic redirect).</p>
     <p>
-      <a id="openlink" href="#">Open Molt Hub</a>
-      — use this if the app does not open automatically (some browsers block custom
-      URL schemes unless you click a link).
+      <a id="openlink" class="btn" href="#" autofocus>Open Molt Hub</a>
     </p>
-    <p id="fallback" hidden>
-      If nothing happens, open the app manually — it must be running. On macOS,
-      <code>tauri dev</code> alone often does not register the
-      <code>molthub://</code> handler; build the app once with
-      <code>cargo tauri build --debug</code> and open the
-      <code>.app</code> from <code>target/debug/bundle/macos/</code> (or install
-      it) so the system knows to hand off <code>molthub://</code>.
+    <p id="fallback" class="muted" hidden>
+      If the button does nothing, the <code>molthub://</code> handler may not be registered.
+      On macOS, open the built app from <code>target/debug/bundle/macos/</code> (or install it) at least once, then try again — see the project <code>oauth-bridge/README.md</code>.
     </p>
     <script>
       (function () {
@@ -56,10 +70,9 @@
         var target = scheme + "://oauth/jira?" + q.toString();
         var link = document.getElementById("openlink");
         link.href = target;
-        location.replace(target);
         setTimeout(function () {
           document.getElementById("fallback").hidden = false;
-        }, 2500);
+        }, 4000);
       })();
     </script>
   </body>
