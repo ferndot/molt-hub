@@ -6,6 +6,7 @@
 //!   GET    /status            — returns `{ connected, site_url? }`
 //!   POST   /disconnect        — clears stored tokens
 
+use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -20,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{instrument, warn};
 
 use super::github_oauth_handlers::oauth_success_html;
+use super::integration_params::ProjectIdQuery;
 use super::oauth::{JiraOAuthService, OAuthError, DEFAULT_SCOPES};
 use crate::credentials::{CredentialScope, CredentialStore};
 
@@ -27,7 +29,6 @@ use crate::credentials::{CredentialScope, CredentialStore};
 // Credential store keys
 // ---------------------------------------------------------------------------
 
-const CRED_SCOPE: CredentialScope = CredentialScope::Global;
 const KEY_ACCESS_TOKEN: &str = "jira/access_token";
 const KEY_REFRESH_TOKEN: &str = "jira/refresh_token";
 const KEY_SCOPE: &str = "jira/scope";
@@ -54,10 +55,10 @@ impl Deref for JiraOAuthStateRef {
 /// State injected into Jira OAuth handlers.
 pub struct JiraOAuthState {
     pub service: JiraOAuthService,
-    /// Last successfully obtained tokens (in-memory cache).
-    pub stored_tokens: tokio::sync::Mutex<Option<JiraStoredTokens>>,
-    /// Pending PKCE verifiers keyed by CSRF state token.
-    pub pkce_verifiers: DashMap<String, String>,
+    /// In-memory OAuth tokens keyed by [`CredentialScope`].
+    pub stored_tokens: tokio::sync::Mutex<HashMap<CredentialScope, JiraStoredTokens>>,
+    /// Pending PKCE verifiers + scope keyed by CSRF state.
+    pub pkce_verifiers: DashMap<String, (String, CredentialScope)>,
     /// Persistent credential store (OS keychain or in-memory fallback).
     pub credential_store: Arc<dyn CredentialStore>,
 }
@@ -83,48 +84,42 @@ impl JiraOAuthState {
     pub fn new(service: JiraOAuthService, credential_store: Arc<dyn CredentialStore>) -> Self {
         Self {
             service,
-            stored_tokens: tokio::sync::Mutex::new(None),
+            stored_tokens: tokio::sync::Mutex::new(HashMap::new()),
             pkce_verifiers: DashMap::new(),
             credential_store,
         }
     }
 
-    /// Load tokens from the credential store when the in-memory cache is empty.
-    pub async fn ensure_tokens_loaded(&self) {
-        let mut stored = self.stored_tokens.lock().await;
-        if stored.is_some() {
+    /// Load tokens from the credential store for `scope` when the in-memory cache has no entry.
+    pub async fn ensure_tokens_loaded(&self, scope: &CredentialScope) {
+        let mut map = self.stored_tokens.lock().await;
+        if map.contains_key(scope) {
             return;
         }
-        if let Ok(access_token) = self.credential_store.retrieve(KEY_ACCESS_TOKEN, &CRED_SCOPE) {
+        if let Ok(access_token) = self.credential_store.retrieve(KEY_ACCESS_TOKEN, scope) {
             let refresh_token = self
                 .credential_store
-                .retrieve(KEY_REFRESH_TOKEN, &CRED_SCOPE)
+                .retrieve(KEY_REFRESH_TOKEN, scope)
                 .ok();
-            let scope = self
+            let oauth_scope = self
                 .credential_store
-                .retrieve(KEY_SCOPE, &CRED_SCOPE)
+                .retrieve(KEY_SCOPE, scope)
                 .unwrap_or_default();
-            let site_url = self
-                .credential_store
-                .retrieve(KEY_SITE_URL, &CRED_SCOPE)
-                .ok();
-            let site_name = self
-                .credential_store
-                .retrieve(KEY_SITE_NAME, &CRED_SCOPE)
-                .ok();
-            let cloud_id = self
-                .credential_store
-                .retrieve(KEY_CLOUD_ID, &CRED_SCOPE)
-                .ok();
-            *stored = Some(JiraStoredTokens {
-                access_token,
-                refresh_token,
-                expires_in: 0,
-                scope,
-                cloud_id,
-                site_url,
-                site_name,
-            });
+            let site_url = self.credential_store.retrieve(KEY_SITE_URL, scope).ok();
+            let site_name = self.credential_store.retrieve(KEY_SITE_NAME, scope).ok();
+            let cloud_id = self.credential_store.retrieve(KEY_CLOUD_ID, scope).ok();
+            map.insert(
+                scope.clone(),
+                JiraStoredTokens {
+                    access_token,
+                    refresh_token,
+                    expires_in: 0,
+                    scope: oauth_scope,
+                    cloud_id,
+                    site_url,
+                    site_name,
+                },
+            );
         }
     }
 }
@@ -183,12 +178,16 @@ pub struct JiraDisconnectResponse {
 #[instrument(skip_all)]
 pub async fn jira_auth(
     State(state): State<JiraOAuthStateRef>,
+    Query(project): Query<ProjectIdQuery>,
 ) -> impl IntoResponse {
     let csrf_state = generate_state_token();
+    let cred_scope = project.credential_scope();
 
     let (url, verifier) = state.service.authorization_url(&csrf_state, DEFAULT_SCOPES);
 
-    state.pkce_verifiers.insert(csrf_state.clone(), verifier);
+    state
+        .pkce_verifiers
+        .insert(csrf_state.clone(), (verifier, cred_scope));
 
     Json(JiraAuthResponse {
         url,
@@ -208,8 +207,8 @@ pub async fn jira_oauth_callback(
     Query(query): Query<JiraCallbackQuery>,
 ) -> impl IntoResponse {
     // Retrieve (and consume) the PKCE verifier for this CSRF state.
-    let verifier = match app_state.pkce_verifiers.remove(&query.state) {
-        Some((_, v)) => v,
+    let (verifier, cred_scope) = match app_state.pkce_verifiers.remove(&query.state) {
+        Some((_, pair)) => pair,
         None => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -222,7 +221,11 @@ pub async fn jira_oauth_callback(
         }
     };
 
-    let tokens = match app_state.service.exchange_code(&query.code, &verifier).await {
+    let tokens = match app_state
+        .service
+        .exchange_code(&query.code, &verifier)
+        .await
+    {
         Ok(t) => t,
         Err(e) => {
             let (status, msg) = jira_oauth_error_to_http(&e);
@@ -263,37 +266,56 @@ pub async fn jira_oauth_callback(
     };
 
     // Persist to credential store (best-effort — log on failure but don't abort).
-    if let Err(e) = app_state.credential_store.store(KEY_ACCESS_TOKEN, &CRED_SCOPE, &tokens.access_token) {
+    if let Err(e) =
+        app_state
+            .credential_store
+            .store(KEY_ACCESS_TOKEN, &cred_scope, &tokens.access_token)
+    {
         warn!(error = %e, "failed to persist Jira access token to credential store");
     }
     if let Some(ref rt) = tokens.refresh_token {
-        if let Err(e) = app_state.credential_store.store(KEY_REFRESH_TOKEN, &CRED_SCOPE, rt) {
+        if let Err(e) = app_state
+            .credential_store
+            .store(KEY_REFRESH_TOKEN, &cred_scope, rt)
+        {
             warn!(error = %e, "failed to persist Jira refresh token to credential store");
         }
     }
-    if let Err(e) = app_state.credential_store.store(KEY_SCOPE, &CRED_SCOPE, &tokens.scope) {
+    if let Err(e) = app_state
+        .credential_store
+        .store(KEY_SCOPE, &cred_scope, &tokens.scope)
+    {
         warn!(error = %e, "failed to persist Jira scope to credential store");
     }
     if let Some(ref url) = site_url {
-        if let Err(e) = app_state.credential_store.store(KEY_SITE_URL, &CRED_SCOPE, url) {
+        if let Err(e) = app_state
+            .credential_store
+            .store(KEY_SITE_URL, &cred_scope, url)
+        {
             warn!(error = %e, "failed to persist Jira site_url to credential store");
         }
     }
     if let Some(ref name) = site_name {
-        if let Err(e) = app_state.credential_store.store(KEY_SITE_NAME, &CRED_SCOPE, name) {
+        if let Err(e) = app_state
+            .credential_store
+            .store(KEY_SITE_NAME, &cred_scope, name)
+        {
             warn!(error = %e, "failed to persist Jira site_name to credential store");
         }
     }
     if let Some(ref id) = cloud_id {
-        if let Err(e) = app_state.credential_store.store(KEY_CLOUD_ID, &CRED_SCOPE, id) {
+        if let Err(e) = app_state
+            .credential_store
+            .store(KEY_CLOUD_ID, &cred_scope, id)
+        {
             warn!(error = %e, "failed to persist Jira cloud_id to credential store");
         }
     }
 
     // Cache in-memory.
     {
-        let mut stored = app_state.stored_tokens.lock().await;
-        *stored = Some(new_tokens);
+        let mut map = app_state.stored_tokens.lock().await;
+        map.insert(cred_scope, new_tokens);
     }
 
     (
@@ -315,11 +337,13 @@ pub async fn jira_oauth_callback(
 #[instrument(skip_all)]
 pub async fn jira_status(
     State(app_state): State<JiraOAuthStateRef>,
+    Query(project): Query<ProjectIdQuery>,
 ) -> impl IntoResponse {
-    app_state.ensure_tokens_loaded().await;
-    let stored = app_state.stored_tokens.lock().await;
+    let cred_scope = project.credential_scope();
+    app_state.ensure_tokens_loaded(&cred_scope).await;
+    let map = app_state.stored_tokens.lock().await;
 
-    match stored.as_ref() {
+    match map.get(&cred_scope) {
         Some(tokens) => Json(JiraStatusResponse {
             connected: true,
             site_url: tokens.site_url.clone(),
@@ -343,7 +367,9 @@ pub async fn jira_status(
 #[instrument(skip_all)]
 pub async fn jira_disconnect(
     State(app_state): State<JiraOAuthStateRef>,
+    Query(project): Query<ProjectIdQuery>,
 ) -> impl IntoResponse {
+    let cred_scope = project.credential_scope();
     // Clear the credential store (best-effort).
     for key in [
         KEY_ACCESS_TOKEN,
@@ -353,13 +379,13 @@ pub async fn jira_disconnect(
         KEY_SITE_NAME,
         KEY_CLOUD_ID,
     ] {
-        if let Err(e) = app_state.credential_store.delete(key, &CRED_SCOPE) {
+        if let Err(e) = app_state.credential_store.delete(key, &cred_scope) {
             warn!(error = %e, key, "failed to delete Jira credential from store");
         }
     }
 
-    let mut stored = app_state.stored_tokens.lock().await;
-    *stored = None;
+    let mut map = app_state.stored_tokens.lock().await;
+    map.remove(&cred_scope);
     Json(JiraDisconnectResponse { success: true }).into_response()
 }
 
@@ -416,7 +442,7 @@ pub fn jira_oauth_router(state: Arc<JiraOAuthState>) -> Router {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::credentials::MemoryStore;
+    use crate::credentials::{CredentialScope, MemoryStore};
 
     fn make_state() -> Arc<JiraOAuthState> {
         let svc = JiraOAuthService::new("https://example.com/cb");
@@ -468,15 +494,19 @@ mod tests {
     #[tokio::test]
     async fn stored_tokens_starts_empty() {
         let state = make_state();
-        let stored = state.stored_tokens.lock().await;
-        assert!(stored.is_none());
+        let map = state.stored_tokens.lock().await;
+        assert!(map.is_empty());
     }
 
     #[tokio::test]
     async fn pkce_verifier_stored_on_auth() {
         let state = make_state();
 
-        let response = jira_auth(State(JiraOAuthStateRef(Arc::clone(&state)))).await;
+        let response = jira_auth(
+            State(JiraOAuthStateRef(Arc::clone(&state))),
+            Query(ProjectIdQuery::default()),
+        )
+        .await;
         let _ = response.into_response();
 
         assert_eq!(
@@ -490,15 +520,19 @@ mod tests {
     async fn callback_rejects_unknown_state() {
         let state = make_state();
 
-        state.pkce_verifiers.insert("known-state".to_string(), "verifier123".to_string());
+        state.pkce_verifiers.insert(
+            "known-state".to_string(),
+            ("verifier123".to_string(), CredentialScope::Global),
+        );
 
         let query = JiraCallbackQuery {
             code: "somecode".to_string(),
             state: "unknown-state".to_string(),
         };
-        let response = jira_oauth_callback(State(JiraOAuthStateRef(Arc::clone(&state))), Query(query))
-            .await
-            .into_response();
+        let response =
+            jira_oauth_callback(State(JiraOAuthStateRef(Arc::clone(&state))), Query(query))
+                .await
+                .into_response();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         assert!(state.pkce_verifiers.contains_key("known-state"));
@@ -509,29 +543,43 @@ mod tests {
         let state = make_state();
 
         {
-            let mut stored = state.stored_tokens.lock().await;
-            *stored = Some(JiraStoredTokens {
-                access_token: "tok".into(),
-                refresh_token: Some("ref".into()),
-                expires_in: 3600,
-                scope: "read:jira-work".into(),
-                cloud_id: Some("cloud-1".into()),
-                site_url: Some("https://my-org.atlassian.net".into()),
-                site_name: Some("my-org".into()),
-            });
+            let mut map = state.stored_tokens.lock().await;
+            map.insert(
+                CredentialScope::Global,
+                JiraStoredTokens {
+                    access_token: "tok".into(),
+                    refresh_token: Some("ref".into()),
+                    expires_in: 3600,
+                    scope: "read:jira-work".into(),
+                    cloud_id: Some("cloud-1".into()),
+                    site_url: Some("https://my-org.atlassian.net".into()),
+                    site_name: Some("my-org".into()),
+                },
+            );
         }
 
-        let response = jira_disconnect(State(JiraOAuthStateRef(Arc::clone(&state)))).await;
+        let response = jira_disconnect(
+            State(JiraOAuthStateRef(Arc::clone(&state))),
+            Query(ProjectIdQuery::default()),
+        )
+        .await;
         let _ = response.into_response();
 
-        let stored = state.stored_tokens.lock().await;
-        assert!(stored.is_none(), "tokens should be cleared after disconnect");
+        let map = state.stored_tokens.lock().await;
+        assert!(
+            !map.contains_key(&CredentialScope::Global),
+            "tokens should be cleared after disconnect"
+        );
     }
 
     #[tokio::test]
     async fn status_returns_disconnected_when_no_tokens() {
         let state = make_state();
-        let response = jira_status(State(JiraOAuthStateRef(Arc::clone(&state)))).await;
+        let response = jira_status(
+            State(JiraOAuthStateRef(Arc::clone(&state))),
+            Query(ProjectIdQuery::default()),
+        )
+        .await;
         let resp = response.into_response();
         assert_eq!(resp.status(), StatusCode::OK);
     }
@@ -540,19 +588,26 @@ mod tests {
     async fn status_returns_connected_when_tokens_present() {
         let state = make_state();
         {
-            let mut stored = state.stored_tokens.lock().await;
-            *stored = Some(JiraStoredTokens {
-                access_token: "tok".into(),
-                refresh_token: None,
-                expires_in: 3600,
-                scope: "read:jira-work".into(),
-                cloud_id: Some("cloud-1".into()),
-                site_url: Some("https://my-org.atlassian.net".into()),
-                site_name: Some("my-org".into()),
-            });
+            let mut map = state.stored_tokens.lock().await;
+            map.insert(
+                CredentialScope::Global,
+                JiraStoredTokens {
+                    access_token: "tok".into(),
+                    refresh_token: None,
+                    expires_in: 3600,
+                    scope: "read:jira-work".into(),
+                    cloud_id: Some("cloud-1".into()),
+                    site_url: Some("https://my-org.atlassian.net".into()),
+                    site_name: Some("my-org".into()),
+                },
+            );
         }
 
-        let response = jira_status(State(JiraOAuthStateRef(Arc::clone(&state)))).await;
+        let response = jira_status(
+            State(JiraOAuthStateRef(Arc::clone(&state))),
+            Query(ProjectIdQuery::default()),
+        )
+        .await;
         let resp = response.into_response();
         assert_eq!(resp.status(), StatusCode::OK);
     }

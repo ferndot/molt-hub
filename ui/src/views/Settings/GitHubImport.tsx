@@ -14,8 +14,14 @@ import {
 } from "solid-js";
 import { Portal } from "solid-js/web";
 import { TbOutlineX, TbOutlineCheck, TbOutlineAlertCircle } from "solid-icons/tb";
+import { projectState } from "../../stores/projectStore";
 import { settingsState } from "./settingsStore";
 import styles from "./GitHubImport.module.css";
+
+function appendActiveProjectId(params: URLSearchParams): void {
+  const id = projectState.activeProjectId?.trim();
+  if (id && id !== "default") params.set("projectId", id);
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -51,6 +57,7 @@ async function searchIssues(
   params.set("repo", repo);
   params.set("state", state);
   if (labels) params.set("labels", labels);
+  appendActiveProjectId(params);
   const response = await fetch(`/api/integrations/github/issues?${params}`);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json() as Promise<GitHubIssue[]>;
@@ -62,10 +69,13 @@ async function importIssues(
   repo: string,
   issueNumbers: number[],
 ): Promise<{ imported: number; message?: string }> {
+  const body: Record<string, unknown> = { owner, repo, issues: issueNumbers };
+  const id = projectState.activeProjectId?.trim();
+  if (id && id !== "default") body.projectId = id;
   const response = await fetch("/api/integrations/github/import", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ owner, repo, issues: issueNumbers }),
+    body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json() as Promise<{ imported: number; message?: string }>;

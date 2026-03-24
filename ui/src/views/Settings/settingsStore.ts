@@ -14,6 +14,8 @@ import { createStore, produce } from "solid-js/store";
 import { createEffect } from "solid-js";
 import { createSignal } from "solid-js";
 
+import { projectState } from "../../stores/projectStore";
+
 // ---------------------------------------------------------------------------
 // Tauri-aware external URL opener
 // ---------------------------------------------------------------------------
@@ -119,6 +121,16 @@ function parseOAuthAuthJsonText(text: string): { url: string } | null {
 }
 
 /**
+ * `?projectId=` for integration OAuth when the active monitored project is not `default`.
+ * Matches server `credential_scope_for_integration`.
+ */
+function oauthIntegrationQuerySuffix(): string {
+  const id = projectState.activeProjectId?.trim();
+  if (!id || id === "default") return "";
+  return `?projectId=${encodeURIComponent(id)}`;
+}
+
+/**
  * OAuth start URL: always use same-origin `fetch` so dev (Vite → proxy → API) and
  * release (embedded Axum) share one code path. Avoids Tauri custom commands / ACL drift.
  */
@@ -127,9 +139,10 @@ async function getOAuthAuthorizationUrl(provider: "jira" | "github"): Promise<st
     provider === "jira"
       ? "/api/integrations/jira/auth"
       : "/api/integrations/github/auth";
+  const q = oauthIntegrationQuerySuffix();
   let response: Response;
   try {
-    response = await fetch(path);
+    response = await fetch(`${path}${q}`);
   } catch {
     throw new Error(oauthApiMissingHint());
   }
@@ -542,7 +555,10 @@ export async function connectJira(): Promise<void> {
  */
 export async function disconnectJira(): Promise<void> {
   try {
-    await fetch("/api/integrations/jira/disconnect", { method: "POST" });
+    await fetch(
+      `/api/integrations/jira/disconnect${oauthIntegrationQuerySuffix()}`,
+      { method: "POST" },
+    );
   } catch {
     // Ignore network errors — we clear local state regardless
   }
@@ -565,7 +581,9 @@ const JIRA_POLL_MAX_ATTEMPTS = 60; // 2 minutes max
  */
 export async function fetchJiraStatus(): Promise<boolean> {
   try {
-    const response = await fetch("/api/integrations/jira/status");
+    const response = await fetch(
+      `/api/integrations/jira/status${oauthIntegrationQuerySuffix()}`,
+    );
     if (!response.ok) return false;
     const data = (await response.json()) as { connected: boolean; site_url?: string; site_name?: string };
     setSettingsState(
@@ -673,7 +691,10 @@ export async function connectGitHub(): Promise<void> {
  */
 export async function disconnectGitHub(): Promise<void> {
   try {
-    await fetch("/api/integrations/github/disconnect", { method: "POST" });
+    await fetch(
+      `/api/integrations/github/disconnect${oauthIntegrationQuerySuffix()}`,
+      { method: "POST" },
+    );
   } catch {
     // Ignore network errors — we clear local state regardless
   }
@@ -701,7 +722,9 @@ const GITHUB_POLL_MAX_ATTEMPTS = 60; // 2 minutes max
  */
 export async function fetchGithubStatus(): Promise<boolean> {
   try {
-    const response = await fetch("/api/integrations/github/status");
+    const response = await fetch(
+      `/api/integrations/github/status${oauthIntegrationQuerySuffix()}`,
+    );
     if (!response.ok) return false;
     const data = (await response.json()) as { connected: boolean; owner?: string };
     setSettingsState(

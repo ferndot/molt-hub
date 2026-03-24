@@ -24,6 +24,8 @@ use tracing::instrument;
 use molt_hub_core::events::SqliteEventStore;
 use molt_hub_core::model::SessionId;
 
+use crate::credentials::CredentialScope;
+
 use super::github_client::{GitHubClient, GitHubError, GitHubIssue};
 use super::github_import_service::GithubImportService;
 use super::github_oauth_handlers::{
@@ -63,6 +65,9 @@ pub struct SearchQuery {
     /// Free-text search query.
     #[serde(default)]
     pub q: String,
+    /// Optional monitored project ULID — selects per-project GitHub OAuth tokens.
+    #[serde(default, rename = "projectId")]
+    pub project_id: Option<String>,
 }
 
 /// Query parameters for `GET /issues` (Solid UI).
@@ -76,6 +81,8 @@ pub struct IssuesQuery {
     /// Comma-separated label names.
     #[serde(default)]
     pub labels: String,
+    #[serde(default, rename = "projectId")]
+    pub project_id: Option<String>,
 }
 
 fn default_issue_state_filter() -> String {
@@ -100,6 +107,8 @@ pub struct ImportRequest {
     pub repo: String,
     /// Issue numbers to import.
     pub issues: Vec<i64>,
+    #[serde(default, rename = "projectId")]
+    pub project_id: Option<String>,
 }
 
 /// Response body for a successful import.
@@ -119,8 +128,10 @@ pub struct ImportResponse {
 #[instrument(skip_all)]
 pub async fn list_repos(
     State(state): State<GithubAppState>,
+    Query(project): Query<super::integration_params::ProjectIdQuery>,
 ) -> impl IntoResponse {
-    let client = match build_client(&state.oauth).await {
+    let scope = project.credential_scope();
+    let client = match build_client(&state.oauth, &scope).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -140,7 +151,8 @@ pub async fn search_issues(
     State(state): State<GithubAppState>,
     Query(query): Query<SearchQuery>,
 ) -> impl IntoResponse {
-    let client = match build_client(&state.oauth).await {
+    let scope = crate::credentials::credential_scope_for_integration(query.project_id.as_deref());
+    let client = match build_client(&state.oauth, &scope).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -163,16 +175,14 @@ pub async fn list_issues_ui(
     State(state): State<GithubAppState>,
     Query(query): Query<IssuesQuery>,
 ) -> impl IntoResponse {
-    let client = match build_client(&state.oauth).await {
+    let scope = crate::credentials::credential_scope_for_integration(query.project_id.as_deref());
+    let client = match build_client(&state.oauth, &scope).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
 
     let q = build_github_search_q(&query.state, &query.labels);
-    match client
-        .search_issues(&query.owner, &query.repo, &q)
-        .await
-    {
+    match client.search_issues(&query.owner, &query.repo, &q).await {
         Ok(issues) => {
             let ui: Vec<GitHubIssueUi> = issues.into_iter().map(issue_to_ui).collect();
             Json(ui).into_response()
@@ -190,6 +200,7 @@ pub async fn import_issues(
     State(state): State<GithubAppState>,
     Json(body): Json<ImportRequest>,
 ) -> impl IntoResponse {
+    let scope = crate::credentials::credential_scope_for_integration(body.project_id.as_deref());
     let store = match state.store.as_ref() {
         Some(s) => Arc::clone(s),
         None => {
@@ -203,7 +214,7 @@ pub async fn import_issues(
         }
     };
 
-    let client = match build_client(&state.oauth).await {
+    let client = match build_client(&state.oauth, &scope).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -304,10 +315,11 @@ fn issue_to_ui(issue: GitHubIssue) -> GitHubIssueUi {
 
 async fn build_client(
     oauth: &GithubOAuthState,
+    scope: &CredentialScope,
 ) -> Result<GitHubClient, axum::response::Response> {
-    oauth.ensure_tokens_loaded().await;
-    let stored = oauth.stored_tokens.lock().await;
-    let tokens = stored.as_ref().ok_or_else(|| {
+    oauth.ensure_tokens_loaded(scope).await;
+    let map = oauth.stored_tokens.lock().await;
+    let tokens = map.get(scope).ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({
@@ -390,13 +402,13 @@ mod tests {
         let store = Arc::new(MemoryStore::new());
         let oauth = GithubOAuthState::new(svc, store);
 
-        let result = build_client(&oauth).await;
+        let result = build_client(&oauth, &CredentialScope::Global).await;
         assert!(result.is_err(), "should fail when no token is set");
     }
 
     #[tokio::test]
     async fn build_client_succeeds_with_token() {
-        use crate::credentials::MemoryStore;
+        use crate::credentials::{CredentialScope, MemoryStore};
         use crate::integrations::github_oauth::GithubOAuthService;
         use crate::integrations::github_oauth::GITHUB_CALLBACK_URL;
         use crate::integrations::github_oauth_handlers::GithubStoredTokens;
@@ -406,17 +418,20 @@ mod tests {
         let oauth = GithubOAuthState::new(svc, store);
 
         {
-            let mut stored = oauth.stored_tokens.lock().await;
-            *stored = Some(GithubStoredTokens {
-                access_token: "ghp_test123".into(),
-                refresh_token: None,
-                expires_in: Some(3600),
-                scope: "repo".into(),
-                login: None,
-            });
+            let mut map = oauth.stored_tokens.lock().await;
+            map.insert(
+                CredentialScope::Global,
+                GithubStoredTokens {
+                    access_token: "ghp_test123".into(),
+                    refresh_token: None,
+                    expires_in: Some(3600),
+                    scope: "repo".into(),
+                    login: None,
+                },
+            );
         }
 
-        let result = build_client(&oauth).await;
+        let result = build_client(&oauth, &CredentialScope::Global).await;
         assert!(result.is_ok(), "should succeed when token is set");
     }
 

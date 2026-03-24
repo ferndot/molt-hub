@@ -6,6 +6,7 @@
 //!   GET    /api/integrations/github/status            — returns connection status
 //!   POST   /api/integrations/github/disconnect        — clears stored tokens
 
+use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -19,15 +20,16 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, warn};
 
+use super::github_app::{github_app_slug_from_env, GithubAppCredentials};
 use super::github_client::GitHubClient;
 use super::github_oauth::{GithubOAuthError, GithubOAuthService};
+use super::integration_params::ProjectIdQuery;
 use crate::credentials::{CredentialScope, CredentialStore};
 
 // ---------------------------------------------------------------------------
 // Credential store keys
 // ---------------------------------------------------------------------------
 
-const CRED_SCOPE: CredentialScope = CredentialScope::Global;
 const KEY_ACCESS_TOKEN: &str = "github/access_token";
 const KEY_REFRESH_TOKEN: &str = "github/refresh_token";
 const KEY_SCOPE: &str = "github/scope";
@@ -53,12 +55,14 @@ impl Deref for GithubOAuthStateRef {
 /// State injected into GitHub OAuth handlers.
 pub struct GithubOAuthState {
     pub service: tokio::sync::RwLock<GithubOAuthService>,
-    /// Last successfully obtained tokens (in-memory cache).
-    pub stored_tokens: tokio::sync::Mutex<Option<GithubStoredTokens>>,
-    /// Pending PKCE verifiers keyed by CSRF state token.
-    pub pkce_verifiers: DashMap<String, String>,
+    /// In-memory OAuth tokens keyed by [`CredentialScope`] (Global vs per-project).
+    pub stored_tokens: tokio::sync::Mutex<HashMap<CredentialScope, GithubStoredTokens>>,
+    /// Pending PKCE verifiers + credential scope keyed by CSRF state (callback has no `projectId`).
+    pub pkce_verifiers: DashMap<String, (String, CredentialScope)>,
     /// Persistent credential store (OS keychain or in-memory fallback).
     pub credential_store: Arc<dyn CredentialStore>,
+    /// When set, [`github_status`] may expose a GitHub App install URL (user-to-server OAuth unchanged).
+    pub github_app: Option<GithubAppCredentials>,
 }
 
 /// Tokens stored after a successful GitHub OAuth exchange.
@@ -77,37 +81,50 @@ impl GithubOAuthState {
     /// Create state from an already-constructed [`GithubOAuthService`] and a
     /// [`CredentialStore`] for token persistence across restarts.
     pub fn new(service: GithubOAuthService, credential_store: Arc<dyn CredentialStore>) -> Self {
+        Self::with_github_app(service, credential_store, None)
+    }
+
+    /// Same as [`GithubOAuthState::new`] but optionally loads GitHub App credentials for install URLs / future App API use.
+    pub fn with_github_app(
+        service: GithubOAuthService,
+        credential_store: Arc<dyn CredentialStore>,
+        github_app: Option<GithubAppCredentials>,
+    ) -> Self {
         Self {
             service: tokio::sync::RwLock::new(service),
-            stored_tokens: tokio::sync::Mutex::new(None),
+            stored_tokens: tokio::sync::Mutex::new(HashMap::new()),
             pkce_verifiers: DashMap::new(),
             credential_store,
+            github_app,
         }
     }
 
-    /// Load tokens from the credential store when the in-memory cache is empty.
-    pub async fn ensure_tokens_loaded(&self) {
-        let mut stored = self.stored_tokens.lock().await;
-        if stored.is_some() {
+    /// Load tokens from the credential store for `scope` when the in-memory cache has no entry.
+    pub async fn ensure_tokens_loaded(&self, scope: &CredentialScope) {
+        let mut map = self.stored_tokens.lock().await;
+        if map.contains_key(scope) {
             return;
         }
-        if let Ok(access_token) = self.credential_store.retrieve(KEY_ACCESS_TOKEN, &CRED_SCOPE) {
+        if let Ok(access_token) = self.credential_store.retrieve(KEY_ACCESS_TOKEN, scope) {
             let refresh_token = self
                 .credential_store
-                .retrieve(KEY_REFRESH_TOKEN, &CRED_SCOPE)
+                .retrieve(KEY_REFRESH_TOKEN, scope)
                 .ok();
-            let scope = self
+            let oauth_scope = self
                 .credential_store
-                .retrieve(KEY_SCOPE, &CRED_SCOPE)
+                .retrieve(KEY_SCOPE, scope)
                 .unwrap_or_default();
-            let login = self.credential_store.retrieve(KEY_LOGIN, &CRED_SCOPE).ok();
-            *stored = Some(GithubStoredTokens {
-                access_token,
-                refresh_token,
-                expires_in: None,
-                scope,
-                login: login.filter(|s| !s.is_empty()),
-            });
+            let login = self.credential_store.retrieve(KEY_LOGIN, scope).ok();
+            map.insert(
+                scope.clone(),
+                GithubStoredTokens {
+                    access_token,
+                    refresh_token,
+                    expires_in: None,
+                    scope: oauth_scope,
+                    login: login.filter(|s| !s.is_empty()),
+                },
+            );
         }
     }
 }
@@ -148,6 +165,9 @@ pub struct GithubStatusResponse {
     /// Authenticated user's GitHub login (for `owner` in repo-scoped API calls).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub owner: Option<String>,
+    /// Present when `GITHUB_APP_SLUG` + app credentials are configured (install flow; PKCE OAuth remains available).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_install_url: Option<String>,
 }
 
 /// Response from the disconnect endpoint.
@@ -164,13 +184,17 @@ pub struct GithubDisconnectResponse {
 #[instrument(skip_all)]
 pub async fn github_auth(
     State(state): State<GithubOAuthStateRef>,
+    Query(project): Query<ProjectIdQuery>,
 ) -> impl IntoResponse {
     let csrf_state = generate_state_token();
+    let cred_scope = project.credential_scope();
 
     let service = state.service.read().await;
     let (url, verifier) = service.authorization_url(&csrf_state);
 
-    state.pkce_verifiers.insert(csrf_state.clone(), verifier);
+    state
+        .pkce_verifiers
+        .insert(csrf_state.clone(), (verifier, cred_scope));
 
     Json(GithubAuthResponse {
         url,
@@ -190,8 +214,8 @@ pub async fn github_oauth_callback(
     Query(query): Query<GithubCallbackQuery>,
 ) -> impl IntoResponse {
     // Retrieve (and consume) the PKCE verifier for this CSRF state.
-    let verifier = match app_state.pkce_verifiers.remove(&query.state) {
-        Some((_, v)) => v,
+    let (verifier, cred_scope) = match app_state.pkce_verifiers.remove(&query.state) {
+        Some((_, pair)) => pair,
         None => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -220,19 +244,25 @@ pub async fn github_oauth_callback(
     let scope = tokens.scope.clone();
 
     // Persist to credential store (best-effort — log on failure but don't abort).
-    if let Err(e) = app_state.credential_store.store(
-        KEY_ACCESS_TOKEN,
-        &CRED_SCOPE,
-        &tokens.access_token,
-    ) {
+    if let Err(e) =
+        app_state
+            .credential_store
+            .store(KEY_ACCESS_TOKEN, &cred_scope, &tokens.access_token)
+    {
         warn!(error = %e, "failed to persist GitHub access token to credential store");
     }
     if let Some(ref rt) = tokens.refresh_token {
-        if let Err(e) = app_state.credential_store.store(KEY_REFRESH_TOKEN, &CRED_SCOPE, rt) {
+        if let Err(e) = app_state
+            .credential_store
+            .store(KEY_REFRESH_TOKEN, &cred_scope, rt)
+        {
             warn!(error = %e, "failed to persist GitHub refresh token to credential store");
         }
     }
-    if let Err(e) = app_state.credential_store.store(KEY_SCOPE, &CRED_SCOPE, &tokens.scope) {
+    if let Err(e) = app_state
+        .credential_store
+        .store(KEY_SCOPE, &cred_scope, &tokens.scope)
+    {
         warn!(error = %e, "failed to persist GitHub scope to credential store");
     }
 
@@ -248,7 +278,7 @@ pub async fn github_oauth_callback(
     };
 
     if let Some(ref lg) = login {
-        if let Err(e) = app_state.credential_store.store(KEY_LOGIN, &CRED_SCOPE, lg) {
+        if let Err(e) = app_state.credential_store.store(KEY_LOGIN, &cred_scope, lg) {
             warn!(error = %e, "failed to persist GitHub login to credential store");
         }
     }
@@ -263,8 +293,8 @@ pub async fn github_oauth_callback(
 
     // Cache in-memory.
     {
-        let mut stored = app_state.stored_tokens.lock().await;
-        *stored = Some(new_tokens);
+        let mut map = app_state.stored_tokens.lock().await;
+        map.insert(cred_scope, new_tokens);
     }
 
     let _ = scope;
@@ -288,37 +318,45 @@ pub async fn github_oauth_callback(
 #[instrument(skip_all)]
 pub async fn github_status(
     State(app_state): State<GithubOAuthStateRef>,
+    Query(project): Query<ProjectIdQuery>,
 ) -> impl IntoResponse {
-    app_state.ensure_tokens_loaded().await;
+    let cred_scope = project.credential_scope();
+    app_state.ensure_tokens_loaded(&cred_scope).await;
+
+    let app_install_url = match (&app_state.github_app, github_app_slug_from_env()) {
+        (Some(_), Some(slug)) => Some(GithubAppCredentials::installations_new_url(
+            &slug, "molt-hub",
+        )),
+        _ => None,
+    };
 
     let (connected, scope, mut owner) = {
-        let stored = app_state.stored_tokens.lock().await;
-        match stored.as_ref() {
+        let map = app_state.stored_tokens.lock().await;
+        match map.get(&cred_scope) {
             None => (false, None, None),
-            Some(tokens) => (
-                true,
-                Some(tokens.scope.clone()),
-                tokens.login.clone(),
-            ),
+            Some(tokens) => (true, Some(tokens.scope.clone()), tokens.login.clone()),
         }
     };
 
     if connected && owner.is_none() {
         let token = {
-            let stored = app_state.stored_tokens.lock().await;
-            stored.as_ref().map(|t| t.access_token.clone())
+            let map = app_state.stored_tokens.lock().await;
+            map.get(&cred_scope).map(|t| t.access_token.clone())
         };
         if let Some(token) = token {
-            match GitHubClient::new(token).get_authenticated_user_login().await {
+            match GitHubClient::new(token)
+                .get_authenticated_user_login()
+                .await
+            {
                 Ok(login) => {
                     if let Err(e) = app_state
                         .credential_store
-                        .store(KEY_LOGIN, &CRED_SCOPE, &login)
+                        .store(KEY_LOGIN, &cred_scope, &login)
                     {
                         warn!(error = %e, "failed to persist GitHub login to credential store");
                     }
-                    let mut stored = app_state.stored_tokens.lock().await;
-                    if let Some(t) = stored.as_mut() {
+                    let mut map = app_state.stored_tokens.lock().await;
+                    if let Some(t) = map.get_mut(&cred_scope) {
                         t.login = Some(login.clone());
                     }
                     owner = Some(login);
@@ -332,6 +370,7 @@ pub async fn github_status(
         connected,
         scope: if connected { scope } else { None },
         owner: if connected { owner } else { None },
+        app_install_url,
     })
     .into_response()
 }
@@ -344,16 +383,18 @@ pub async fn github_status(
 #[instrument(skip_all)]
 pub async fn github_disconnect(
     State(app_state): State<GithubOAuthStateRef>,
+    Query(project): Query<ProjectIdQuery>,
 ) -> impl IntoResponse {
+    let cred_scope = project.credential_scope();
     // Clear the credential store (best-effort).
     for key in [KEY_ACCESS_TOKEN, KEY_REFRESH_TOKEN, KEY_SCOPE, KEY_LOGIN] {
-        if let Err(e) = app_state.credential_store.delete(key, &CRED_SCOPE) {
+        if let Err(e) = app_state.credential_store.delete(key, &cred_scope) {
             warn!(error = %e, key, "failed to delete GitHub credential from store");
         }
     }
 
-    let mut stored = app_state.stored_tokens.lock().await;
-    *stored = None;
+    let mut map = app_state.stored_tokens.lock().await;
+    map.remove(&cred_scope);
     Json(GithubDisconnectResponse { success: true }).into_response()
 }
 
@@ -447,9 +488,9 @@ pub fn github_oauth_router(state: Arc<GithubOAuthState>) -> Router {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::github_oauth::GITHUB_CALLBACK_URL;
-    use crate::credentials::MemoryStore;
+    use super::*;
+    use crate::credentials::{CredentialScope, MemoryStore};
 
     fn make_state() -> Arc<GithubOAuthState> {
         let svc = GithubOAuthService::with_secret(GITHUB_CALLBACK_URL, "test_secret".into());
@@ -508,15 +549,19 @@ mod tests {
     #[tokio::test]
     async fn stored_tokens_starts_empty() {
         let state = make_state();
-        let stored = state.stored_tokens.lock().await;
-        assert!(stored.is_none());
+        let map = state.stored_tokens.lock().await;
+        assert!(map.is_empty());
     }
 
     #[tokio::test]
     async fn pkce_verifier_stored_on_auth() {
         let state = make_state();
 
-        let response = github_auth(State(GithubOAuthStateRef(Arc::clone(&state)))).await;
+        let response = github_auth(
+            State(GithubOAuthStateRef(Arc::clone(&state))),
+            Query(ProjectIdQuery::default()),
+        )
+        .await;
         let _ = response.into_response();
 
         assert_eq!(
@@ -531,16 +576,20 @@ mod tests {
         let state = make_state();
 
         // Manually insert a verifier.
-        state.pkce_verifiers.insert("known-state".to_string(), "verifier123".to_string());
+        state.pkce_verifiers.insert(
+            "known-state".to_string(),
+            ("verifier123".to_string(), CredentialScope::Global),
+        );
 
         // Attempt callback with an unknown state token.
         let query = GithubCallbackQuery {
             code: "somecode".to_string(),
             state: "unknown-state".to_string(),
         };
-        let response = github_oauth_callback(State(GithubOAuthStateRef(Arc::clone(&state))), Query(query))
-            .await
-            .into_response();
+        let response =
+            github_oauth_callback(State(GithubOAuthStateRef(Arc::clone(&state))), Query(query))
+                .await
+                .into_response();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
         // The known verifier must still be present.
@@ -553,27 +602,41 @@ mod tests {
 
         // Manually seed some tokens.
         {
-            let mut stored = state.stored_tokens.lock().await;
-            *stored = Some(GithubStoredTokens {
-                access_token: "tok".into(),
-                refresh_token: Some("ref".into()),
-                expires_in: Some(28800),
-                scope: "repo".into(),
-                login: None,
-            });
+            let mut map = state.stored_tokens.lock().await;
+            map.insert(
+                CredentialScope::Global,
+                GithubStoredTokens {
+                    access_token: "tok".into(),
+                    refresh_token: Some("ref".into()),
+                    expires_in: Some(28800),
+                    scope: "repo".into(),
+                    login: None,
+                },
+            );
         }
 
-        let response = github_disconnect(State(GithubOAuthStateRef(Arc::clone(&state)))).await;
+        let response = github_disconnect(
+            State(GithubOAuthStateRef(Arc::clone(&state))),
+            Query(ProjectIdQuery::default()),
+        )
+        .await;
         let _ = response.into_response();
 
-        let stored = state.stored_tokens.lock().await;
-        assert!(stored.is_none(), "tokens should be cleared after disconnect");
+        let map = state.stored_tokens.lock().await;
+        assert!(
+            !map.contains_key(&CredentialScope::Global),
+            "tokens should be cleared after disconnect"
+        );
     }
 
     #[tokio::test]
     async fn status_returns_disconnected_when_no_tokens() {
         let state = make_state();
-        let response = github_status(State(GithubOAuthStateRef(Arc::clone(&state)))).await;
+        let response = github_status(
+            State(GithubOAuthStateRef(Arc::clone(&state))),
+            Query(ProjectIdQuery::default()),
+        )
+        .await;
         let resp = response.into_response();
         assert_eq!(resp.status(), StatusCode::OK);
     }
@@ -582,17 +645,24 @@ mod tests {
     async fn status_returns_connected_when_tokens_present() {
         let state = make_state();
         {
-            let mut stored = state.stored_tokens.lock().await;
-            *stored = Some(GithubStoredTokens {
-                access_token: "tok".into(),
-                refresh_token: None,
-                expires_in: Some(28800),
-                scope: "repo,user".into(),
-                login: None,
-            });
+            let mut map = state.stored_tokens.lock().await;
+            map.insert(
+                CredentialScope::Global,
+                GithubStoredTokens {
+                    access_token: "tok".into(),
+                    refresh_token: None,
+                    expires_in: Some(28800),
+                    scope: "repo,user".into(),
+                    login: None,
+                },
+            );
         }
 
-        let response = github_status(State(GithubOAuthStateRef(Arc::clone(&state)))).await;
+        let response = github_status(
+            State(GithubOAuthStateRef(Arc::clone(&state))),
+            Query(ProjectIdQuery::default()),
+        )
+        .await;
         let resp = response.into_response();
         assert_eq!(resp.status(), StatusCode::OK);
     }

@@ -7,6 +7,14 @@
 
 const BASE = "/api";
 
+/** Optional monitored-project ULID for per-project integration OAuth tokens. */
+function integrationPath(path: string, projectId?: string): string {
+  const id = projectId?.trim();
+  if (!id || id === "default") return path;
+  const sep = path.includes("?") ? "&" : "?";
+  return `${path}${sep}projectId=${encodeURIComponent(id)}`;
+}
+
 function jsonHeaders(): HeadersInit {
   return { "Content-Type": "application/json" };
 }
@@ -173,12 +181,18 @@ export const api = {
   },
 
   // GitHub Integration (OAuth)
-  getGithubStatus: () =>
-    get<GitHubStatus>("/integrations/github/status"),
-  getGithubAuthUrl: () =>
-    get<{ url: string }>("/integrations/github/auth"),
-  disconnectGithub: () =>
-    post<Record<string, unknown>>("/integrations/github/disconnect"),
+  getGithubStatus: (projectId?: string) =>
+    get<GitHubStatus>(
+      integrationPath("/integrations/github/status", projectId),
+    ),
+  getGithubAuthUrl: (projectId?: string) =>
+    get<{ url: string }>(
+      integrationPath("/integrations/github/auth", projectId),
+    ),
+  disconnectGithub: (projectId?: string) =>
+    post<Record<string, unknown>>(
+      integrationPath("/integrations/github/disconnect", projectId),
+    ),
 };
 
 // ---------------------------------------------------------------------------
@@ -246,4 +260,7 @@ export interface TaskEvent {
 export interface GitHubStatus {
   connected: boolean;
   owner?: string;
+  scope?: string;
+  /** When the server has GitHub App slug + credentials configured. */
+  app_install_url?: string;
 }

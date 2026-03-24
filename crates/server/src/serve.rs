@@ -24,9 +24,10 @@ use crate::agents::worktree_registry::{WorktreeManagerCache, WorktreeRegistry};
 use crate::audit::{audit_router, start_audit_writer, AuditHandle, AuditState};
 use crate::credentials::KeyringStore;
 use crate::events::handlers::{events_router, tasks_router, EventStoreState};
+use crate::integrations::github_app::GithubAppCredentials;
+use crate::integrations::github_handlers::{github_integrations_router, GithubAppState};
 use crate::integrations::github_oauth::GithubOAuthService;
 use crate::integrations::github_oauth::GITHUB_CLIENT_SECRET;
-use crate::integrations::github_handlers::{github_integrations_router, GithubAppState};
 use crate::integrations::github_oauth_handlers::GithubOAuthState;
 use crate::integrations::handlers::{jira_integrations_router, JiraAppState};
 use crate::integrations::jira_oauth_handlers::{jira_oauth_router, JiraOAuthState};
@@ -145,13 +146,19 @@ pub async fn build_router(
         Some(secret) => GithubOAuthService::with_secret(&github_callback, secret.to_owned()),
         None => GithubOAuthService::new(&github_callback),
     };
-    let github_oauth_state = Arc::new(GithubOAuthState::new(
+    let github_app_creds = match GithubAppCredentials::try_from_env() {
+        Ok(c) => c,
+        Err(e) => {
+            warn!(error = %e, "GitHub App env present but invalid; continuing with OAuth-only");
+            None
+        }
+    };
+    let github_oauth_state = Arc::new(GithubOAuthState::with_github_app(
         github_oauth_svc,
         Arc::clone(&credential_store),
+        github_app_creds,
     ));
-    let github_store = event_store_state
-        .as_ref()
-        .map(|es| Arc::clone(&es.store));
+    let github_store = event_store_state.as_ref().map(|es| Arc::clone(&es.store));
     let github_stack = github_integrations_router(GithubAppState {
         oauth: Arc::clone(&github_oauth_state),
         store: github_store,

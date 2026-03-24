@@ -24,6 +24,8 @@ use tracing::instrument;
 use molt_hub_core::events::SqliteEventStore;
 use molt_hub_core::model::SessionId;
 
+use crate::credentials::{credential_scope_for_integration, CredentialScope};
+
 use super::import_service::ImportService;
 use super::jira_client::{JiraClient, JiraError};
 use super::jira_oauth_handlers::{
@@ -57,6 +59,8 @@ pub struct SearchQuery {
     pub jql: String,
     /// Optional cloud ID override; defaults to the first accessible site.
     pub cloud_id: Option<String>,
+    #[serde(default, rename = "projectId")]
+    pub project_id: Option<String>,
 }
 
 /// Body for the import endpoint.
@@ -65,6 +69,8 @@ pub struct ImportRequest {
     pub issue_keys: Vec<String>,
     /// Optional cloud ID override; defaults to the first accessible site.
     pub cloud_id: Option<String>,
+    #[serde(default, rename = "projectId")]
+    pub project_id: Option<String>,
 }
 
 /// Response body for a successful import.
@@ -83,7 +89,8 @@ pub async fn search_issues(
     State(state): State<JiraAppState>,
     Query(query): Query<SearchQuery>,
 ) -> impl IntoResponse {
-    let client = match build_client(&state.oauth, query.cloud_id.as_deref()).await {
+    let scope = credential_scope_for_integration(query.project_id.as_deref());
+    let client = match build_client(&state.oauth, query.cloud_id.as_deref(), &scope).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -107,7 +114,8 @@ pub async fn import_issues(
     State(state): State<JiraAppState>,
     Json(body): Json<ImportRequest>,
 ) -> impl IntoResponse {
-    let client = match build_client(&state.oauth, body.cloud_id.as_deref()).await {
+    let scope = credential_scope_for_integration(body.project_id.as_deref());
+    let client = match build_client(&state.oauth, body.cloud_id.as_deref(), &scope).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -143,7 +151,13 @@ pub async fn list_projects(
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     let cloud_id = params.get("cloud_id").map(|s| s.as_str());
-    let client = match build_client(&state.oauth, cloud_id).await {
+    let scope = credential_scope_for_integration(
+        params
+            .get("projectId")
+            .or_else(|| params.get("project_id"))
+            .map(|s| s.as_str()),
+    );
+    let client = match build_client(&state.oauth, cloud_id, &scope).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -187,10 +201,11 @@ pub fn jira_integrations_router(state: JiraAppState) -> Router {
 async fn build_client(
     oauth: &JiraOAuthState,
     cloud_id: Option<&str>,
+    scope: &CredentialScope,
 ) -> Result<JiraClient, axum::response::Response> {
-    oauth.ensure_tokens_loaded().await;
-    let stored = oauth.stored_tokens.lock().await;
-    let tokens = stored.as_ref().ok_or_else(|| {
+    oauth.ensure_tokens_loaded(scope).await;
+    let map = oauth.stored_tokens.lock().await;
+    let tokens = map.get(scope).ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({
@@ -214,7 +229,10 @@ async fn build_client(
         })?
     };
 
-    Ok(JiraClient::from_oauth(&selected_cloud_id, &tokens.access_token))
+    Ok(JiraClient::from_oauth(
+        &selected_cloud_id,
+        &tokens.access_token,
+    ))
 }
 
 fn jira_error_to_http(e: &JiraError) -> (StatusCode, String) {
@@ -233,7 +251,7 @@ fn jira_error_to_http(e: &JiraError) -> (StatusCode, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::credentials::MemoryStore;
+    use crate::credentials::{CredentialScope, MemoryStore};
 
     use super::super::jira_oauth_handlers::JiraStoredTokens;
     use super::super::oauth::JiraOAuthService;
@@ -267,7 +285,7 @@ mod tests {
         let store = Arc::new(MemoryStore::new());
         let oauth = JiraOAuthState::new(svc, store);
 
-        let result = build_client(&oauth, None).await;
+        let result = build_client(&oauth, None, &CredentialScope::Global).await;
         assert!(result.is_err(), "should fail when no tokens are stored");
     }
 
@@ -278,19 +296,22 @@ mod tests {
         let oauth = JiraOAuthState::new(svc, store);
 
         {
-            let mut stored = oauth.stored_tokens.lock().await;
-            *stored = Some(JiraStoredTokens {
-                access_token: "tok".into(),
-                refresh_token: None,
-                expires_in: 3600,
-                scope: "read:jira-work".into(),
-                cloud_id: None,
-                site_url: None,
-                site_name: None,
-            });
+            let mut map = oauth.stored_tokens.lock().await;
+            map.insert(
+                CredentialScope::Global,
+                JiraStoredTokens {
+                    access_token: "tok".into(),
+                    refresh_token: None,
+                    expires_in: 3600,
+                    scope: "read:jira-work".into(),
+                    cloud_id: None,
+                    site_url: None,
+                    site_name: None,
+                },
+            );
         }
 
-        let result = build_client(&oauth, None).await;
+        let result = build_client(&oauth, None, &CredentialScope::Global).await;
         assert!(result.is_err(), "should fail when no cloud_id is stored");
     }
 
@@ -301,19 +322,24 @@ mod tests {
         let oauth = JiraOAuthState::new(svc, store);
 
         {
-            let mut stored = oauth.stored_tokens.lock().await;
-            *stored = Some(JiraStoredTokens {
-                access_token: "my-token".into(),
-                refresh_token: Some("ref".into()),
-                expires_in: 3600,
-                scope: "read:jira-work".into(),
-                cloud_id: Some("cloud-abc".into()),
-                site_url: Some("https://my-org.atlassian.net".into()),
-                site_name: Some("my-org".into()),
-            });
+            let mut map = oauth.stored_tokens.lock().await;
+            map.insert(
+                CredentialScope::Global,
+                JiraStoredTokens {
+                    access_token: "my-token".into(),
+                    refresh_token: Some("ref".into()),
+                    expires_in: 3600,
+                    scope: "read:jira-work".into(),
+                    cloud_id: Some("cloud-abc".into()),
+                    site_url: Some("https://my-org.atlassian.net".into()),
+                    site_name: Some("my-org".into()),
+                },
+            );
         }
 
-        let client = build_client(&oauth, None).await.expect("should succeed");
+        let client = build_client(&oauth, None, &CredentialScope::Global)
+            .await
+            .expect("should succeed");
         assert!(client.base_url.contains("cloud-abc"));
         assert_eq!(client.access_token, "my-token");
     }
@@ -325,19 +351,22 @@ mod tests {
         let oauth = JiraOAuthState::new(svc, store);
 
         {
-            let mut stored = oauth.stored_tokens.lock().await;
-            *stored = Some(JiraStoredTokens {
-                access_token: "tok".into(),
-                refresh_token: None,
-                expires_in: 3600,
-                scope: "read:jira-work".into(),
-                cloud_id: Some("default-cloud".into()),
-                site_url: None,
-                site_name: None,
-            });
+            let mut map = oauth.stored_tokens.lock().await;
+            map.insert(
+                CredentialScope::Global,
+                JiraStoredTokens {
+                    access_token: "tok".into(),
+                    refresh_token: None,
+                    expires_in: 3600,
+                    scope: "read:jira-work".into(),
+                    cloud_id: Some("default-cloud".into()),
+                    site_url: None,
+                    site_name: None,
+                },
+            );
         }
 
-        let client = build_client(&oauth, Some("override-cloud"))
+        let client = build_client(&oauth, Some("override-cloud"), &CredentialScope::Global)
             .await
             .expect("should succeed");
         assert!(client.base_url.contains("override-cloud"));

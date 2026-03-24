@@ -222,6 +222,14 @@ describe("api client", () => {
     });
   });
 
+  it("getGithubStatus appends projectId when provided", async () => {
+    mockJsonResponse({ connected: false });
+    await api.getGithubStatus("01ARZ3NDEKTSV4RRFFQ69G5FAV");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/integrations/github/status?projectId=01ARZ3NDEKTSV4RRFFQ69G5FAV",
+    );
+  });
+
   // ---- Error handling ----
 
   it("throws on non-ok response", async () => {
