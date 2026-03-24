@@ -1,6 +1,7 @@
 import type { Component } from "solid-js";
-import { lazy, Suspense } from "solid-js";
+import { lazy, Suspense, onMount } from "solid-js";
 import { Router, Route } from "@solidjs/router";
+import { loadProjects } from "./stores/projectStore";
 import AppLayout from "./layout/AppLayout";
 import TriageView from "./views/Triage/TriageView";
 import AgentDetailView from "./views/AgentDetail/AgentDetailView";
@@ -34,6 +35,10 @@ const SettingsPage: Component = () => <SettingsView />;
 // ---------------------------------------------------------------------------
 
 const App: Component = () => {
+  onMount(() => {
+    void loadProjects();
+  });
+
   return (
     <Router root={AppLayout}>
       <Route path="/" component={MissionControlPage} />
@@ -44,6 +49,10 @@ const App: Component = () => {
       <Route path="/agents/:id" component={AgentDetailView} />
       <Route path="/tasks/:id" component={TaskDetailView} />
       <Route path="/settings" component={SettingsPage} />
+      {/* Project-scoped routes */}
+      <Route path="/projects/:pid/board" component={BoardPage} />
+      <Route path="/projects/:pid/triage" component={TriagePage} />
+      <Route path="/projects/:pid/settings" component={SettingsPage} />
     </Router>
   );
 };

@@ -8,8 +8,9 @@
  */
 
 import { createStore } from "solid-js/store";
-import { subscribe } from "../../lib/ws";
+import { subscribe, projectTopic } from "../../lib/ws";
 import { api, type PipelineStage } from "../../lib/api";
+import { projectState } from "../../stores/projectStore";
 import type { Priority } from "../../types/domain";
 
 // ---------------------------------------------------------------------------
@@ -223,7 +224,7 @@ export async function patchStage(
 // WebSocket subscription (stub — real handler wired when server sends board events)
 // ---------------------------------------------------------------------------
 
-subscribe("board:*", (msg) => {
+subscribe(projectTopic(projectState.activeProjectId, "board:*"), (msg) => {
   if (msg.type !== "event") return;
   const payload = msg.payload as Record<string, unknown>;
   const taskId = payload.task_id as string | undefined;

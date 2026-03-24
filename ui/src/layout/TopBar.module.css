@@ -75,6 +75,14 @@
   background: var(--chrome-hover);
 }
 
+/* Project breadcrumb — center slot, only shown in multi-project mode */
+.projectBreadcrumb {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--chrome-text);
+  -webkit-app-region: no-drag;
+}
+
 /* Unread badge */
 .inboxBadge {
   font-size: 0.625rem;
