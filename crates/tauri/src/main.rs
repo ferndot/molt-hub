@@ -234,6 +234,14 @@ fn main() {
                     "dev mode — webview points to Vite dev server. \
                      Start `npm run dev` in ui/ for HMR."
                 );
+                #[cfg(target_os = "macos")]
+                tracing::warn!(
+                    "OAuth uses the HTTPS bridge → molthub:// handoff. On macOS, Launch Services \
+                     usually only binds molthub:// after you have opened a built .app bundle at least \
+                     once (e.g. `cargo tauri build --debug`, then open target/debug/bundle/macos/*.app). \
+                     If the browser never returns to Molt Hub after login, click “Open Molt Hub” on \
+                     the bridge page or rebuild/install the app — see oauth-bridge/README.md."
+                );
             }
 
             // Update the main window URL to match dev/release target.

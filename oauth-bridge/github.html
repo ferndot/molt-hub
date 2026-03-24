@@ -16,8 +16,18 @@
   </head>
   <body>
     <p>Redirecting to Molt Hub…</p>
+    <p>
+      <a id="openlink" href="#">Open Molt Hub</a>
+      — use this if the app does not open automatically (some browsers block custom
+      URL schemes unless you click a link).
+    </p>
     <p id="fallback" hidden>
-      If nothing happens, open the app manually — it must be running.
+      If nothing happens, open the app manually — it must be running. On macOS,
+      <code>tauri dev</code> alone often does not register the
+      <code>molthub://</code> handler; build the app once with
+      <code>cargo tauri build --debug</code> and open the
+      <code>.app</code> from <code>target/debug/bundle/macos/</code> (or install
+      it) so the system knows to hand off <code>molthub://</code>.
     </p>
     <script>
       (function () {
@@ -41,6 +51,8 @@
           return;
         }
         var target = scheme + "://oauth/github?" + q.toString();
+        var link = document.getElementById("openlink");
+        link.href = target;
         location.replace(target);
         setTimeout(function () {
           document.getElementById("fallback").hidden = false;
