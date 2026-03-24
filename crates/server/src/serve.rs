@@ -24,7 +24,7 @@ use crate::hooks::HookExecutor;
 use crate::agents::output_buffer::{shared_output_buffer, spawn_agent_output_buffer_task};
 use crate::agents::worktree_registry::{WorktreeManagerCache, WorktreeRegistry};
 use crate::audit::{audit_router, start_audit_writer, AuditHandle, AuditState};
-use crate::credentials::KeyringStore;
+use crate::credentials::{CredentialScope, KeyringStore};
 use crate::events::handlers::{events_router, tasks_router, EventStoreState};
 use crate::integrations::github_app::GithubAppCredentials;
 use crate::integrations::github_handlers::{github_integrations_router, GithubAppState};
@@ -127,7 +127,8 @@ pub async fn build_router(
     let board_template = pipeline_state.snapshot_config().await;
     let registry = Arc::new(ProjectRuntimeRegistry::new(board_template.clone()));
     {
-        let boards = Arc::new(MultiBoardPipelineStore::empty_with_template(
+        let boards = Arc::new(MultiBoardPipelineStore::load_or_empty(
+            "default",
             board_template.clone(),
         ));
         let default_runtime = Arc::new(ProjectRuntime {
@@ -177,6 +178,19 @@ pub async fn build_router(
         jira_oauth_svc,
         Arc::clone(&credential_store),
     ));
+
+    // Preload global integration tokens from the keychain so the first UI request after
+    // restart sees a warm cache (avoids races with parallel status/import calls).
+    {
+        let github_warm = Arc::clone(&github_oauth_state);
+        let jira_warm = Arc::clone(&jira_oauth_state);
+        tokio::spawn(async move {
+            github_warm
+                .ensure_tokens_loaded(&CredentialScope::Global)
+                .await;
+            jira_warm.ensure_tokens_loaded(&CredentialScope::Global).await;
+        });
+    }
 
     // Jira REST (search/import/projects) requires the event store; OAuth-only if SQLite failed.
     let jira_stack = match event_store_state.as_ref() {

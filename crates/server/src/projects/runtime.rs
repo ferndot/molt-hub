@@ -1,10 +1,15 @@
 //! Per-project runtime state — supervisor, multi-board pipeline config, and event store.
 //!
+//! Kanban boards for each project are persisted under the platform config directory
+//! (see [`MultiBoardPipelineStore::load_or_empty`]).
+//!
 //! [`ProjectRuntime`] holds the live state for a single project.
 //! [`ProjectRuntimeRegistry`] is an in-memory map of `project_id → runtime`
 //! and is injected into Axum handlers via `axum::Extension`.
 
 use std::collections::HashMap;
+use std::io::ErrorKind;
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -12,7 +17,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use dashmap::DashMap;
 use molt_hub_core::config::PipelineConfig;
 use molt_hub_harness::supervisor::Supervisor;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
+use tracing::warn;
 use ulid::Ulid;
 
 use crate::pipeline::handlers::PipelineConfigStore;
@@ -21,21 +28,140 @@ use crate::pipeline::handlers::PipelineConfigStore;
 // Multi-board store (per project)
 // ---------------------------------------------------------------------------
 
-/// Named kanban boards, each backed by an in-memory [`PipelineConfigStore`].
+const BOARDS_INDEX_FILE: &str = "boards-index.yaml";
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct BoardsIndex {
+    #[serde(default)]
+    board_ids: Vec<String>,
+}
+
+fn board_persist_dir(project_id: &str) -> Option<std::path::PathBuf> {
+    dirs::config_dir().map(|d| d.join("molt-hub").join("boards").join(project_id))
+}
+
+fn boards_index_path(root: &Path) -> std::path::PathBuf {
+    root.join(BOARDS_INDEX_FILE)
+}
+
+fn read_boards_index(path: &Path) -> Result<BoardsIndex, String> {
+    match std::fs::read_to_string(path) {
+        Ok(s) => serde_yaml::from_str(&s).map_err(|e| format!("boards index: {e}")),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(BoardsIndex::default()),
+        Err(e) => Err(format!("read boards index: {e}")),
+    }
+}
+
+fn write_boards_index(path: &Path, index: &BoardsIndex) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let s = serde_yaml::to_string(index).map_err(|e| e.to_string())?;
+    std::fs::write(path, s).map_err(|e| e.to_string())
+}
+
+fn load_board_stores_from_disk(
+    root: &Path,
+    template: &PipelineConfig,
+) -> Result<HashMap<String, Arc<PipelineConfigStore>>, String> {
+    let index_path = boards_index_path(root);
+    let mut index = read_boards_index(&index_path)?;
+    let mut map = HashMap::new();
+    let mut kept: Vec<String> = Vec::new();
+    for id in &index.board_ids {
+        let p = root.join(format!("{id}.yaml"));
+        if p.is_file() {
+            kept.push(id.clone());
+            map.insert(
+                id.clone(),
+                Arc::new(PipelineConfigStore::from_file_with_template(
+                    p,
+                    template.clone(),
+                )),
+            );
+        }
+    }
+    if kept != index.board_ids {
+        index.board_ids = kept;
+        write_boards_index(&index_path, &index)?;
+    }
+    Ok(map)
+}
+
+fn append_board_id(root: &Path, id: &str) -> Result<(), String> {
+    let path = boards_index_path(root);
+    let mut index = read_boards_index(&path)?;
+    if !index.board_ids.iter().any(|x| x == id) {
+        index.board_ids.push(id.to_string());
+    }
+    write_boards_index(&path, &index)
+}
+
+fn remove_board_id(root: &Path, id: &str) -> Result<(), String> {
+    let path = boards_index_path(root);
+    let mut index = read_boards_index(&path)?;
+    index.board_ids.retain(|x| x != id);
+    write_boards_index(&path, &index)
+}
+
+/// Named kanban boards, each backed by a [`PipelineConfigStore`].
 ///
-/// New boards are cloned from [`MultiBoardPipelineStore::new_board_template`]; there is no
-/// built-in `default` board id — users create boards from that template.
+/// When a config directory is available (`~/.config/molt-hub/boards/<project_id>/` on Unix),
+/// boards are persisted as `{ulid}.yaml` plus `boards-index.yaml` and survive server restarts.
+///
+/// Use [`Self::empty_with_template`] for tests (no disk I/O).
 pub struct MultiBoardPipelineStore {
+    /// When set, board YAML files and the index live under this directory.
+    persist_dir: Option<std::path::PathBuf>,
     boards: RwLock<HashMap<String, Arc<PipelineConfigStore>>>,
-    /// Pipeline config copied for each `create_board` (columns, stages, hooks).
+    /// Pipeline config copied for each new board file (columns, stages, hooks).
     new_board_template: PipelineConfig,
 }
 
 impl MultiBoardPipelineStore {
+    /// Load boards from disk for `project_id`, or start empty if none exist.
+    pub fn load_or_empty(project_id: &str, new_board_template: PipelineConfig) -> Self {
+        let persist_dir = board_persist_dir(project_id);
+        let mut boards_map = HashMap::new();
+        if let Some(ref dir) = persist_dir {
+            match load_board_stores_from_disk(dir, &new_board_template) {
+                Ok(m) => boards_map = m,
+                Err(e) => warn!(
+                    project_id = %project_id,
+                    path = %dir.display(),
+                    error = %e,
+                    "failed to load boards from disk; starting with an empty board list",
+                ),
+            }
+        }
+        Self {
+            persist_dir,
+            boards: RwLock::new(boards_map),
+            new_board_template,
+        }
+    }
+
     /// Empty project: no boards until the user creates one (each new board uses `template`).
+    ///
+    /// Does not read or write the filesystem (for unit tests).
     pub fn empty_with_template(new_board_template: PipelineConfig) -> Self {
         Self {
+            persist_dir: None,
             boards: RwLock::new(HashMap::new()),
+            new_board_template,
+        }
+    }
+
+    /// Tests: load or create boards under `persist_dir` with stock [`PipelineConfig::board_defaults`].
+    #[cfg(test)]
+    fn with_persist_dir(persist_dir: std::path::PathBuf, new_board_template: PipelineConfig) -> Self {
+        let mut boards_map = HashMap::new();
+        if let Ok(m) = load_board_stores_from_disk(&persist_dir, &new_board_template) {
+            boards_map = m;
+        }
+        Self {
+            persist_dir: Some(persist_dir),
+            boards: RwLock::new(boards_map),
             new_board_template,
         }
     }
@@ -83,10 +209,25 @@ impl MultiBoardPipelineStore {
             return Err("board name must not be empty".into());
         }
         let id = Ulid::new().to_string();
+
+        let arc_store = if let Some(ref root) = self.persist_dir {
+            std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
+            let path = root.join(format!("{id}.yaml"));
+            let store = PipelineConfigStore::from_file_with_template(
+                path,
+                self.new_board_template.clone(),
+            );
+            store.set_display_name(title.to_string()).await;
+            append_board_id(root, &id)?;
+            Arc::new(store)
+        } else {
+            let store = PipelineConfigStore::from_pipeline_config(self.new_board_template.clone());
+            store.set_display_name(title.to_string()).await;
+            Arc::new(store)
+        };
+
         let mut g = self.boards.write().await;
-        let store = PipelineConfigStore::from_pipeline_config(self.new_board_template.clone());
-        store.set_display_name(title.to_string()).await;
-        g.insert(id.clone(), Arc::new(store));
+        g.insert(id.clone(), arc_store);
         Ok(id)
     }
 
@@ -95,6 +236,19 @@ impl MultiBoardPipelineStore {
         let mut g = self.boards.write().await;
         g.remove(&id)
             .ok_or_else(|| format!("board '{id}' not found"))?;
+        drop(g);
+
+        if let Some(ref root) = self.persist_dir {
+            let yaml = root.join(format!("{id}.yaml"));
+            if let Err(e) = std::fs::remove_file(&yaml) {
+                if e.kind() != ErrorKind::NotFound {
+                    warn!(path = %yaml.display(), error = %e, "failed to remove board yaml");
+                }
+            }
+            if let Err(e) = remove_board_id(root, &id) {
+                warn!(error = %e, "failed to update boards index after delete");
+            }
+        }
         Ok(())
     }
 }
@@ -199,8 +353,9 @@ pub async fn ensure_project_runtime(
     let runtime = Arc::new(ProjectRuntime {
         project_id: project_id.to_string(),
         supervisor: Arc::clone(supervisor),
-        boards: Arc::new(MultiBoardPipelineStore::empty_with_template(
-            registry.new_board_template.clone(),
+        boards: Arc::new(MultiBoardPipelineStore::load_or_empty(
+            project_id,
+            registry.new_board_template(),
         )),
     });
     registry
@@ -368,5 +523,21 @@ mod tests {
             registry.get("a").await.is_none(),
             "project a should be evicted to make room for b"
         );
+    }
+
+    #[tokio::test]
+    async fn persisted_boards_survive_store_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().to_path_buf();
+        let tpl = PipelineConfig::board_defaults();
+        let board_id = {
+            let s = MultiBoardPipelineStore::with_persist_dir(root.clone(), tpl.clone());
+            s.create_board("Sprint 1").await.unwrap()
+        };
+        let s2 = MultiBoardPipelineStore::with_persist_dir(root, tpl);
+        let boards = s2.list_summaries().await;
+        assert_eq!(boards.len(), 1);
+        assert_eq!(boards[0].id, board_id);
+        assert_eq!(boards[0].name, "Sprint 1");
     }
 }

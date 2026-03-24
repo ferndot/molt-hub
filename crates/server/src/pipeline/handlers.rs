@@ -199,31 +199,43 @@ fn load_pipeline_yaml(contents: &str) -> Result<PipelineConfig, String> {
 }
 
 impl PipelineConfigStore {
+    fn load_or_init_file(path: &std::path::Path, fallback: PipelineConfig) -> PipelineConfig {
+        match std::fs::read_to_string(path) {
+            Ok(contents) => match load_pipeline_yaml(&contents) {
+                Ok(cfg) => cfg,
+                Err(e) => {
+                    warn!(path = %path.display(), error = %e, "failed to parse pipeline YAML, reinitialising from template");
+                    let _ = Self::write_yaml(path, &fallback);
+                    fallback
+                }
+            },
+            Err(_) => {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = Self::write_yaml(path, &fallback);
+                fallback
+            }
+        }
+    }
+
     /// Create a store backed by a YAML file.
     ///
     /// If the file exists it is loaded; otherwise the default config is
     /// written to disk.
     pub fn from_file(path: PathBuf) -> Self {
-        let config = match std::fs::read_to_string(&path) {
-            Ok(contents) => match load_pipeline_yaml(&contents) {
-                Ok(cfg) => cfg,
-                Err(e) => {
-                    warn!(path = %path.display(), error = %e, "failed to parse pipeline YAML, using defaults");
-                    let defaults = PipelineConfig::board_defaults();
-                    let _ = Self::write_yaml(&path, &defaults);
-                    defaults
-                }
-            },
-            Err(_) => {
-                let defaults = PipelineConfig::board_defaults();
-                if let Some(parent) = path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                let _ = Self::write_yaml(&path, &defaults);
-                defaults
-            }
-        };
+        let config = Self::load_or_init_file(&path, PipelineConfig::board_defaults());
+        Self {
+            config: RwLock::new(config),
+            config_path: Some(path),
+        }
+    }
 
+    /// Like [`Self::from_file`], but uses `template` when the file is missing or invalid.
+    ///
+    /// Used for per-board pipeline files so new boards match the project template.
+    pub fn from_file_with_template(path: PathBuf, template: PipelineConfig) -> Self {
+        let config = Self::load_or_init_file(&path, template);
         Self {
             config: RwLock::new(config),
             config_path: Some(path),
@@ -312,7 +324,11 @@ impl PipelineConfigStore {
 
     /// Set `PipelineConfig::name` (board title in the UI).
     pub async fn set_display_name(&self, name: String) {
-        self.config.write().await.name = name;
+        let mut guard = self.config.write().await;
+        guard.name = name;
+        if let Err(e) = self.persist(&guard) {
+            warn!(error = %e, "failed to persist pipeline display name");
+        }
     }
 
     // -- writes --------------------------------------------------------------

@@ -323,7 +323,8 @@ pub async fn create_project(
             let runtime = Arc::new(ProjectRuntime {
                 project_id: pid.clone(),
                 supervisor: Arc::clone(&supervisor),
-                boards: Arc::new(MultiBoardPipelineStore::empty_with_template(
+                boards: Arc::new(MultiBoardPipelineStore::load_or_empty(
+                    &pid,
                     registry.new_board_template(),
                 )),
             });
