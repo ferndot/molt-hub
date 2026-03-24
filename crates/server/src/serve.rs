@@ -143,8 +143,12 @@ pub async fn build_router(
         github_oauth_svc,
         Arc::clone(&credential_store),
     ));
+    let github_store = event_store_state
+        .as_ref()
+        .map(|es| Arc::clone(&es.store));
     let github_stack = github_integrations_router(GithubAppState {
         oauth: Arc::clone(&github_oauth_state),
+        store: github_store,
     });
 
     // Jira OAuth — PKCE only, no client secret required

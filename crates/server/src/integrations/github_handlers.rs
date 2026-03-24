@@ -4,7 +4,7 @@
 //!   GET  /repos   — list repos
 //!   GET  /search  — search issues (GitHub `q` string)
 //!   GET  /issues  — list/search issues (UI: owner, repo, state, labels)
-//!   POST /import  — import selected issues (stub)
+//!   POST /import  — import selected issues into the event store (when available)
 //!
 //! Authentication uses the same OAuth tokens as `/auth` and `/oauth/callback`
 //! via [`GithubOAuthState`] inside [`GithubAppState`].
@@ -21,7 +21,11 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
+use molt_hub_core::events::SqliteEventStore;
+use molt_hub_core::model::SessionId;
+
 use super::github_client::{GitHubClient, GitHubError, GitHubIssue};
+use super::github_import_service::GithubImportService;
 use super::github_oauth_handlers::{
     github_auth, github_disconnect, github_oauth_callback, github_status, GithubOAuthState,
     GithubOAuthStateRef,
@@ -35,6 +39,8 @@ use super::github_oauth_handlers::{
 #[derive(Clone)]
 pub struct GithubAppState {
     pub oauth: Arc<GithubOAuthState>,
+    /// When `None`, the server started without SQLite; [`import_issues`] returns 503.
+    pub store: Option<Arc<SqliteEventStore>>,
 }
 
 impl FromRef<GithubAppState> for GithubOAuthStateRef {
@@ -99,7 +105,7 @@ pub struct ImportRequest {
 /// Response body for a successful import.
 #[derive(Debug, Serialize)]
 pub struct ImportResponse {
-    /// Number of issues imported.
+    /// Issues processed successfully (new imports plus idempotent skips).
     pub imported: usize,
     /// Human-readable message.
     pub message: String,
@@ -178,26 +184,74 @@ pub async fn list_issues_ui(
     }
 }
 
-/// Import selected GitHub issues (stub — returns success without persisting).
+/// Import selected GitHub issues into the event store.
 #[instrument(skip_all, fields(count = body.issues.len()))]
 pub async fn import_issues(
     State(state): State<GithubAppState>,
     Json(body): Json<ImportRequest>,
 ) -> impl IntoResponse {
-    let _client = match build_client(&state.oauth).await {
+    let store = match state.store.as_ref() {
+        Some(s) => Arc::clone(s),
+        None => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({
+                    "error": "Event store is not available; cannot import issues."
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let client = match build_client(&state.oauth).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
 
-    let count = body.issues.len();
-    Json(ImportResponse {
-        imported: count,
-        message: format!(
-            "Stub: {count} issue(s) from {}/{} queued for import",
-            body.owner, body.repo
-        ),
-    })
-    .into_response()
+    if body.issues.is_empty() {
+        return Json(ImportResponse {
+            imported: 0,
+            message: "No issues selected.".to_owned(),
+        })
+        .into_response();
+    }
+
+    let session_id = SessionId::new();
+    let svc = GithubImportService::new(client, store, session_id);
+
+    match svc
+        .import_issues(&body.owner, &body.repo, &body.issues)
+        .await
+    {
+        Ok((new_count, skipped)) => {
+            let total = new_count + skipped;
+            let message = if skipped == 0 {
+                format!(
+                    "Imported {new_count} issue(s) from {}/{}.",
+                    body.owner, body.repo
+                )
+            } else if new_count == 0 {
+                format!(
+                    "All {skipped} issue(s) from {}/{} were already imported.",
+                    body.owner, body.repo
+                )
+            } else {
+                format!(
+                    "Imported {new_count} new issue(s) from {}/{}; {skipped} already in hub.",
+                    body.owner, body.repo
+                )
+            };
+            Json(ImportResponse {
+                imported: total,
+                message,
+            })
+            .into_response()
+        }
+        Err(e) => {
+            let (status, msg) = github_import_error_to_http(&e);
+            (status, Json(serde_json::json!({ "error": msg }))).into_response()
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -269,8 +323,20 @@ async fn build_client(
 fn github_error_to_http(e: &GitHubError) -> (StatusCode, String) {
     match e {
         GitHubError::AuthError { .. } => (StatusCode::UNAUTHORIZED, e.to_string()),
+        GitHubError::NotFound { .. } => (StatusCode::NOT_FOUND, e.to_string()),
         GitHubError::HttpError(_) => (StatusCode::BAD_GATEWAY, e.to_string()),
         GitHubError::ParseError(_) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+    }
+}
+
+fn github_import_error_to_http(
+    e: &super::github_import_service::GithubImportError,
+) -> (StatusCode, String) {
+    match e {
+        super::github_import_service::GithubImportError::GitHub(ge) => github_error_to_http(ge),
+        super::github_import_service::GithubImportError::EventStore(es) => {
+            (StatusCode::INTERNAL_SERVER_ERROR, es.to_string())
+        }
     }
 }
 
@@ -302,6 +368,16 @@ mod tests {
         let (status, msg) = github_error_to_http(&err);
         assert_eq!(status, StatusCode::UNAUTHORIZED);
         assert!(msg.contains("403"));
+    }
+
+    #[test]
+    fn github_error_to_http_maps_not_found() {
+        let err = GitHubError::NotFound {
+            repo: "o/r".into(),
+            number: 99,
+        };
+        let (status, _) = github_error_to_http(&err);
+        assert_eq!(status, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
@@ -336,6 +412,7 @@ mod tests {
                 refresh_token: None,
                 expires_in: Some(3600),
                 scope: "repo".into(),
+                login: None,
             });
         }
 
@@ -361,7 +438,7 @@ mod tests {
     fn import_response_serializes() {
         let resp = ImportResponse {
             imported: 3,
-            message: "Stub: 3 issue(s) imported".into(),
+            message: "Imported 3 issue(s) from o/r.".into(),
         };
         let json = serde_json::to_value(&resp).expect("serialize");
         assert_eq!(json["imported"], 3);

@@ -26,6 +26,10 @@ pub enum GitHubError {
     /// The response body could not be deserialised.
     #[error("parse error: {0}")]
     ParseError(String),
+
+    /// Issue or pull request not found for this repository.
+    #[error("issue not found: {repo}#{number}")]
+    NotFound { repo: String, number: i64 },
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +128,28 @@ impl GitHubClient {
         Ok(repos)
     }
 
+    /// GitHub login for the authenticated user (`GET /user`).
+    pub async fn get_authenticated_user_login(&self) -> Result<String, GitHubError> {
+        let url = format!("{}/user", self.base_url);
+        let response = self
+            .http
+            .get(&url)
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "molt-hub")
+            .send()
+            .await?;
+
+        Self::check_auth(&response)?;
+
+        let user: GithubUser = response
+            .json()
+            .await
+            .map_err(|e| GitHubError::ParseError(e.to_string()))?;
+
+        Ok(user.login)
+    }
+
     /// Search issues in a repository.
     ///
     /// `query` is appended to the GitHub search qualifier
@@ -156,6 +182,46 @@ impl GitHubClient {
         Ok(body.items)
     }
 
+    /// Fetch a single issue (or pull request) by number.
+    pub async fn get_issue(
+        &self,
+        owner: &str,
+        repo: &str,
+        number: i64,
+    ) -> Result<GitHubIssue, GitHubError> {
+        let url = format!(
+            "{}/repos/{}/{}/issues/{}",
+            self.base_url, owner, repo, number
+        );
+        let response = self
+            .http
+            .get(&url)
+            .bearer_auth(&self.token)
+            .header("Accept", "application/vnd.github+json")
+            .header("User-Agent", "molt-hub")
+            .send()
+            .await?;
+
+        let status = response.status();
+        if status == StatusCode::NOT_FOUND {
+            return Err(GitHubError::NotFound {
+                repo: format!("{owner}/{repo}"),
+                number,
+            });
+        }
+
+        Self::check_auth(&response)?;
+
+        let response = response
+            .error_for_status()
+            .map_err(GitHubError::HttpError)?;
+
+        response
+            .json()
+            .await
+            .map_err(|e| GitHubError::ParseError(e.to_string()))
+    }
+
     /// Check for 401/403 status codes and return an `AuthError`.
     fn check_auth(response: &reqwest::Response) -> Result<(), GitHubError> {
         let status = response.status();
@@ -175,6 +241,11 @@ impl GitHubClient {
 #[derive(Deserialize)]
 struct SearchResult {
     items: Vec<GitHubIssue>,
+}
+
+#[derive(Deserialize)]
+struct GithubUser {
+    login: String,
 }
 
 // ---------------------------------------------------------------------------

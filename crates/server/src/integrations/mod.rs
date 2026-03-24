@@ -2,6 +2,7 @@
 
 pub mod github_client;
 pub mod github_handlers;
+pub mod github_import_service;
 pub mod github_oauth;
 pub mod github_oauth_handlers;
 pub mod handlers;
