@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::routing::get;
-use axum::Router;
+use axum::{Json, Router};
 use sqlx::sqlite::SqlitePoolOptions;
 use tokio::task::JoinHandle;
 use tower_http::services::{ServeDir, ServeFile};
@@ -43,6 +43,11 @@ use crate::ws_broadcast::{broadcast_metrics, MetricsPayload};
 // Router
 // ---------------------------------------------------------------------------
 
+/// `GET /api/health` — confirms Axum is serving (not a foreign process or SPA fallback).
+async fn api_health() -> Json<serde_json::Value> {
+    Json(serde_json::json!({ "ok": true }))
+}
+
 /// Resolve the default event store database path: `~/.config/molt-hub/events.db`.
 fn default_events_db_path() -> PathBuf {
     dirs::config_dir()
@@ -58,6 +63,7 @@ fn default_events_db_path() -> PathBuf {
 ///
 /// The returned router provides:
 /// - `GET /ws` — WebSocket upgrade for real-time UI updates
+/// - `GET /api/health` — JSON `{ "ok": true }` for startup / port checks
 /// - `GET /api/events` — query events (by task_id or since timestamp)
 /// - `GET /api/events/:id` — get a single event
 /// - `POST /api/events` — append an event
@@ -169,6 +175,7 @@ pub async fn build_router(
 
     let mut router = Router::new()
         .route("/ws", get(ws_handler))
+        .route("/api/health", get(api_health))
         .nest_service("/api/pipeline", pipeline)
         .nest_service("/api/agents", agents)
         .nest_service("/api/audit", audit)

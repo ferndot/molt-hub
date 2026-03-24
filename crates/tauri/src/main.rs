@@ -33,6 +33,56 @@ fn local_api_port() -> u16 {
         .unwrap_or(SERVER_PORT)
 }
 
+/// Block until `GET /api/health` returns `{"ok":true}` or show a dialog (release desktop).
+/// Avoids loading the SPA before Axum accepts, and detects a foreign listener on the port.
+fn wait_for_local_api_ready(port: u16, app: &tauri::AppHandle) {
+    let url = format!("http://127.0.0.1:{port}/api/health");
+    let client = match reqwest::blocking::Client::builder()
+        .no_proxy()
+        .timeout(Duration::from_secs(2))
+        .build()
+    {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::error!(error = %e, "reqwest client build failed for health check");
+            return;
+        }
+    };
+
+    for attempt in 0..100 {
+        match client.get(&url).send() {
+            Ok(resp) if resp.status().is_success() => {
+                if let Ok(text) = resp.text() {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                        if v.get("ok").and_then(|x| x.as_bool()) == Some(true) {
+                            if attempt > 0 {
+                                tracing::info!(attempt, "local API health check passed");
+                            }
+                            return;
+                        }
+                    }
+                }
+            }
+            Err(e) if attempt == 0 || attempt % 25 == 24 => {
+                tracing::debug!(error = %e, attempt, "health check request failed");
+            }
+            _ => {}
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    tracing::error!(port, "local API health check timed out");
+    let _ = app
+        .dialog()
+        .message(format!(
+            "Molt Hub’s API on port {port} did not respond correctly. \
+             Another app may be using that port, or the server is still starting.\n\n\
+             Quit conflicting programs, stop `molt-hub serve` if you want only the desktop app on this port, \
+             or set MOLTHUB_LOCAL_API_PORT. Then restart Molt Hub."
+        ))
+        .blocking_show();
+}
+
 /// Forward `molthub://oauth/jira|github?…` to the local HTTP OAuth callback (PKCE verifier lives there).
 fn forward_oauth_deep_links(urls: Vec<Url>) {
     let port = local_api_port();
@@ -199,6 +249,8 @@ fn main() {
                         port = bind_port,
                         "embedded server never signaled ready (timeout) — UI may be broken until restart"
                     );
+                } else {
+                    wait_for_local_api_ready(bind_port, app.handle());
                 }
             } else {
                 tracing::info!(

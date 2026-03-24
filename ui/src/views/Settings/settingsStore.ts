@@ -66,14 +66,37 @@ function oauthApiMissingHint(): string {
   return "Start the API on port 13401 (e.g. `./dev.sh` or `molt-hub serve`) and try again.";
 }
 
+/** Response body looks like HTML (SPA or wrong server on the API port). */
+function responseBodyLooksLikeHtml(text: string): boolean {
+  const t = text.trimStart().toLowerCase();
+  return t.startsWith("<!") || t.startsWith("<html");
+}
+
+function oauthWrongPortOrSpaHint(): string {
+  return "Received a web page instead of API data — another program may be using port 13401, or the UI loaded before the API was ready. Quit apps on that port, stop `molt-hub serve` if the desktop app should own it, and restart Molt Hub.";
+}
+
+function tryParseApiErrorMessage(text: string): string | null {
+  try {
+    const data = JSON.parse(text) as { error?: unknown };
+    if (
+      data &&
+      typeof data === "object" &&
+      typeof data.error === "string" &&
+      data.error.length > 0
+    ) {
+      return data.error;
+    }
+  } catch {
+    /* ignore */
+  }
+  return null;
+}
+
 /**
- * Parse `{ url: string }` from a successful auth response.
- * Avoids `Response#json()`: Safari/WebKit throws a vague DOMException
- * ("The string did not match the expected pattern.") when the body is HTML
- * or not JSON (e.g. dev proxy miss or SPA fallback).
+ * Parse `{ url: string }` from auth response text (already read from `Response`).
  */
-async function parseOAuthAuthJson(response: Response): Promise<{ url: string } | null> {
-  const text = await response.text();
+function parseOAuthAuthJsonText(text: string): { url: string } | null {
   let data: unknown;
   try {
     data = JSON.parse(text);
@@ -104,17 +127,34 @@ async function getOAuthAuthorizationUrl(provider: "jira" | "github"): Promise<st
     provider === "jira"
       ? "/api/integrations/jira/auth"
       : "/api/integrations/github/auth";
-  const response = await fetch(path);
+  let response: Response;
+  try {
+    response = await fetch(path);
+  } catch {
+    throw new Error(oauthApiMissingHint());
+  }
+  const text = await response.text();
+
   if (!response.ok) {
+    const apiErr = tryParseApiErrorMessage(text);
+    if (apiErr) {
+      throw new Error(apiErr);
+    }
+    if (responseBodyLooksLikeHtml(text)) {
+      throw new Error(oauthWrongPortOrSpaHint());
+    }
     const ct = response.headers.get("content-type") ?? "";
-    if (!ct.includes("application/json")) {
+    if (!ct.includes("application/json") && !text.trim().startsWith("{")) {
       throw new Error(oauthApiMissingHint());
     }
-    const text = await response.text();
-    throw new Error(text || `HTTP ${response.status}`);
+    throw new Error(text.trim() || `HTTP ${response.status}`);
   }
-  const parsed = await parseOAuthAuthJson(response);
+
+  const parsed = parseOAuthAuthJsonText(text);
   if (!parsed) {
+    if (responseBodyLooksLikeHtml(text)) {
+      throw new Error(oauthWrongPortOrSpaHint());
+    }
     throw new Error(oauthApiMissingHint());
   }
   return parsed.url;
