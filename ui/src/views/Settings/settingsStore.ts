@@ -20,8 +20,8 @@ import { createSignal } from "solid-js";
 
 async function openExternalUrl(url: string): Promise<void> {
   if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
-    const { invoke } = await import("@tauri-apps/api/core");
-    await invoke("plugin:opener|open_url", { url });
+    const { openUrl } = await import("@tauri-apps/plugin-opener");
+    await openUrl(url);
   } else {
     window.open(url, "_blank");
   }

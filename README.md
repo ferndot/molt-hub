@@ -77,6 +77,46 @@ ui/           — SolidJS frontend
   src/        — Components, views, stores
 ```
 
+## Building for Release
+
+### macOS app bundle (`.app` / `.dmg`)
+
+```bash
+# 1. Install frontend dependencies
+cd ui && npm install && cd ..
+
+# 2. Build the frontend
+cd ui && npm run build && cd ..
+
+# 3. Build the Tauri release bundle
+cd crates/tauri && cargo tauri build
+```
+
+The `.app` bundle and `.dmg` installer are written to:
+```
+crates/tauri/target/release/bundle/macos/Molt Hub.app
+crates/tauri/target/release/bundle/dmg/Molt Hub_*.dmg
+```
+
+### CLI server binary only
+
+```bash
+cargo build --release --bin molt-hub
+# Binary at: target/release/molt-hub
+```
+
+### Prerequisites
+
+- **Rust** toolchain (`rustup` — stable)
+- **Node.js** ≥ 18 with npm
+- **Tauri CLI** (installed automatically via `cargo tauri`)
+- macOS: Xcode Command Line Tools (`xcode-select --install`)
+
+> **OAuth in release builds:** Jira and GitHub OAuth both use `tauri-plugin-opener`
+> to open the authorization URL in the system browser. The callback is received
+> by the embedded server on `localhost:13401` — no special deep-link registration
+> is required.
+
 ## License
 
 [Antiracist Ethical Source License (ATR v0.6)](LICENSE)

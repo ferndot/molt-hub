@@ -4,6 +4,6 @@
   "description": "Default capabilities for Molt Hub",
   "windows": ["main"],
   "permissions": [
-    "opener:default"
+    "opener:allow-open-url"
   ]
 }
