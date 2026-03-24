@@ -13,7 +13,7 @@ use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{delete, get, patch, put},
+    routing::{delete, get, patch},
     Json, Router,
 };
 use chrono::Utc;
@@ -595,68 +595,6 @@ pub async fn patch_project_board_stage(
     }
 }
 
-/// GET /api/projects/:pid/pipeline/stages — legacy; same as board `default`.
-#[instrument(skip_all)]
-pub async fn get_project_pipeline_stages(
-    Path(project_id): Path<String>,
-    State(projects): State<Arc<ProjectConfigStore>>,
-    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
-    Extension(supervisor): Extension<Arc<Supervisor>>,
-) -> impl IntoResponse {
-    match board_pipeline_store(&project_id, "default", &projects, &registry, &supervisor).await {
-        Ok(store) => {
-            let body = store.get_stages_response().await;
-            (StatusCode::OK, Json(body)).into_response()
-        }
-        Err(e) => e.into_response(),
-    }
-}
-
-/// PUT /api/projects/:pid/pipeline/stages
-#[instrument(skip_all)]
-pub async fn put_project_pipeline_stages(
-    Path(project_id): Path<String>,
-    State(projects): State<Arc<ProjectConfigStore>>,
-    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
-    Extension(supervisor): Extension<Arc<Supervisor>>,
-    Json(body): Json<StagesResponse>,
-) -> impl IntoResponse {
-    let store =
-        match board_pipeline_store(&project_id, "default", &projects, &registry, &supervisor).await
-        {
-            Ok(s) => s,
-            Err(e) => return e.into_response(),
-        };
-    match store.set_stages_response(body).await {
-        Ok(()) => {
-            let body = store.get_stages_response().await;
-            (StatusCode::OK, Json(body)).into_response()
-        }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response(),
-    }
-}
-
-/// PATCH /api/projects/:pid/pipeline/stages/:sid
-#[instrument(skip_all)]
-pub async fn patch_project_pipeline_stage(
-    Path((project_id, stage_id)): Path<(String, String)>,
-    State(projects): State<Arc<ProjectConfigStore>>,
-    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
-    Extension(supervisor): Extension<Arc<Supervisor>>,
-    Json(patch): Json<StagePatch>,
-) -> impl IntoResponse {
-    let store =
-        match board_pipeline_store(&project_id, "default", &projects, &registry, &supervisor).await
-        {
-            Ok(s) => s,
-            Err(e) => return e.into_response(),
-        };
-    match store.patch_stage(&stage_id, patch).await {
-        Ok(stage) => (StatusCode::OK, Json(stage)).into_response(),
-        Err(e) => (StatusCode::NOT_FOUND, Json(ErrorResponse { error: e })).into_response(),
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Router builder
 // ---------------------------------------------------------------------------
@@ -664,7 +602,7 @@ pub async fn patch_project_pipeline_stage(
 /// Build the `/api/projects` sub-router (for use with `nest_service`).
 ///
 /// This includes both the base project CRUD routes and the project-scoped
-/// agent/pipeline sub-routes. The project-scoped handlers use
+/// agent/board routes. The project-scoped handlers use
 /// `Extension<Arc<ProjectRuntimeRegistry>>` (not `State`) so they are
 /// compatible with the `Arc<ProjectConfigStore>` state of this router.
 pub fn project_router(state: Arc<ProjectConfigStore>) -> Router {
@@ -695,15 +633,6 @@ pub fn project_router(state: Arc<ProjectConfigStore>) -> Router {
         .route(
             "/:pid/boards/:bid/stages/:sid",
             patch(patch_project_board_stage),
-        )
-        // Legacy pipeline routes (default board)
-        .route(
-            "/:pid/pipeline/stages",
-            get(get_project_pipeline_stages).put(put_project_pipeline_stages),
-        )
-        .route(
-            "/:pid/pipeline/stages/:sid",
-            patch(patch_project_pipeline_stage),
         )
         .with_state(state)
 }

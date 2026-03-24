@@ -124,13 +124,6 @@ export const api = {
   updateSettings: (settings: unknown) =>
     put<Record<string, unknown>>("/settings", settings),
 
-  // Pipeline (legacy global routes)
-  getStages: () => get<{ stages: PipelineStage[] }>("/pipeline/stages"),
-  updateStages: (stages: unknown) =>
-    put<{ stages: PipelineStage[] }>("/pipeline/stages", stages),
-  patchStage: (id: string, fields: Partial<PipelineStage>) =>
-    patch<PipelineStage>(`/pipeline/stages/${id}`, fields),
-
   /** Named kanban boards (`default` is always present). */
   listBoards: () =>
     get<{ boards: BoardSummary[] }>(`${WS_PROJECT}/boards`),

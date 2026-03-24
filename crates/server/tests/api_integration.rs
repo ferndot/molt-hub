@@ -22,52 +22,17 @@ async fn app() -> axum::Router {
 }
 
 // ---------------------------------------------------------------------------
-// Pipeline stages API
+// Board pipeline stages (per-board API)
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn get_pipeline_stages_returns_default_stages() {
+async fn get_default_board_stages_returns_non_empty_stages() {
     let app = app().await;
 
     let resp = app
         .oneshot(
             Request::builder()
-                .uri("/api/pipeline/stages")
-                .body(Body::empty())
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(resp.into_body(), 1_000_000)
-        .await
-        .unwrap();
-    let wrapper: serde_json::Value = serde_json::from_slice(&body).unwrap();
-
-    // Response is { "stages": [...] }.
-    assert!(
-        wrapper["stages"].is_array(),
-        "expected stages array in response"
-    );
-    let arr = wrapper["stages"].as_array().unwrap();
-    assert!(!arr.is_empty(), "expected at least one default stage");
-
-    // Each stage should have an id and label.
-    let first = &arr[0];
-    assert!(first.get("id").is_some(), "stage missing 'id'");
-    assert!(first.get("label").is_some(), "stage missing 'label'");
-}
-
-#[tokio::test]
-async fn project_scoped_pipeline_uses_same_runtime_registry_as_build_router() {
-    let app = app().await;
-
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/projects/default/pipeline/stages")
+                .uri("/api/projects/default/boards/default/stages")
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -86,8 +51,11 @@ async fn project_scoped_pipeline_uses_same_runtime_registry_as_build_router() {
     let wrapper: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(
         wrapper["stages"].is_array() && !wrapper["stages"].as_array().unwrap().is_empty(),
-        "expected non-empty stages from default project pipeline"
+        "expected non-empty stages from default board"
     );
+    let first = &wrapper["stages"].as_array().unwrap()[0];
+    assert!(first.get("id").is_some(), "stage missing 'id'");
+    assert!(first.get("label").is_some(), "stage missing 'label'");
 }
 
 // ---------------------------------------------------------------------------

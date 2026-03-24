@@ -32,7 +32,7 @@ use crate::integrations::handlers::{jira_integrations_router, JiraAppState};
 use crate::integrations::jira_oauth_handlers::{jira_oauth_router, JiraOAuthState};
 use crate::integrations::oauth::JiraOAuthService;
 use crate::integrations::oauth_redirect::{github_redirect_uri, jira_redirect_uri};
-use crate::pipeline::handlers::{pipeline_router, PipelineState};
+use crate::pipeline::handlers::PipelineState;
 use crate::projects::handlers::{project_router, ProjectConfigStore};
 use crate::projects::runtime::{MultiBoardPipelineStore, ProjectRuntime, ProjectRuntimeRegistry};
 use crate::settings::{typed_settings_router, SettingsFileStore, TypedSettingsState};
@@ -70,6 +70,7 @@ fn default_events_db_path() -> PathBuf {
 /// - `GET /api/events/:id` — get a single event
 /// - `POST /api/events` — append an event
 /// - `GET /api/tasks` — list tasks derived from events
+/// - `/api/projects/...` — projects, agents, and per-board pipeline stages (`…/boards/:bid/stages`)
 /// - `/*`      — Static files from `dist_dir` with `index.html` fallback (SPA routing)
 pub async fn build_router(
     dist_dir: PathBuf,
@@ -133,9 +134,6 @@ pub async fn build_router(
     // Project store (YAML-backed)
     let project_state = Arc::new(ProjectConfigStore::load_default());
 
-    // Pipeline sub-router has its own state, so we build it independently
-    // and nest it as a service to avoid state type mismatches.
-    let pipeline = pipeline_router(pipeline_state);
     let agents = agent_router(agent_state);
     let audit = audit_router(audit_state);
     let typed_settings = typed_settings_router(typed_settings_state);
@@ -186,7 +184,6 @@ pub async fn build_router(
         .route("/ws", get(ws_handler))
         .route("/api/health", get(api_health))
         .route("/api/system/pick-repo-folder", post(pick_repo_folder))
-        .nest_service("/api/pipeline", pipeline)
         .nest_service("/api/agents", agents)
         .nest_service("/api/audit", audit)
         .nest_service("/api/settings", typed_settings)

@@ -4,12 +4,10 @@
 //! stores the full config (stages with hooks, `columns`, etc.). Legacy files that contain only
 //! a top-level `stages` list are still loaded and migrated in memory.
 //!
-//! Routes:
-//!   GET    /api/pipeline/stages      — return stages and column definitions as JSON
-//!   PUT    /api/pipeline/stages      — replace stages (optional `columns` replaces board columns)
-//!   POST   /api/pipeline/stages      — add a single new stage
-//!   PATCH  /api/pipeline/stages/:id  — partially update a single stage
-//!   DELETE /api/pipeline/stages/:id  — remove a stage by ID
+//! [`pipeline_router`] exposes the paths below when nested (e.g. in tests). The main app serves
+//! stages under `/api/projects/:pid/boards/:bid/stages` instead.
+//!
+//!   GET/PUT `/…/stages`, POST `/…/stages`, PATCH/DELETE `/…/stages/:id`
 
 use axum::{
     extract::{Path, State},

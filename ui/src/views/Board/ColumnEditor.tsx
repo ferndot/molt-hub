@@ -2,7 +2,7 @@
  * ColumnEditor — modal panel for configuring kanban columns.
  *
  * Reads pipeline stages from boardStore and persists changes via
- * PATCH /api/pipeline/stages/:id.
+ * PATCH /api/projects/…/boards/:boardId/stages/:stageId.
  */
 
 import { For, type Component } from "solid-js";

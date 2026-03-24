@@ -52,27 +52,6 @@ describe("api client", () => {
     });
   });
 
-  // ---- Pipeline ----
-
-  it("getStages sends GET /api/pipeline/stages", async () => {
-    const data = { stages: [{ id: "backlog", label: "Backlog", wip_limit: null }] };
-    mockJsonResponse(data);
-    const result = await api.getStages();
-    expect(mockFetch).toHaveBeenCalledWith("/api/pipeline/stages");
-    expect(result.stages).toHaveLength(1);
-  });
-
-  it("updateStages sends PUT /api/pipeline/stages", async () => {
-    const payload = { stages: [] };
-    mockJsonResponse(payload);
-    await api.updateStages(payload);
-    expect(mockFetch).toHaveBeenCalledWith("/api/pipeline/stages", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-  });
-
   it("listBoards sends GET /api/projects/default/boards", async () => {
     mockJsonResponse({ boards: [{ id: "default", name: "Default" }] });
     const result = await api.listBoards();
