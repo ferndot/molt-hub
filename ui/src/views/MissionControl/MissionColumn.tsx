@@ -38,6 +38,23 @@ export interface MissionColumnProps {
 const MissionColumn: Component<MissionColumnProps> = (props) => {
   const [isDragOver, setIsDragOver] = createSignal(false);
 
+  const handleDragStart = (
+    e: DragEvent,
+    taskId: string,
+    fromStage: string,
+  ) => {
+    if (!e.dataTransfer) return;
+    e.dataTransfer.setData("text/plain", JSON.stringify({ taskId, fromStage }));
+    e.dataTransfer.effectAllowed = "move";
+    const target = e.target as HTMLElement;
+    target.style.opacity = "0.5";
+  };
+
+  const handleDragEnd = (e: DragEvent) => {
+    const target = e.target as HTMLElement;
+    target.style.opacity = "";
+  };
+
   const handleDragOver = (e: DragEvent) => {
     e.preventDefault();
     if (e.dataTransfer) {
@@ -109,6 +126,8 @@ const MissionColumn: Component<MissionColumnProps> = (props) => {
                 onRedirect={props.onRedirect}
                 onDefer={props.onDefer}
                 onAcknowledge={props.onAcknowledge}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
               />
             )}
           </For>

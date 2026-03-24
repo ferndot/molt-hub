@@ -25,6 +25,7 @@ export interface UnifiedCardProps {
   onDefer?: (triageId: string) => void;
   onAcknowledge?: (triageId: string) => void;
   onDragStart?: (e: DragEvent, taskId: string, fromStage: string) => void;
+  onDragEnd?: (e: DragEvent) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -77,16 +78,11 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
   };
 
   const handleDragStart = (e: DragEvent) => {
-    if (!e.dataTransfer) return;
-    e.dataTransfer.setData(
-      "text/plain",
-      JSON.stringify({
-        taskId: props.item.id,
-        fromStage: props.item.stage,
-      }),
-    );
-    e.dataTransfer.effectAllowed = "move";
     props.onDragStart?.(e, props.item.id, props.item.stage);
+  };
+
+  const handleDragEnd = (e: DragEvent) => {
+    props.onDragEnd?.(e);
   };
 
   const stopProp = (e: MouseEvent, fn: () => void) => {
@@ -99,6 +95,7 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
       class={cardClass()}
       draggable="true"
       onDragStart={handleDragStart}
+      onDragEnd={handleDragEnd}
       onClick={() => props.onToggle?.(props.item.id)}
       onMouseEnter={() => props.onHoverEnter?.(props.item.id)}
       onMouseLeave={() => props.onHoverLeave?.()}
