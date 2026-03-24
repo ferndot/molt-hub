@@ -5,10 +5,9 @@
 
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 import { TbOutlineSettings } from "solid-icons/tb";
-import { moveTask, tasksForStage, initBoardStages } from "./boardStore";
+import { moveTask, tasksForStage, initBoardStages, getSortedStages } from "./boardStore";
 import BoardColumn from "./BoardColumn";
 import ColumnEditor from "./ColumnEditor";
-import { settingsState, getSortedColumns, getStagesForColumn } from "../Settings/settingsStore";
 import styles from "./BoardView.module.css";
 
 // ---------------------------------------------------------------------------
@@ -41,8 +40,8 @@ const BoardView: Component = () => {
     console.log("[board] reject", taskId);
   };
 
-  // Derive columns from settingsStore; fall back to tasks for each stage name
-  const sortedColumns = () => getSortedColumns(settingsState.kanbanColumns);
+  // Derive columns from boardStore pipeline stages (server-driven)
+  const sortedStages = () => getSortedStages();
 
   return (
     <div class={styles.boardWrapper}>
@@ -64,24 +63,18 @@ const BoardView: Component = () => {
       </Show>
 
       <div class={styles.columnsContainer}>
-        <For each={sortedColumns()}>
-          {(col) => {
-            // A column may span multiple stage names (comma-separated)
-            const stages = getStagesForColumn(col);
-            const tasks = () =>
-              stages.flatMap((s) => tasksForStage(s));
-            // Use the first matched stage as the drop target stage
-            const primaryStage = stages[0] ?? col.id;
-            return (
-              <BoardColumn
-                stage={primaryStage}
-                tasks={tasks()}
-                onDrop={handleDrop}
-                onApprove={handleApprove}
-                onReject={handleReject}
-              />
-            );
-          }}
+        <For each={sortedStages()}>
+          {(stage) => (
+            <BoardColumn
+              stage={stage.id}
+              label={stage.label}
+              color={stage.color}
+              tasks={tasksForStage(stage.id)}
+              onDrop={handleDrop}
+              onApprove={handleApprove}
+              onReject={handleReject}
+            />
+          )}
         </For>
       </div>
     </div>

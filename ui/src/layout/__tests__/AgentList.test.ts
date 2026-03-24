@@ -3,13 +3,13 @@
  * Pure functions — no DOM needed, runs in node environment.
  */
 import { describe, it, expect } from "vitest";
-import { groupAgentsByStatus, type MockAgent, type AgentStatus } from "../agentListUtils";
+import { groupAgentsByStatus, type Agent, type AgentStatus } from "../agentListUtils";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function makeAgent(overrides: Partial<MockAgent> & { id: string; status: AgentStatus }): MockAgent {
+function makeAgent(overrides: Partial<Agent> & { id: string; status: AgentStatus }): Agent {
   return {
     name: overrides.name ?? `agent-${overrides.id}`,
     stage: overrides.stage ?? "Working",
@@ -27,7 +27,7 @@ describe("groupAgentsByStatus", () => {
   });
 
   it("groups agents by status in priority order: running, paused, idle, terminated", () => {
-    const agents: MockAgent[] = [
+    const agents: Agent[] = [
       makeAgent({ id: "1", status: "idle" }),
       makeAgent({ id: "2", status: "running" }),
       makeAgent({ id: "3", status: "terminated" }),
@@ -41,7 +41,7 @@ describe("groupAgentsByStatus", () => {
   });
 
   it("provides correct labels for each group", () => {
-    const agents: MockAgent[] = [
+    const agents: Agent[] = [
       makeAgent({ id: "1", status: "running" }),
       makeAgent({ id: "2", status: "paused" }),
       makeAgent({ id: "3", status: "idle" }),
@@ -54,7 +54,7 @@ describe("groupAgentsByStatus", () => {
   });
 
   it("counts agents per group correctly", () => {
-    const agents: MockAgent[] = [
+    const agents: Agent[] = [
       makeAgent({ id: "1", status: "running" }),
       makeAgent({ id: "2", status: "running" }),
       makeAgent({ id: "3", status: "running" }),
@@ -70,7 +70,7 @@ describe("groupAgentsByStatus", () => {
   });
 
   it("hides empty groups", () => {
-    const agents: MockAgent[] = [
+    const agents: Agent[] = [
       makeAgent({ id: "1", status: "running" }),
       makeAgent({ id: "2", status: "terminated" }),
     ];
@@ -82,7 +82,7 @@ describe("groupAgentsByStatus", () => {
   });
 
   it("places each agent in its correct group", () => {
-    const agents: MockAgent[] = [
+    const agents: Agent[] = [
       makeAgent({ id: "a", status: "paused", name: "alpha" }),
       makeAgent({ id: "b", status: "paused", name: "beta" }),
       makeAgent({ id: "c", status: "running", name: "gamma" }),
@@ -95,7 +95,7 @@ describe("groupAgentsByStatus", () => {
   });
 
   it("handles all agents in a single status", () => {
-    const agents: MockAgent[] = [
+    const agents: Agent[] = [
       makeAgent({ id: "1", status: "idle" }),
       makeAgent({ id: "2", status: "idle" }),
     ];

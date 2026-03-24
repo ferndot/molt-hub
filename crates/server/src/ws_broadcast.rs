@@ -161,6 +161,37 @@ pub fn broadcast_agent_output(manager: &ConnectionManager, agent_id: &str, line:
 }
 
 // ---------------------------------------------------------------------------
+// Agent steering events
+// ---------------------------------------------------------------------------
+
+/// Payload for an agent steering notification pushed to `agent:{id}`.
+///
+/// Wire format:
+/// ```json
+/// {"type": "agent_steered", "agent_id": "...", "message": "...", "timestamp": "..."}
+/// ```
+#[derive(Debug, Serialize)]
+pub struct AgentSteeredPayload {
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    pub agent_id: String,
+    pub message: String,
+    pub timestamp: String,
+}
+
+/// Broadcast an agent steering event to clients subscribed to `agent:{id}`.
+pub fn broadcast_agent_steered(manager: &ConnectionManager, agent_id: &str, message: &str) {
+    let payload = AgentSteeredPayload {
+        msg_type: "agent_steered".into(),
+        agent_id: agent_id.to_owned(),
+        message: message.to_owned(),
+        timestamp: Utc::now().to_rfc3339(),
+    };
+    let topic = format!("agent:{agent_id}");
+    broadcast_json(manager, &topic, &payload);
+}
+
+// ---------------------------------------------------------------------------
 // Metrics update (with pending decisions)
 // ---------------------------------------------------------------------------
 
@@ -312,6 +343,23 @@ mod tests {
                 assert_eq!(payload["type"], "agent_output");
                 assert_eq!(payload["agent_id"], "agent-42");
                 assert_eq!(payload["line"], "Running tests...");
+                assert!(payload["timestamp"].is_string());
+            }
+            other => panic!("expected Event, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn broadcast_agent_steered_sends_event() {
+        let (manager, mut rx) = setup_with_agent("agent-99");
+        broadcast_agent_steered(&manager, "agent-99", "focus on error handling");
+        let msg = rx.try_recv().expect("should receive message");
+        match msg {
+            ServerMessage::Event { topic, payload } => {
+                assert_eq!(topic, "agent:agent-99");
+                assert_eq!(payload["type"], "agent_steered");
+                assert_eq!(payload["agent_id"], "agent-99");
+                assert_eq!(payload["message"], "focus on error handling");
                 assert!(payload["timestamp"].is_string());
             }
             other => panic!("expected Event, got {:?}", other),

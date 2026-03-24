@@ -90,6 +90,24 @@ impl SettingsFileStore {
                 guard.kanban_columns = serde_json::from_value(value)
                     .map_err(|e| SettingsPatchError::Deserialize(e.to_string()))?;
             }
+            "sidebar_widths" | "sidebarWidths" => {
+                guard.sidebar_widths = Some(
+                    serde_json::from_value(value)
+                        .map_err(|e| SettingsPatchError::Deserialize(e.to_string()))?,
+                );
+            }
+            "jira_config" | "jiraConfig" => {
+                guard.jira_config = Some(
+                    serde_json::from_value(value)
+                        .map_err(|e| SettingsPatchError::Deserialize(e.to_string()))?,
+                );
+            }
+            "github_config" | "githubConfig" => {
+                guard.github_config = Some(
+                    serde_json::from_value(value)
+                        .map_err(|e| SettingsPatchError::Deserialize(e.to_string()))?,
+                );
+            }
             other => return Err(SettingsPatchError::UnknownSection(other.to_owned())),
         }
         Self::flush_to_disk(&self.path, &guard)
@@ -215,7 +233,7 @@ mod tests {
         store
             .patch_section(
                 "appearance",
-                serde_json::json!({ "theme": "light", "colorblind_mode": true }),
+                serde_json::json!({ "theme": "light", "colorblindMode": true }),
             )
             .await
             .unwrap();
@@ -245,12 +263,121 @@ mod tests {
         store
             .patch_section(
                 "agentDefaults",
-                serde_json::json!({ "timeout_minutes": 60, "adapter": "claude-code" }),
+                serde_json::json!({ "timeoutMinutes": 60, "adapter": "claude-code" }),
             )
             .await
             .unwrap();
         let s = store.get().await;
         assert_eq!(s.agent_defaults.timeout_minutes, 60);
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn patch_sidebar_widths_camel_case() {
+        let path = temp_path();
+        let store = SettingsFileStore::open(path.clone());
+        store
+            .patch_section(
+                "sidebarWidths",
+                serde_json::json!({ "navSidebar": 280, "inboxSidebar": 320 }),
+            )
+            .await
+            .unwrap();
+        let s = store.get().await;
+        let sw = s.sidebar_widths.expect("sidebar_widths should be Some");
+        assert_eq!(sw.nav_sidebar, Some(280));
+        assert_eq!(sw.inbox_sidebar, Some(320));
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn patch_jira_config_camel_case() {
+        let path = temp_path();
+        let store = SettingsFileStore::open(path.clone());
+        store
+            .patch_section(
+                "jiraConfig",
+                serde_json::json!({
+                    "connected": true,
+                    "baseUrl": "https://mysite.atlassian.net",
+                    "siteName": "My Site",
+                    "cloudId": "cloud-abc"
+                }),
+            )
+            .await
+            .unwrap();
+        let s = store.get().await;
+        let jc = s.jira_config.expect("jira_config should be Some");
+        assert!(jc.connected);
+        assert_eq!(jc.base_url.as_deref(), Some("https://mysite.atlassian.net"));
+        assert_eq!(jc.site_name.as_deref(), Some("My Site"));
+        assert_eq!(jc.cloud_id.as_deref(), Some("cloud-abc"));
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn patch_github_config_camel_case() {
+        let path = temp_path();
+        let store = SettingsFileStore::open(path.clone());
+        store
+            .patch_section(
+                "githubConfig",
+                serde_json::json!({ "connected": true, "owner": "octocat" }),
+            )
+            .await
+            .unwrap();
+        let s = store.get().await;
+        let gc = s.github_config.expect("github_config should be Some");
+        assert!(gc.connected);
+        assert_eq!(gc.owner.as_deref(), Some("octocat"));
+        let _ = fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn new_sections_persist_across_reloads() {
+        let path = temp_path();
+
+        // Write with new sections
+        {
+            let store = SettingsFileStore::open(path.clone());
+            store
+                .patch_section(
+                    "sidebarWidths",
+                    serde_json::json!({ "navSidebar": 300 }),
+                )
+                .await
+                .unwrap();
+            store
+                .patch_section(
+                    "jiraConfig",
+                    serde_json::json!({ "connected": false }),
+                )
+                .await
+                .unwrap();
+            store
+                .patch_section(
+                    "githubConfig",
+                    serde_json::json!({ "connected": true, "owner": "test-org" }),
+                )
+                .await
+                .unwrap();
+        }
+
+        // Re-open and verify
+        {
+            let store = SettingsFileStore::open(path.clone());
+            let s = store.get().await;
+            assert_eq!(
+                s.sidebar_widths.as_ref().and_then(|w| w.nav_sidebar),
+                Some(300)
+            );
+            assert_eq!(s.jira_config.as_ref().map(|j| j.connected), Some(false));
+            assert_eq!(
+                s.github_config.as_ref().and_then(|g| g.owner.as_deref()),
+                Some("test-org")
+            );
+        }
+
         let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 }

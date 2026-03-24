@@ -15,6 +15,17 @@ import type { PriorityLevel } from "../../components/PriorityBadge";
 import styles from "./TaskCard.module.css";
 
 // ---------------------------------------------------------------------------
+// Priority colors — used by TaskDetailView for inline badges
+// ---------------------------------------------------------------------------
+
+export const PRIORITY_COLORS: Record<Priority, string> = {
+  p0: "#e63946",
+  p1: "#f4a261",
+  p2: "#2a9d8f",
+  p3: "#6c757d",
+};
+
+// ---------------------------------------------------------------------------
 // Status mapping — BoardTaskStatus → IndicatorStatus
 // ---------------------------------------------------------------------------
 

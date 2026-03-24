@@ -11,13 +11,51 @@ describe("boardStore", () => {
   // Helpers: build a minimal BoardTask
   // ---------------------------------------------------------------------------
 
-  // We import the store statically since it is a singleton. We reset state via
-  // moveTask / expandCard / collapseCard rather than re-importing each time.
-  // Tests that need a clean slate manipulate individual tasks by known IDs from
-  // the mock data seeded in boardStore.ts.
+  // We import the store statically since it is a singleton. Tests seed their
+  // own data via setBoardState since the store starts empty (no mock data).
 
-  const KNOWN_TASK_ID = "01HZAA0001"; // stage: in-progress
-  const KNOWN_TASK_ID2 = "01HZAA0002"; // stage: in-progress
+  const KNOWN_TASK_ID = "test-task-001"; // stage: in-progress
+  const KNOWN_TASK_ID2 = "test-task-002"; // stage: in-progress
+
+  /** Seed test tasks into the board store before each test group that needs them. */
+  async function seedTestTasks() {
+    const { setBoardState } = await import("../boardStore");
+    setBoardState("tasks", [
+      {
+        id: KNOWN_TASK_ID,
+        name: "Test task 1",
+        agentName: "agent-alpha",
+        priority: "p0" as const,
+        status: "running" as const,
+        stage: "in-progress",
+        summary: "",
+        timeInStage: "1h",
+        expanded: false,
+      },
+      {
+        id: KNOWN_TASK_ID2,
+        name: "Test task 2",
+        agentName: "agent-beta",
+        priority: "p1" as const,
+        status: "blocked" as const,
+        stage: "in-progress",
+        summary: "",
+        timeInStage: "30m",
+        expanded: false,
+      },
+      {
+        id: "test-task-003",
+        name: "Test task 3",
+        agentName: "agent-gamma",
+        priority: "p3" as const,
+        status: "waiting" as const,
+        stage: "backlog",
+        summary: "",
+        timeInStage: "—",
+        expanded: false,
+      },
+    ]);
+  }
 
   // --------------------------------------------------------------------------
   // moveTask
@@ -25,7 +63,9 @@ describe("boardStore", () => {
 
   describe("moveTask", () => {
     it("changes the task's stage to the target stage", async () => {
+      await seedTestTasks();
       const { boardState, moveTask } = await import("../boardStore");
+      await seedTestTasks();
       const before = boardState.tasks.find((t) => t.id === KNOWN_TASK_ID);
       expect(before?.stage).toBe("in-progress");
 
@@ -39,7 +79,9 @@ describe("boardStore", () => {
     });
 
     it("does not affect other tasks when moving one task", async () => {
+      await seedTestTasks();
       const { boardState, moveTask } = await import("../boardStore");
+      await seedTestTasks();
       const before = boardState.tasks.find((t) => t.id === KNOWN_TASK_ID2);
       const originalStage = before?.stage ?? "in-progress";
 
@@ -52,7 +94,9 @@ describe("boardStore", () => {
     });
 
     it("can move a task to backlog", async () => {
+      await seedTestTasks();
       const { boardState, moveTask } = await import("../boardStore");
+      await seedTestTasks();
       moveTask(KNOWN_TASK_ID, "in-progress", "backlog");
       const task = boardState.tasks.find((t) => t.id === KNOWN_TASK_ID);
       expect(task?.stage).toBe("backlog");
@@ -67,9 +111,11 @@ describe("boardStore", () => {
 
   describe("card expand/collapse", () => {
     it("expandCard sets expanded to true", async () => {
+      await seedTestTasks();
       const { boardState, expandCard, collapseCard } = await import(
         "../boardStore"
       );
+      await seedTestTasks();
       collapseCard(KNOWN_TASK_ID); // ensure it starts collapsed
       expandCard(KNOWN_TASK_ID);
       const task = boardState.tasks.find((t) => t.id === KNOWN_TASK_ID);
@@ -77,9 +123,11 @@ describe("boardStore", () => {
     });
 
     it("collapseCard sets expanded to false", async () => {
+      await seedTestTasks();
       const { boardState, expandCard, collapseCard } = await import(
         "../boardStore"
       );
+      await seedTestTasks();
       expandCard(KNOWN_TASK_ID); // ensure it starts expanded
       collapseCard(KNOWN_TASK_ID);
       const task = boardState.tasks.find((t) => t.id === KNOWN_TASK_ID);
@@ -87,9 +135,11 @@ describe("boardStore", () => {
     });
 
     it("toggleCard flips expanded state", async () => {
+      await seedTestTasks();
       const { boardState, collapseCard, toggleCard } = await import(
         "../boardStore"
       );
+      await seedTestTasks();
       collapseCard(KNOWN_TASK_ID);
       toggleCard(KNOWN_TASK_ID);
       const afterFirst = boardState.tasks.find((t) => t.id === KNOWN_TASK_ID);
@@ -226,34 +276,30 @@ describe("boardStore", () => {
 
   describe("tasksForStage", () => {
     it("returns only tasks matching the given stage", async () => {
+      await seedTestTasks();
       const { tasksForStage } = await import("../boardStore");
       const backlog = tasksForStage("backlog");
       expect(backlog.every((t) => t.stage === "backlog")).toBe(true);
     });
 
     it("returns tasks sorted by priority (P0 first)", async () => {
+      await seedTestTasks();
       const { boardState, moveTask, tasksForStage } = await import(
         "../boardStore"
       );
-      // Move a P3 task to in-progress so we have mixed priorities
-      const p3Task = boardState.tasks.find((t) => t.priority === "p3");
-      if (p3Task && p3Task.stage !== "in-progress") {
-        moveTask(p3Task.id, p3Task.stage, "in-progress");
-      }
+      // Move the P3 task to in-progress so we have mixed priorities
+      moveTask("test-task-003", "backlog", "in-progress");
 
       const inProgress = tasksForStage("in-progress");
-      if (inProgress.length > 1) {
-        const priorityVals = { p0: 0, p1: 1, p2: 2, p3: 3 };
-        for (let i = 0; i < inProgress.length - 1; i++) {
-          expect(priorityVals[inProgress[i].priority]).toBeLessThanOrEqual(
-            priorityVals[inProgress[i + 1].priority],
-          );
-        }
+      expect(inProgress.length).toBeGreaterThan(1);
+      const priorityVals = { p0: 0, p1: 1, p2: 2, p3: 3 };
+      for (let i = 0; i < inProgress.length - 1; i++) {
+        expect(priorityVals[inProgress[i].priority]).toBeLessThanOrEqual(
+          priorityVals[inProgress[i + 1].priority],
+        );
       }
       // restore
-      if (p3Task && p3Task.stage !== "in-progress") {
-        moveTask(p3Task.id, "in-progress", p3Task.stage);
-      }
+      moveTask("test-task-003", "in-progress", "backlog");
     });
 
     it("returns an empty array for an unknown stage", async () => {

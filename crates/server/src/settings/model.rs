@@ -12,11 +12,19 @@ use serde::{Deserialize, Serialize};
 
 /// Complete server settings, serialised as a single JSON document.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerSettings {
     pub appearance: AppearanceSettings,
     pub notifications: NotificationSettings,
     pub agent_defaults: AgentDefaultSettings,
+    #[serde(default = "default_kanban_columns")]
     pub kanban_columns: Vec<KanbanColumn>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sidebar_widths: Option<SidebarWidths>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jira_config: Option<JiraConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub github_config: Option<GithubConfig>,
 }
 
 impl Default for ServerSettings {
@@ -26,6 +34,9 @@ impl Default for ServerSettings {
             notifications: NotificationSettings::default(),
             agent_defaults: AgentDefaultSettings::default(),
             kanban_columns: default_kanban_columns(),
+            sidebar_widths: None,
+            jira_config: None,
+            github_config: None,
         }
     }
 }
@@ -35,6 +46,7 @@ impl Default for ServerSettings {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct AppearanceSettings {
     pub theme: String,
     pub colorblind_mode: bool,
@@ -54,6 +66,7 @@ impl Default for AppearanceSettings {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct NotificationSettings {
     pub attention_level: String,
 }
@@ -71,6 +84,7 @@ impl Default for NotificationSettings {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct AgentDefaultSettings {
     pub timeout_minutes: u32,
     pub adapter: String,
@@ -143,6 +157,51 @@ fn default_kanban_columns() -> Vec<KanbanColumn> {
 }
 
 // ---------------------------------------------------------------------------
+// Section: sidebar_widths
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SidebarWidths {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nav_sidebar: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inbox_sidebar: Option<u32>,
+}
+
+// ---------------------------------------------------------------------------
+// Section: jira_config
+// ---------------------------------------------------------------------------
+
+/// Jira integration config (public metadata only — no tokens or secrets).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct JiraConfig {
+    #[serde(default)]
+    pub connected: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub site_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cloud_id: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Section: github_config
+// ---------------------------------------------------------------------------
+
+/// GitHub integration config (public metadata only — no tokens).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct GithubConfig {
+    #[serde(default)]
+    pub connected: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -170,5 +229,90 @@ mod tests {
     fn default_has_four_kanban_columns() {
         let s = ServerSettings::default();
         assert_eq!(s.kanban_columns.len(), 4);
+    }
+
+    #[test]
+    fn default_new_sections_are_none() {
+        let s = ServerSettings::default();
+        assert!(s.sidebar_widths.is_none());
+        assert!(s.jira_config.is_none());
+        assert!(s.github_config.is_none());
+    }
+
+    #[test]
+    fn sidebar_widths_round_trip_camel_case() {
+        let w = SidebarWidths {
+            nav_sidebar: Some(280),
+            inbox_sidebar: Some(320),
+        };
+        let json = serde_json::to_string(&w).unwrap();
+        assert!(json.contains("navSidebar"));
+        assert!(json.contains("inboxSidebar"));
+        let restored: SidebarWidths = serde_json::from_str(&json).unwrap();
+        assert_eq!(w, restored);
+    }
+
+    #[test]
+    fn jira_config_round_trip_camel_case() {
+        let jc = JiraConfig {
+            connected: true,
+            base_url: Some("https://test.atlassian.net".to_owned()),
+            site_name: Some("Test".to_owned()),
+            cloud_id: Some("abc-123".to_owned()),
+        };
+        let json = serde_json::to_string(&jc).unwrap();
+        assert!(json.contains("baseUrl"));
+        assert!(json.contains("siteName"));
+        assert!(json.contains("cloudId"));
+        let restored: JiraConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(jc, restored);
+    }
+
+    #[test]
+    fn github_config_round_trip_camel_case() {
+        let gc = GithubConfig {
+            connected: true,
+            owner: Some("my-org".to_owned()),
+        };
+        let json = serde_json::to_string(&gc).unwrap();
+        let restored: GithubConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(gc, restored);
+    }
+
+    #[test]
+    fn settings_with_new_sections_round_trip() {
+        let mut s = ServerSettings::default();
+        s.sidebar_widths = Some(SidebarWidths {
+            nav_sidebar: Some(260),
+            inbox_sidebar: None,
+        });
+        s.jira_config = Some(JiraConfig {
+            connected: false,
+            base_url: None,
+            site_name: None,
+            cloud_id: None,
+        });
+        s.github_config = Some(GithubConfig {
+            connected: true,
+            owner: Some("octocat".to_owned()),
+        });
+        let json = serde_json::to_string(&s).unwrap();
+        let restored: ServerSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(s, restored);
+    }
+
+    #[test]
+    fn deserialise_without_new_sections_uses_none() {
+        // Simulate an old settings file that lacks the new fields
+        let json = serde_json::json!({
+            "appearance": { "theme": "system", "colorblindMode": false },
+            "notifications": { "attentionLevel": "p0p1" },
+            "agentDefaults": { "timeoutMinutes": 30, "adapter": "claude-code" },
+            "kanban_columns": []
+        });
+        let s: ServerSettings = serde_json::from_value(json).unwrap();
+        assert!(s.sidebar_widths.is_none());
+        assert!(s.jira_config.is_none());
+        assert!(s.github_config.is_none());
     }
 }

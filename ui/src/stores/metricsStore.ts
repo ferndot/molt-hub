@@ -29,19 +29,19 @@ export interface MetricsData {
 // ---------------------------------------------------------------------------
 
 /** Number of agents currently in "Working" / active state. */
-const [_activeAgentCount, _setActiveAgentCount] = createSignal<number>(3);
+const [_activeAgentCount, _setActiveAgentCount] = createSignal<number>(0);
 
 /**
  * CPU usage percentage (0–100).
- * Mocked — will be wired to WebSocket health stream.
+ * Populated from WebSocket health stream.
  */
-const [_cpuUsage, _setCpuUsage] = createSignal<number>(45);
+const [_cpuUsage, _setCpuUsage] = createSignal<number>(0);
 
 /**
  * Memory usage in bytes.
- * Mocked — will be wired to WebSocket health stream.
+ * Populated from WebSocket health stream.
  */
-const [_memoryBytes, _setMemoryBytes] = createSignal<number>(1_288_490_189); // ~1.2 GiB
+const [_memoryBytes, _setMemoryBytes] = createSignal<number>(0);
 
 // ---------------------------------------------------------------------------
 // Public accessors

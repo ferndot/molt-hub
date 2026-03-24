@@ -10,7 +10,9 @@
   display: flex;
   align-items: center;
   gap: 1rem;
-  padding: 1rem 1.5rem;
+  height: 58px;
+  flex-shrink: 0;
+  padding: 0 1.5rem;
   border-bottom: 1px solid var(--border);
   /* Window drag region for native title bar */
   -webkit-app-region: drag;
@@ -25,7 +27,7 @@
 
 .attentionBadge {
   font-size: 0.8125rem;
-  color: var(--priority-p0);
+  color: var(--text-secondary);
   font-weight: 500;
 }
 
@@ -36,6 +38,9 @@
 }
 
 .filterToggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 4px;

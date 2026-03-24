@@ -3,7 +3,8 @@
  * The inbox sidebar is now in AppLayout (available across all views).
  */
 
-import { Component, For, createSignal } from "solid-js";
+import { Component, For, Show, createSignal } from "solid-js";
+import { TbOutlineFocus, TbOutlineEye } from "solid-icons/tb";
 import { useMissionControl } from "./missionControlStore";
 import MissionColumn from "./MissionColumn";
 import JiraImport from "../Settings/JiraImport";
@@ -23,17 +24,20 @@ const MissionControlView: Component = () => {
       {/* Header bar */}
       <div class={styles.header}>
         <h2 class={styles.title}>Mission Control</h2>
-        <span class={styles.attentionBadge}>
-          {mc.totalAttentionCount() === 0
-            ? "All clear"
-            : `${mc.totalAttentionCount()} need attention`}
-        </span>
+        <Show when={mc.totalAttentionCount() > 0}>
+          <span class={styles.attentionBadge}>
+            {mc.totalAttentionCount()} need attention
+          </span>
+        </Show>
         <button
           class={styles.filterToggle}
           classList={{ [styles.filterToggleActive]: mc.globalFilterActive() }}
           onClick={mc.toggleGlobalFilter}
+          title={mc.globalFilterActive() ? "Show all tasks" : "Focus on tasks needing attention"}
         >
-          {mc.globalFilterActive() ? "Show All" : "Focus"}
+          {mc.globalFilterActive()
+            ? <><TbOutlineEye size={14} /> Show All</>
+            : <><TbOutlineFocus size={14} /> Focus</>}
         </button>
       </div>
 

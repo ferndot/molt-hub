@@ -2,16 +2,16 @@ import { createSignal, For, Show, type Component } from "solid-js";
 import { A } from "@solidjs/router";
 import { TbOutlineChevronDown, TbOutlineChevronRight } from "solid-icons/tb";
 import {
+  agents,
   groupAgentsByStatus,
-  MOCK_AGENTS,
   STATUS_COLOR,
   type AgentStatus,
 } from "./agentListUtils";
 import styles from "./AgentList.module.css";
 
-// Re-export types for consumers
-export type { AgentStatus, MockAgent, StatusGroup } from "./agentListUtils";
-export { groupAgentsByStatus, STATUS_COLOR } from "./agentListUtils";
+// Re-export types and utilities for consumers
+export type { AgentStatus, Agent, StatusGroup } from "./agentListUtils";
+export { agents, groupAgentsByStatus, STATUS_COLOR, initAgents, refreshAgents, startAgentRefresh, stopAgentRefresh } from "./agentListUtils";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -34,8 +34,9 @@ const AgentList: Component<Props> = (props) => {
 
   const filteredAgents = () => {
     const q = query().toLowerCase().trim();
-    if (!q) return MOCK_AGENTS;
-    return MOCK_AGENTS.filter(
+    const all = agents();
+    if (!q) return all;
+    return all.filter(
       (a) =>
         a.name.toLowerCase().includes(q) ||
         a.stage.toLowerCase().includes(q),

@@ -94,4 +94,74 @@ describe("boardStore API integration", () => {
     const body = JSON.parse(call[1].body as string);
     expect(body).toHaveProperty("stages");
   });
+
+  it("patchStage optimistically updates local state and calls PATCH API", async () => {
+    // Mock the PATCH response
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ id: "backlog", label: "Updated", color: "#ff0000", order: 0, wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false }),
+    });
+
+    const { patchStage, boardState } = await import("../boardStore");
+    await patchStage("backlog", { label: "Updated", color: "#ff0000" });
+
+    // Verify local state was updated optimistically
+    const updated = boardState.pipelineStages.find((s) => s.id === "backlog");
+    expect(updated?.label).toBe("Updated");
+    expect(updated?.color).toBe("#ff0000");
+
+    // Verify PATCH was called
+    expect(mockFetch).toHaveBeenCalled();
+    const call = mockFetch.mock.calls[0];
+    expect(call[0]).toBe("/api/pipeline/stages/backlog");
+    expect(call[1].method).toBe("PATCH");
+    const body = JSON.parse(call[1].body as string);
+    expect(body.label).toBe("Updated");
+    expect(body.color).toBe("#ff0000");
+  });
+
+  it("getSortedStages returns stages sorted by order", async () => {
+    const { getSortedStages } = await import("../boardStore");
+    const sorted = getSortedStages();
+    for (let i = 0; i < sorted.length - 1; i++) {
+      expect(sorted[i].order).toBeLessThanOrEqual(sorted[i + 1].order);
+    }
+  });
+
+  it("initBoardStages sorts fetched stages by order", async () => {
+    const stages = [
+      { id: "deployed", label: "Deployed", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: true, color: "#10b981", order: 4 },
+      { id: "backlog", label: "Backlog", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false, color: "#6b7280", order: 0 },
+      { id: "in-progress", label: "In Progress", wip_limit: 3, requires_approval: false, timeout_seconds: null, terminal: false, color: "#3b82f6", order: 1 },
+    ];
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      headers: {
+        get: (name: string) => name === "content-type" ? "application/json" : null,
+      },
+      json: () => Promise.resolve({ stages }),
+    });
+
+    const { initBoardStages, boardState } = await import("../boardStore");
+    await initBoardStages();
+
+    expect(boardState.stagesLoaded).toBe(true);
+    // Stages should be sorted by order (0, 1, 4)
+    expect(boardState.stages[0]).toBe("backlog");
+    expect(boardState.stages[1]).toBe("in-progress");
+    expect(boardState.stages[2]).toBe("deployed");
+    // pipelineStages should carry color and order
+    expect(boardState.pipelineStages[0].color).toBe("#6b7280");
+    expect(boardState.pipelineStages[0].order).toBe(0);
+  });
+
+  it("default pipeline stages include color and order fields", async () => {
+    const { boardState } = await import("../boardStore");
+    for (const stage of boardState.pipelineStages) {
+      expect(stage).toHaveProperty("color");
+      expect(stage).toHaveProperty("order");
+      expect(typeof stage.order).toBe("number");
+    }
+  });
+
 });

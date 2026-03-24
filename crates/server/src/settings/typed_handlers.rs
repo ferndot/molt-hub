@@ -154,7 +154,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = json_body(resp).await;
         assert_eq!(body["appearance"]["theme"], "system");
-        assert_eq!(body["agent_defaults"]["adapter"], "claude-code");
+        assert_eq!(body["agentDefaults"]["adapter"], "claude-code");
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
@@ -198,7 +198,7 @@ mod tests {
         let app = test_app(path.clone());
 
         let body =
-            serde_json::to_vec(&serde_json::json!({"theme": "light", "colorblind_mode": true}))
+            serde_json::to_vec(&serde_json::json!({"theme": "light", "colorblindMode": true}))
                 .unwrap();
         let req = Request::builder()
             .method(Method::PATCH)
@@ -218,7 +218,7 @@ mod tests {
         let get_resp = app.oneshot(get_req).await.unwrap();
         let val = json_body(get_resp).await;
         assert_eq!(val["appearance"]["theme"], "light");
-        assert_eq!(val["appearance"]["colorblind_mode"], true);
+        assert_eq!(val["appearance"]["colorblindMode"], true);
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }

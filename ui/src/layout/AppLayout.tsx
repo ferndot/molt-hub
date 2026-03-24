@@ -2,6 +2,7 @@ import type { ParentComponent } from "solid-js";
 import { createSignal, onMount, onCleanup } from "solid-js";
 import { useWebSocket, connect, disconnect } from "../lib/ws";
 import { useMissionControl } from "../views/MissionControl/missionControlStore";
+import { connectNotificationsWs } from "../views/MissionControl/notificationStore";
 import { unreadCount } from "./attentionStore";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
@@ -20,8 +21,16 @@ const AppLayout: ParentComponent = (props) => {
   const [inboxOpen, setInboxOpen] = createSignal(false);
   const mc = useMissionControl();
 
-  onMount(() => connect("/ws"));
-  onCleanup(() => disconnect());
+  onMount(() => {
+    connect("/ws");
+  });
+
+  // Subscribe to WS notifications topic; clean up on unmount
+  const unsubNotifications = connectNotificationsWs();
+  onCleanup(() => {
+    unsubNotifications();
+    disconnect();
+  });
 
   return (
     <KeyboardManager>

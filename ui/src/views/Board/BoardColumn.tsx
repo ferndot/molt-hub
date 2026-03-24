@@ -14,6 +14,10 @@ import styles from "./BoardColumn.module.css";
 
 export interface BoardColumnProps {
   stage: string;
+  /** Display label for the column header. Falls back to stage id. */
+  label?: string;
+  /** Accent color (hex) for the column header indicator. */
+  color?: string | null;
   tasks: BoardTask[];
   onDrop: (taskId: string, fromStage: string, toStage: string) => void;
   onApprove?: (taskId: string) => void;
@@ -98,8 +102,11 @@ const BoardColumn: Component<BoardColumnProps> = (props) => {
       aria-label={`Stage: ${props.stage}`}
     >
       {/* Header */}
-      <div class={styles.header}>
-        <span class={styles.stageName}>{props.stage.replace(/-/g, " ")}</span>
+      <div
+        class={styles.header}
+        style={props.color ? { "border-bottom": `2px solid ${props.color}` } : undefined}
+      >
+        <span class={styles.stageName}>{props.label ?? props.stage.replace(/-/g, " ")}</span>
         <span class={styles.countBadge}>{props.tasks.length}</span>
       </div>
 

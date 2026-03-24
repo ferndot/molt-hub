@@ -146,6 +146,33 @@ describe("api client", () => {
     expect(mockFetch).toHaveBeenCalledWith("/api/audit?limit=100");
   });
 
+  // ---- GitHub Integration ----
+
+  it("getGithubStatus sends GET /api/integrations/github/status", async () => {
+    mockJsonResponse({ connected: true, owner: "my-org" });
+    const result = await api.getGithubStatus();
+    expect(mockFetch).toHaveBeenCalledWith("/api/integrations/github/status");
+    expect(result.connected).toBe(true);
+    expect(result.owner).toBe("my-org");
+  });
+
+  it("getGithubAuthUrl sends GET /api/integrations/github/auth", async () => {
+    mockJsonResponse({ url: "https://github.com/login/oauth/authorize?..." });
+    const result = await api.getGithubAuthUrl();
+    expect(mockFetch).toHaveBeenCalledWith("/api/integrations/github/auth");
+    expect(result.url).toContain("github.com");
+  });
+
+  it("disconnectGithub sends POST /api/integrations/github/disconnect", async () => {
+    mockJsonResponse({ ok: true });
+    await api.disconnectGithub();
+    expect(mockFetch).toHaveBeenCalledWith("/api/integrations/github/disconnect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: undefined,
+    });
+  });
+
   // ---- Error handling ----
 
   it("throws on non-ok response", async () => {

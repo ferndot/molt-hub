@@ -4,6 +4,7 @@
  */
 
 import { createSignal, createMemo } from "solid-js";
+import { subscribe } from "../../lib/ws";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,149 +49,10 @@ export interface Notification {
 export type FilterTab = "all" | "decisions" | "updates" | "alerts";
 
 // ---------------------------------------------------------------------------
-// Mock data
-// ---------------------------------------------------------------------------
-
-function minutesAgo(n: number): string {
-  return new Date(Date.now() - n * 60_000).toISOString();
-}
-
-const MOCK_NOTIFICATIONS: Notification[] = [
-  {
-    id: "notif-1",
-    type: "decision",
-    priority: "p0",
-    title: "Approve deployment to production",
-    subtitle: "v2.4.1 release candidate",
-    agentName: "deploy-bot",
-    timestamp: minutesAgo(2),
-    read: false,
-    actions: [
-      { label: "Approve", kind: "approve", handler: "approve:notif-1" },
-      { label: "Reject", kind: "reject", handler: "reject:notif-1" },
-      { label: "Defer", kind: "defer", handler: "defer:notif-1" },
-    ],
-  },
-  {
-    id: "notif-2",
-    type: "agent_update",
-    priority: "p1",
-    title: "frontend completed code-review",
-    subtitle: "3 issues found, 1 auto-fixed",
-    agentName: "frontend",
-    timestamp: minutesAgo(8),
-    read: false,
-    actions: [
-      { label: "View", kind: "view", handler: "view:notif-2" },
-    ],
-  },
-  {
-    id: "notif-3",
-    type: "build_status",
-    priority: "p1",
-    title: "CI failed on feature/auth-flow",
-    subtitle: "2 test failures in auth.test.ts",
-    timestamp: minutesAgo(15),
-    read: false,
-    actions: [
-      { label: "View", kind: "view", handler: "view:notif-3" },
-    ],
-  },
-  {
-    id: "notif-4",
-    type: "mention",
-    priority: "p2",
-    title: "Alice mentioned you in PR #42",
-    subtitle: "\"Can you review the API changes?\"",
-    timestamp: minutesAgo(32),
-    read: false,
-    actions: [
-      { label: "View", kind: "view", handler: "view:notif-4" },
-    ],
-  },
-  {
-    id: "notif-5",
-    type: "system",
-    priority: "p1",
-    title: "Cost threshold 80% reached",
-    subtitle: "$847 of $1,000 monthly budget",
-    timestamp: minutesAgo(45),
-    read: true,
-    actions: [
-      { label: "Acknowledge", kind: "acknowledge", handler: "ack:notif-5" },
-    ],
-  },
-  {
-    id: "notif-6",
-    type: "decision",
-    priority: "p2",
-    title: "Approve schema migration",
-    subtitle: "Add users.avatar_url column",
-    agentName: "db-agent",
-    timestamp: minutesAgo(60),
-    read: true,
-    actions: [
-      { label: "Approve", kind: "approve", handler: "approve:notif-6" },
-      { label: "Reject", kind: "reject", handler: "reject:notif-6" },
-      { label: "Defer", kind: "defer", handler: "defer:notif-6" },
-    ],
-  },
-  {
-    id: "notif-7",
-    type: "agent_update",
-    priority: "p3",
-    title: "backend completed testing",
-    subtitle: "All 142 tests passing",
-    agentName: "backend",
-    timestamp: minutesAgo(90),
-    read: true,
-    actions: [
-      { label: "View", kind: "view", handler: "view:notif-7" },
-    ],
-  },
-  {
-    id: "notif-8",
-    type: "build_status",
-    priority: "p3",
-    title: "CI passed on main",
-    subtitle: "Build #1847 — 4m 12s",
-    timestamp: minutesAgo(120),
-    read: true,
-    actions: [
-      { label: "View", kind: "view", handler: "view:notif-8" },
-    ],
-  },
-  {
-    id: "notif-9",
-    type: "system",
-    priority: "p0",
-    title: "Agent health degraded",
-    subtitle: "frontend agent response time >30s",
-    timestamp: minutesAgo(5),
-    read: false,
-    actions: [
-      { label: "Acknowledge", kind: "acknowledge", handler: "ack:notif-9" },
-    ],
-  },
-  {
-    id: "notif-10",
-    type: "mention",
-    priority: "p3",
-    title: "Bob commented on MOLT-128",
-    subtitle: "\"Looks good, merging now\"",
-    timestamp: minutesAgo(180),
-    read: true,
-    actions: [
-      { label: "View", kind: "view", handler: "view:notif-10" },
-    ],
-  },
-];
-
-// ---------------------------------------------------------------------------
 // Store signals
 // ---------------------------------------------------------------------------
 
-const [notifications, setNotifications] = createSignal<Notification[]>(MOCK_NOTIFICATIONS);
+const [notifications, setNotifications] = createSignal<Notification[]>([]);
 const [activeFilter, setActiveFilter] = createSignal<FilterTab>("all");
 const [newNotifId, setNewNotifId] = createSignal<string | null>(null);
 
@@ -280,6 +142,47 @@ function addNotification(notif: Notification): void {
 }
 
 // ---------------------------------------------------------------------------
+// WebSocket integration
+// ---------------------------------------------------------------------------
+
+const VALID_TYPES = new Set<NotificationType>(["decision", "agent_update", "build_status", "mention", "system"]);
+const VALID_PRIORITIES = new Set<NotificationPriority>(["p0", "p1", "p2", "p3"]);
+
+/**
+ * Parse a raw WebSocket payload into a Notification, returning null if invalid.
+ */
+function parseWsNotification(payload: unknown): Notification | null {
+  if (payload == null || typeof payload !== "object") return null;
+  const p = payload as Record<string, unknown>;
+  const title = typeof p.title === "string" ? p.title.trim() : "";
+  if (!title) return null;
+
+  return {
+    id: typeof p.id === "string" ? p.id : `ws-notif-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    type: VALID_TYPES.has(p.type as NotificationType) ? (p.type as NotificationType) : "system",
+    priority: VALID_PRIORITIES.has(p.priority as NotificationPriority) ? (p.priority as NotificationPriority) : "p1",
+    title,
+    subtitle: typeof p.subtitle === "string" ? p.subtitle : undefined,
+    agentName: typeof p.agentName === "string" ? p.agentName : undefined,
+    timestamp: typeof p.timestamp === "string" ? p.timestamp : new Date().toISOString(),
+    read: false,
+    actions: Array.isArray(p.actions) ? (p.actions as NotificationAction[]) : undefined,
+  };
+}
+
+/**
+ * Subscribe to the "notification:*" WebSocket topic.
+ * Returns an unsubscribe function for cleanup.
+ */
+function connectNotificationsWs(): () => void {
+  return subscribe("notification:*", (msg) => {
+    if (msg.type !== "event") return;
+    const notif = parseWsNotification(msg.payload);
+    if (notif) addNotification(notif);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -296,6 +199,7 @@ export {
   dismissNotification,
   handleAction,
   addNotification,
+  connectNotificationsWs,
 };
 
 export type { FilterTab as NotificationFilterTab };

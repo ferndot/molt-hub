@@ -49,97 +49,6 @@ function sortItems(items: TriageItem[]): TriageItem[] {
 }
 
 // ---------------------------------------------------------------------------
-// Mock data
-// ---------------------------------------------------------------------------
-
-const MOCK_ITEMS: TriageItem[] = [
-  {
-    id: "ti-001",
-    taskId: "01HTASK0000000000000000001",
-    taskName: "Add OAuth2 login flow",
-    agentName: "frontend-agent-1",
-    stage: "code-review",
-    priority: "p0",
-    type: "decision",
-    createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
-    summary:
-      "Implemented OAuth2 PKCE flow with refresh token rotation. 3 new endpoints, 12 unit tests passing. Ready for human code review before merging to main.",
-  },
-  {
-    id: "ti-002",
-    taskId: "01HTASK0000000000000000002",
-    taskName: "Migrate user table to Postgres",
-    agentName: "backend-agent-3",
-    stage: "deployment",
-    priority: "p0",
-    type: "decision",
-    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-    summary:
-      "Schema migration script ready. Will add 3 indexes. Estimated downtime: 0s (online migration). Requires approval before applying to production.",
-  },
-  {
-    id: "ti-003",
-    taskId: "01HTASK0000000000000000003",
-    taskName: "Refactor billing service",
-    agentName: "backend-agent-1",
-    stage: "testing",
-    priority: "p1",
-    type: "decision",
-    createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-    summary:
-      "Extracted billing logic into separate module. Test coverage at 84%. 2 integration tests failing due to Stripe sandbox — awaiting human decision on whether to proceed.",
-  },
-  {
-    id: "ti-004",
-    taskId: "01HTASK0000000000000000004",
-    taskName: "Update API rate limiting",
-    agentName: "backend-agent-2",
-    stage: "code-review",
-    priority: "p1",
-    type: "decision",
-    createdAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-    summary:
-      "Switched from token bucket to sliding window algorithm. Limits: 100 req/min per user, 10k req/min global. Config change requires approval.",
-  },
-  {
-    id: "ti-005",
-    taskId: "01HTASK0000000000000000005",
-    taskName: "Bump lodash to 4.17.21",
-    agentName: "deps-agent-1",
-    stage: "dependency-update",
-    priority: "p2",
-    type: "info",
-    createdAt: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
-    summary:
-      "Automated dependency update. No breaking changes detected. All tests pass. Changelog reviewed.",
-  },
-  {
-    id: "ti-006",
-    taskId: "01HTASK0000000000000000006",
-    taskName: "Generate API documentation",
-    agentName: "docs-agent-1",
-    stage: "documentation",
-    priority: "p3",
-    type: "info",
-    createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
-    summary:
-      "OpenAPI spec generated from code annotations. 47 endpoints documented. Published to /docs.",
-  },
-  {
-    id: "ti-007",
-    taskId: "01HTASK0000000000000000007",
-    taskName: "Add dark mode support",
-    agentName: "frontend-agent-2",
-    stage: "testing",
-    priority: "p2",
-    type: "info",
-    createdAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
-    summary:
-      "CSS variables refactored for theme support. Light/dark toggle implemented. Visual regression tests added.",
-  },
-];
-
-// ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
 
@@ -153,7 +62,7 @@ interface TriageStoreState {
 }
 
 const [state, setState] = createStore<TriageStoreState>({
-  items: sortItems(MOCK_ITEMS),
+  items: [],
   filterMode: "all",
   sortMode: "priority",
 });
