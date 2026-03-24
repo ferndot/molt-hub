@@ -525,7 +525,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|e| &e.task_id == task_id)
+                .filter(|e| e.task_id.as_ref() == Some(task_id))
                 .cloned()
                 .collect())
         }
@@ -568,6 +568,20 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|e| &e.id == event_id)
+                .cloned()
+                .collect())
+        }
+
+        async fn get_events_for_project(
+            &self,
+            project_id: &str,
+        ) -> Result<Vec<EventEnvelope>, EventStoreError> {
+            Ok(self
+                .events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| e.project_id == project_id)
                 .cloned()
                 .collect())
         }
@@ -625,7 +639,8 @@ mod tests {
     fn agent_assigned_envelope(task_id: TaskId, session_id: SessionId) -> EventEnvelope {
         EventEnvelope {
             id: EventId::new(),
-            task_id,
+            task_id: Some(task_id),
+            project_id: "default".to_owned(),
             session_id,
             timestamp: Utc::now(),
             caused_by: None,
@@ -639,7 +654,8 @@ mod tests {
     fn agent_completed_envelope(task_id: TaskId, session_id: SessionId) -> EventEnvelope {
         EventEnvelope {
             id: EventId::new(),
-            task_id,
+            task_id: Some(task_id),
+            project_id: "default".to_owned(),
             session_id,
             timestamp: Utc::now(),
             caused_by: None,

@@ -10,8 +10,8 @@ use crate::model::{EventId, SessionId, TaskId};
 
 use super::schema::{
     apply_migrations, CREATE_EVENTS_TABLE, CREATE_IDX_EVENTS_CAUSED_BY,
-    CREATE_IDX_EVENTS_TASK_ID, CREATE_IDX_EVENTS_TIMESTAMP, CREATE_TASK_CURRENT_STATE_TABLE,
-    CREATE_TASK_TIMELINE_TABLE, ENABLE_WAL, SET_SYNCHRONOUS,
+    CREATE_IDX_EVENTS_PROJECT_ID, CREATE_IDX_EVENTS_TASK_ID, CREATE_IDX_EVENTS_TIMESTAMP,
+    CREATE_TASK_CURRENT_STATE_TABLE, CREATE_TASK_TIMELINE_TABLE, ENABLE_WAL, SET_SYNCHRONOUS,
 };
 use super::types::EventEnvelope;
 
@@ -82,6 +82,12 @@ pub trait EventStore: Send + Sync {
         &self,
         event_id: &EventId,
     ) -> impl std::future::Future<Output = Result<Vec<EventEnvelope>, EventStoreError>> + Send;
+
+    /// Retrieve all events for a given project, ordered by timestamp ascending.
+    fn get_events_for_project(
+        &self,
+        project_id: &str,
+    ) -> impl std::future::Future<Output = Result<Vec<EventEnvelope>, EventStoreError>> + Send;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,7 +102,8 @@ fn parse_ulid(s: &str) -> Result<ulid::Ulid, EventStoreError> {
 
 fn row_to_envelope(
     id: String,
-    task_id: String,
+    task_id: Option<String>,
+    project_id: Option<String>,
     session_id: String,
     timestamp: String,
     caused_by: Option<String>,
@@ -109,10 +116,16 @@ fn row_to_envelope(
     let cb = caused_by
         .map(|s| parse_ulid(&s).map(EventId))
         .transpose()?;
+    let tid = task_id
+        .filter(|s| !s.is_empty())
+        .map(|s| parse_ulid(&s).map(TaskId))
+        .transpose()?;
+    let pid = project_id.unwrap_or_else(|| "default".to_owned());
 
     Ok(EventEnvelope {
         id: EventId(parse_ulid(&id)?),
-        task_id: TaskId(parse_ulid(&task_id)?),
+        task_id: tid,
+        project_id: pid,
         session_id: SessionId(parse_ulid(&session_id)?),
         timestamp: ts,
         caused_by: cb,
@@ -164,6 +177,9 @@ impl SqliteEventStore {
         sqlx::query(CREATE_IDX_EVENTS_CAUSED_BY)
             .execute(&mut *conn)
             .await?;
+        sqlx::query(CREATE_IDX_EVENTS_PROJECT_ID)
+            .execute(&mut *conn)
+            .await?;
 
         // Run schema migrations (idempotent, safe on every startup).
         apply_migrations(&mut *conn).await?;
@@ -172,9 +188,10 @@ impl SqliteEventStore {
     }
 
     /// Serialise an envelope to the column values expected by the schema.
+    /// Returns: (id, task_id, project_id, session_id, timestamp, caused_by, event_type, payload)
     fn to_row(
         envelope: &EventEnvelope,
-    ) -> Result<(String, String, String, String, Option<String>, String, String), EventStoreError>
+    ) -> Result<(String, Option<String>, String, String, String, Option<String>, String, String), EventStoreError>
     {
         let payload_json = serde_json::to_string(&envelope.payload)?;
         let event_type = {
@@ -187,10 +204,12 @@ impl SqliteEventStore {
         };
         let timestamp = envelope.timestamp.to_rfc3339();
         let caused_by = envelope.caused_by.as_ref().map(|e| e.0.to_string());
+        let task_id = envelope.task_id.as_ref().map(|t| t.0.to_string());
 
         Ok((
             envelope.id.0.to_string(),
-            envelope.task_id.0.to_string(),
+            task_id,
+            envelope.project_id.clone(),
             envelope.session_id.0.to_string(),
             timestamp,
             caused_by,
@@ -203,15 +222,16 @@ impl SqliteEventStore {
 impl EventStore for SqliteEventStore {
     #[instrument(skip(self, envelope), fields(event_id = %envelope.id.0))]
     async fn append(&self, envelope: EventEnvelope) -> Result<(), EventStoreError> {
-        let (id, task_id, session_id, timestamp, caused_by, event_type, payload) =
+        let (id, task_id, project_id, session_id, timestamp, caused_by, event_type, payload) =
             Self::to_row(&envelope)?;
 
         sqlx::query(
-            "INSERT INTO events (id, task_id, session_id, timestamp, caused_by, event_type, payload)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO events (id, task_id, project_id, session_id, timestamp, caused_by, event_type, payload)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         )
         .bind(id)
         .bind(task_id)
+        .bind(project_id)
         .bind(session_id)
         .bind(timestamp)
         .bind(caused_by)
@@ -232,15 +252,16 @@ impl EventStore for SqliteEventStore {
         let mut tx = self.pool.begin().await?;
 
         for envelope in &envelopes {
-            let (id, task_id, session_id, timestamp, caused_by, event_type, payload) =
+            let (id, task_id, project_id, session_id, timestamp, caused_by, event_type, payload) =
                 Self::to_row(envelope)?;
 
             sqlx::query(
-                "INSERT INTO events (id, task_id, session_id, timestamp, caused_by, event_type, payload)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                "INSERT INTO events (id, task_id, project_id, session_id, timestamp, caused_by, event_type, payload)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             )
             .bind(id)
             .bind(task_id)
+            .bind(project_id)
             .bind(session_id)
             .bind(timestamp)
             .bind(caused_by)
@@ -261,7 +282,7 @@ impl EventStore for SqliteEventStore {
     ) -> Result<Vec<EventEnvelope>, EventStoreError> {
         let id_str = task_id.0.to_string();
         let rows = sqlx::query(
-            "SELECT id, task_id, session_id, timestamp, caused_by, payload
+            "SELECT id, task_id, COALESCE(project_id, 'default') as project_id, session_id, timestamp, caused_by, payload
              FROM events
              WHERE task_id = ?1
              ORDER BY timestamp ASC",
@@ -275,7 +296,8 @@ impl EventStore for SqliteEventStore {
                 use sqlx::Row;
                 row_to_envelope(
                     r.get("id"),
-                    r.get("task_id"),
+                    r.try_get("task_id").ok(),
+                    r.try_get("project_id").ok(),
                     r.get("session_id"),
                     r.get("timestamp"),
                     r.get("caused_by"),
@@ -292,7 +314,7 @@ impl EventStore for SqliteEventStore {
     ) -> Result<Vec<EventEnvelope>, EventStoreError> {
         let since_str = since.to_rfc3339();
         let rows = sqlx::query(
-            "SELECT id, task_id, session_id, timestamp, caused_by, payload
+            "SELECT id, task_id, COALESCE(project_id, 'default') as project_id, session_id, timestamp, caused_by, payload
              FROM events
              WHERE timestamp >= ?1
              ORDER BY timestamp ASC",
@@ -306,7 +328,8 @@ impl EventStore for SqliteEventStore {
                 use sqlx::Row;
                 row_to_envelope(
                     r.get("id"),
-                    r.get("task_id"),
+                    r.try_get("task_id").ok(),
+                    r.try_get("project_id").ok(),
                     r.get("session_id"),
                     r.get("timestamp"),
                     r.get("caused_by"),
@@ -323,7 +346,7 @@ impl EventStore for SqliteEventStore {
     ) -> Result<Option<EventEnvelope>, EventStoreError> {
         let id_str = id.0.to_string();
         let row = sqlx::query(
-            "SELECT id, task_id, session_id, timestamp, caused_by, payload
+            "SELECT id, task_id, COALESCE(project_id, 'default') as project_id, session_id, timestamp, caused_by, payload
              FROM events
              WHERE id = ?1",
         )
@@ -335,7 +358,8 @@ impl EventStore for SqliteEventStore {
             use sqlx::Row;
             row_to_envelope(
                 r.get("id"),
-                r.get("task_id"),
+                r.try_get("task_id").ok(),
+                r.try_get("project_id").ok(),
                 r.get("session_id"),
                 r.get("timestamp"),
                 r.get("caused_by"),
@@ -373,5 +397,36 @@ impl EventStore for SqliteEventStore {
 
         chain.reverse();
         Ok(chain)
+    }
+
+    #[instrument(skip(self), fields(project_id = %project_id))]
+    async fn get_events_for_project(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<EventEnvelope>, EventStoreError> {
+        let rows = sqlx::query(
+            "SELECT id, task_id, COALESCE(project_id, 'default') as project_id, session_id, timestamp, caused_by, payload
+             FROM events
+             WHERE COALESCE(project_id, 'default') = ?1
+             ORDER BY timestamp ASC",
+        )
+        .bind(project_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        rows.into_iter()
+            .map(|r| {
+                use sqlx::Row;
+                row_to_envelope(
+                    r.get("id"),
+                    r.try_get("task_id").ok(),
+                    r.try_get("project_id").ok(),
+                    r.get("session_id"),
+                    r.get("timestamp"),
+                    r.get("caused_by"),
+                    r.get("payload"),
+                )
+            })
+            .collect()
     }
 }

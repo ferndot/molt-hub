@@ -524,7 +524,8 @@ impl<S: ApprovalStore> ApprovalService<S> {
 
                 let envelope = EventEnvelope {
                     id: EventId::new(),
-                    task_id: task_id.clone(),
+                    task_id: Some(task_id.clone()),
+                    project_id: "default".to_owned(),
                     session_id,
                     timestamp: Utc::now(),
                     caused_by: None,
@@ -587,7 +588,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|e| &e.task_id == task_id)
+                .filter(|e| e.task_id.as_ref() == Some(task_id))
                 .cloned()
                 .collect())
         }
@@ -629,6 +630,20 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|e| &e.id == event_id)
+                .cloned()
+                .collect())
+        }
+
+        async fn get_events_for_project(
+            &self,
+            project_id: &str,
+        ) -> Result<Vec<EventEnvelope>, EventStoreError> {
+            Ok(self
+                .events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| e.project_id == project_id)
                 .cloned()
                 .collect())
         }
@@ -682,7 +697,8 @@ mod tests {
         // Drive to InProgress.
         let assign_event = EventEnvelope {
             id: EventId::new(),
-            task_id: task_id.clone(),
+            task_id: Some(task_id.clone()),
+            project_id: "default".to_owned(),
             session_id: session_id.clone(),
             timestamp: Utc::now(),
             caused_by: None,
@@ -696,7 +712,8 @@ mod tests {
         // Drive to AwaitingApproval (requires_approval stage).
         let complete_event = EventEnvelope {
             id: EventId::new(),
-            task_id: task_id.clone(),
+            task_id: Some(task_id.clone()),
+            project_id: "default".to_owned(),
             session_id: session_id.clone(),
             timestamp: Utc::now(),
             caused_by: None,
