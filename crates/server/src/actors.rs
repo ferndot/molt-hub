@@ -4,7 +4,14 @@
 //! owns a `TaskMachine` and processes `TaskCommand` messages sent over an mpsc
 //! channel. A `TaskRegistry` manages the mapping from `TaskId` to actor handles
 //! using DashMap for concurrent access.
+//!
+//! When a [`HookExecutor`] is configured on the registry, stage transitions run
+//! pipeline hooks: `TaskStageChanged` and human redirect run exit hooks on the
+//! source stage and enter hooks on the target; completing a task runs exit hooks
+//! on the current stage. Failed hooks with an abort policy roll back the state
+//! machine and the event is not persisted.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use dashmap::DashMap;
@@ -12,17 +19,159 @@ use thiserror::Error;
 use tokio::sync::{mpsc, oneshot, watch};
 use tracing::{debug, error, info, warn};
 
-use molt_hub_core::config::PipelineConfig;
+use molt_hub_core::config::{HookTrigger, PipelineConfig};
 use molt_hub_core::events::store::EventStore;
+use molt_hub_core::events::HumanDecisionKind;
 use molt_hub_core::events::types::{DomainEvent, EventEnvelope};
 use molt_hub_core::machine::{TaskMachine, TransitionError};
-use molt_hub_core::model::{SessionId, TaskId, TaskState};
+use molt_hub_core::model::{AgentId, SessionId, TaskId, TaskState};
 
+use crate::hooks::{HookContext, HookExecutor, HookExecutorError};
 use crate::ws::ConnectionManager;
 use crate::ws_broadcast::{
     broadcast_agent_output, broadcast_board_update, broadcast_triage_new,
     broadcast_triage_resolved, TriageItemPayload,
 };
+
+// ---------------------------------------------------------------------------
+// Stage hook lifecycle (pipeline config + HookExecutor)
+// ---------------------------------------------------------------------------
+
+fn stage_by_name<'a>(
+    pipeline: &'a PipelineConfig,
+    name: &str,
+) -> Option<&'a molt_hub_core::config::StageDefinition> {
+    pipeline.stages.iter().find(|s| s.name == name)
+}
+
+fn agent_id_from_event(event: &DomainEvent) -> Option<AgentId> {
+    match event {
+        DomainEvent::AgentAssigned { agent_id, .. }
+        | DomainEvent::AgentOutput { agent_id, .. }
+        | DomainEvent::AgentCompleted { agent_id, .. } => Some(agent_id.clone()),
+        _ => None,
+    }
+}
+
+async fn run_hooks_for_named_stage(
+    executor: &HookExecutor,
+    pipeline: &PipelineConfig,
+    stage_name: &str,
+    trigger: HookTrigger,
+    task_id: &TaskId,
+    session_id: &SessionId,
+    agent_id: Option<AgentId>,
+) -> Result<(), HookExecutorError> {
+    let Some(stage) = stage_by_name(pipeline, stage_name) else {
+        return Ok(());
+    };
+    let ctx = HookContext {
+        task_id: task_id.clone(),
+        agent_id,
+        session_id: session_id.clone(),
+        stage_name: stage.name.clone(),
+        trigger: trigger.clone(),
+        pipeline_name: pipeline.name.clone(),
+        env: HashMap::new(),
+    };
+    executor.execute_hooks(stage, trigger, &ctx).await?;
+    Ok(())
+}
+
+async fn run_lifecycle_hooks_for_event(
+    executor: &HookExecutor,
+    pipeline: &PipelineConfig,
+    task_id: &TaskId,
+    session_id: &SessionId,
+    envelope: &EventEnvelope,
+    stage_before: &str,
+    _stage_after: &str,
+    new_state: &TaskState,
+) -> Result<(), HookExecutorError> {
+    let aid = agent_id_from_event(&envelope.payload);
+    match &envelope.payload {
+        DomainEvent::TaskStageChanged {
+            from_stage,
+            to_stage,
+            ..
+        } => {
+            run_hooks_for_named_stage(
+                executor,
+                pipeline,
+                from_stage,
+                HookTrigger::Exit,
+                task_id,
+                session_id,
+                aid.clone(),
+            )
+            .await?;
+            run_hooks_for_named_stage(
+                executor,
+                pipeline,
+                to_stage,
+                HookTrigger::Enter,
+                task_id,
+                session_id,
+                aid,
+            )
+            .await?;
+        }
+        DomainEvent::HumanDecision {
+            decision: HumanDecisionKind::Redirected { to_stage, .. },
+            ..
+        } => {
+            run_hooks_for_named_stage(
+                executor,
+                pipeline,
+                stage_before,
+                HookTrigger::Exit,
+                task_id,
+                session_id,
+                aid.clone(),
+            )
+            .await?;
+            run_hooks_for_named_stage(
+                executor,
+                pipeline,
+                to_stage,
+                HookTrigger::Enter,
+                task_id,
+                session_id,
+                aid,
+            )
+            .await?;
+        }
+        DomainEvent::AgentCompleted { .. } if matches!(new_state, TaskState::Completed { .. }) => {
+            run_hooks_for_named_stage(
+                executor,
+                pipeline,
+                stage_before,
+                HookTrigger::Exit,
+                task_id,
+                session_id,
+                aid,
+            )
+            .await?;
+        }
+        DomainEvent::HumanDecision {
+            decision: HumanDecisionKind::Approved,
+            ..
+        } if matches!(new_state, TaskState::Completed { .. }) => {
+            run_hooks_for_named_stage(
+                executor,
+                pipeline,
+                stage_before,
+                HookTrigger::Exit,
+                task_id,
+                session_id,
+                aid,
+            )
+            .await?;
+        }
+        _ => {}
+    }
+    Ok(())
+}
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -52,6 +201,14 @@ pub enum ActorError {
     Transition {
         task_id: TaskId,
         source: TransitionError,
+    },
+
+    /// A pipeline stage hook failed with an abort policy (or retries exhausted).
+    #[error("hook error for task {task_id}: {source}")]
+    Hook {
+        task_id: TaskId,
+        #[source]
+        source: HookExecutorError,
     },
 }
 
@@ -114,6 +271,8 @@ struct TaskActor<S: EventStore + 'static> {
     state_tx: watch::Sender<StateUpdate>,
     /// Optional WebSocket connection manager for broadcasting events to UI clients.
     ws_manager: Option<Arc<ConnectionManager>>,
+    /// When set, stage enter/exit hooks from the pipeline config run on transitions.
+    hook_executor: Option<Arc<HookExecutor>>,
 }
 
 impl<S: EventStore + 'static> TaskActor<S> {
@@ -123,6 +282,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
         rx: mpsc::Receiver<TaskCommand>,
         state_tx: watch::Sender<StateUpdate>,
         ws_manager: Option<Arc<ConnectionManager>>,
+        hook_executor: Option<Arc<HookExecutor>>,
     ) -> Self {
         let machine = TaskMachine::new(config.initial_stage.clone());
         Self {
@@ -135,6 +295,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
             rx,
             state_tx,
             ws_manager,
+            hook_executor,
         }
     }
 
@@ -181,6 +342,9 @@ impl<S: EventStore + 'static> TaskActor<S> {
         let requires_approval = self.requires_approval_for_current_stage();
         let event_payload = envelope.payload.clone();
 
+        let snapshot_state = self.machine.state.clone();
+        let snapshot_stage = self.machine.current_stage.clone();
+
         let new_state = self
             .machine
             .apply_with_approval_flag(&envelope.payload, requires_approval)
@@ -188,6 +352,30 @@ impl<S: EventStore + 'static> TaskActor<S> {
                 task_id: self.task_id.clone(),
                 source: e,
             })?;
+
+        let stage_after = self.machine.current_stage.clone();
+
+        if let Some(ref executor) = self.hook_executor {
+            if let Err(source) = run_lifecycle_hooks_for_event(
+                executor.as_ref(),
+                self.pipeline_config.as_ref(),
+                &self.task_id,
+                &envelope.session_id,
+                &envelope,
+                &snapshot_stage,
+                &stage_after,
+                &new_state,
+            )
+            .await
+            {
+                self.machine.state = snapshot_state;
+                self.machine.current_stage = snapshot_stage;
+                return Err(ActorError::Hook {
+                    task_id: self.task_id.clone(),
+                    source,
+                });
+            }
+        }
 
         debug!(
             task_id = %self.task_id,
@@ -383,6 +571,8 @@ pub struct TaskRegistry<S: EventStore + 'static> {
     /// Optional WebSocket connection manager — when set, actors will broadcast
     /// state changes to connected UI clients.
     ws_manager: Option<Arc<ConnectionManager>>,
+    /// Optional hook executor for pipeline stage enter/exit automation.
+    hook_executor: Option<Arc<HookExecutor>>,
 }
 
 impl<S: EventStore + 'static> TaskRegistry<S> {
@@ -392,6 +582,7 @@ impl<S: EventStore + 'static> TaskRegistry<S> {
             actors: DashMap::new(),
             store,
             ws_manager: None,
+            hook_executor: None,
         }
     }
 
@@ -401,7 +592,14 @@ impl<S: EventStore + 'static> TaskRegistry<S> {
             actors: DashMap::new(),
             store,
             ws_manager: Some(ws_manager),
+            hook_executor: None,
         }
+    }
+
+    /// Attach a [`HookExecutor`] for stage lifecycle hooks (enter/exit on transitions).
+    pub fn with_hook_executor(mut self, hook_executor: Arc<HookExecutor>) -> Self {
+        self.hook_executor = Some(hook_executor);
+        self
     }
 
     /// Return the number of currently active actors.
@@ -437,6 +635,7 @@ impl<S: EventStore + 'static> TaskRegistry<S> {
             rx,
             state_tx,
             self.ws_manager.clone(),
+            self.hook_executor.clone(),
         );
         tokio::spawn(actor.run());
 
