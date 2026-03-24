@@ -1,13 +1,39 @@
-/* ColumnEditor — inline board column configuration panel */
+/* ColumnEditor — modal column configuration (Kobalte Dialog) */
 
-.panel {
-  width: 100%;
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 150;
+}
+
+.dialogContent {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 151;
+  box-sizing: border-box;
+  width: min(720px, calc(100vw - 2rem));
+  max-height: 85vh;
+  overflow-y: auto;
+  padding: 1rem;
   background: var(--bg-primary);
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1rem;
-  box-sizing: border-box;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .panelHeader {
@@ -24,6 +50,7 @@
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
+  flex: 1;
 }
 
 .btnClose {
@@ -49,7 +76,6 @@
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  margin-bottom: 1rem;
 }
 
 /* ---- Column card ---- */

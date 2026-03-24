@@ -12,7 +12,7 @@ import {
   For,
   type Component,
 } from "solid-js";
-import { Portal } from "solid-js/web";
+import { Dialog } from "@kobalte/core/dialog";
 import { TbOutlineX, TbOutlineCheck, TbOutlineAlertCircle } from "solid-icons/tb";
 import { projectState } from "../../stores/projectStore";
 import { settingsState } from "./settingsStore";
@@ -172,7 +172,6 @@ const GitHubImport: Component<GitHubImportProps> = (props) => {
 
   const handleKeyDown = (e: KeyboardEvent) => {
     if (e.key === "Enter") handleSearch();
-    if (e.key === "Escape") props.onClose();
   };
 
   const toggleSelect = (num: number) => {
@@ -230,29 +229,24 @@ const GitHubImport: Component<GitHubImportProps> = (props) => {
 
   // ---- Render ----
   return (
-    <Show when={props.isOpen}>
-      <Portal>
-        <div
-          class={styles.overlay}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) props.onClose();
-          }}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Import from GitHub"
-        >
-          <div class={styles.dialog}>
-            {/* Header */}
-            <div class={styles.dialogHeader}>
-              <span class={styles.dialogTitle}>Import from GitHub</span>
-              <button
-                class={styles.closeBtn}
-                onClick={props.onClose}
-                aria-label="Close dialog"
-              >
-                <TbOutlineX size={14} />
-              </button>
-            </div>
+    <Dialog
+      open={props.isOpen}
+      onOpenChange={(isOpen: boolean) => {
+        if (!isOpen) props.onClose();
+      }}
+    >
+      <Dialog.Portal>
+        <Dialog.Overlay class={styles.overlay} />
+        <Dialog.Content class={styles.dialog}>
+          <div class={styles.dialogHeader}>
+            <Dialog.Title class={styles.dialogTitle}>Import from GitHub</Dialog.Title>
+            <Dialog.CloseButton class={styles.closeBtn} aria-label="Close dialog">
+              <TbOutlineX size={14} />
+            </Dialog.CloseButton>
+          </div>
+          <Dialog.Description class={styles.srOnly}>
+            Search GitHub issues by repository and filters, then import selected issues.
+          </Dialog.Description>
 
             {/* Body */}
             <div class={styles.dialogBody}>
@@ -425,10 +419,9 @@ const GitHubImport: Component<GitHubImportProps> = (props) => {
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      </Portal>
-    </Show>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog>
   );
 };
 

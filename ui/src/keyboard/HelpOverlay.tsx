@@ -5,11 +5,13 @@
  */
 
 import type { Component } from "solid-js";
+import { Dialog } from "@kobalte/core/dialog";
 import { TbOutlineX } from "solid-icons/tb";
 import styles from "./HelpOverlay.module.css";
 
 interface Props {
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
 interface ShortcutRow {
@@ -58,62 +60,50 @@ const GROUPS: ShortcutGroup[] = [
 ];
 
 const HelpOverlay: Component<Props> = (props) => {
-  const handleOverlayClick = (e: MouseEvent) => {
-    if (e.target === e.currentTarget) props.onClose();
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") props.onClose();
-  };
-
   return (
-    <div
-      class={styles.overlay}
-      onClick={handleOverlayClick}
-      onKeyDown={handleKeyDown}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Keyboard shortcuts"
-      tabindex="-1"
-    >
-      <div class={styles.modal}>
-        <div class={styles.header}>
-          <h2 class={styles.title}>Keyboard Shortcuts</h2>
-          <button class={styles.closeBtn} onClick={props.onClose} aria-label="Close">
-            <TbOutlineX size={16} />
-          </button>
-        </div>
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay class={styles.overlay} />
+        <Dialog.Content class={styles.modal}>
+          <div class={styles.header}>
+            <Dialog.Title class={styles.title}>Keyboard Shortcuts</Dialog.Title>
+            <Dialog.CloseButton class={styles.closeBtn} aria-label="Close">
+              <TbOutlineX size={16} />
+            </Dialog.CloseButton>
+          </div>
+          <Dialog.Description class={styles.srOnly}>
+            Reference of keyboard shortcuts. Press Escape to close.
+          </Dialog.Description>
 
-        <div class={styles.body}>
-          {GROUPS.map((group) => (
-            <div class={styles.group}>
-              <p class={styles.groupTitle}>{group.title}</p>
-              {group.rows.map((row) => (
-                <div class={styles.row}>
-                  <span class={styles.desc}>{row.desc}</span>
-                  <span class={styles.keyList}>
-                    {row.chord
-                      ? row.keys.map((k, i) => (
-                          <>
-                            <kbd class={styles.key}>{k}</kbd>
-                            {i < row.keys.length - 1 && (
-                              <span class={styles.chord}>then</span>
-                            )}
-                          </>
-                        ))
-                      : row.keys.map((k) => (
-                          <kbd class={styles.key}>{k}</kbd>
-                        ))}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
+          <div class={styles.body}>
+            {GROUPS.map((group) => (
+              <div class={styles.group}>
+                <p class={styles.groupTitle}>{group.title}</p>
+                {group.rows.map((row) => (
+                  <div class={styles.row}>
+                    <span class={styles.desc}>{row.desc}</span>
+                    <span class={styles.keyList}>
+                      {row.chord
+                        ? row.keys.map((k, i) => (
+                            <>
+                              <kbd class={styles.key}>{k}</kbd>
+                              {i < row.keys.length - 1 && (
+                                <span class={styles.chord}>then</span>
+                              )}
+                            </>
+                          ))
+                        : row.keys.map((k) => <kbd class={styles.key}>{k}</kbd>)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
 
-        <div class={styles.footer}>Press Esc to close</div>
-      </div>
-    </div>
+          <div class={styles.footer}>Press Esc to close</div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog>
   );
 };
 

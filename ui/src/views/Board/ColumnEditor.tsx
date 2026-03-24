@@ -1,12 +1,12 @@
 /**
- * ColumnEditor — inline panel for configuring kanban columns.
- * Rendered inside BoardView when the gear icon is clicked.
+ * ColumnEditor — modal panel for configuring kanban columns.
  *
  * Reads pipeline stages from boardStore and persists changes via
  * PATCH /api/pipeline/stages/:id.
  */
 
 import { For, type Component } from "solid-js";
+import { Dialog } from "@kobalte/core/dialog";
 import { getSortedStages, patchStage } from "./boardStore";
 import type { PipelineStage } from "../../lib/api";
 import styles from "./ColumnEditor.module.css";
@@ -24,7 +24,6 @@ const StageRow: Component<StageRowProps> = (props) => {
 
   return (
     <div class={styles.columnCard}>
-      {/* Row 1: handle, label, color */}
       <div class={styles.columnMainRow}>
         <span class={styles.dragHandle} title="Drag to reorder">
           ⠿
@@ -50,7 +49,6 @@ const StageRow: Component<StageRowProps> = (props) => {
         />
       </div>
 
-      {/* Row 2: behavior fields */}
       <div class={styles.behaviorRow}>
         <label class={styles.fieldLabel}>
           WIP Limit
@@ -101,31 +99,39 @@ const StageRow: Component<StageRowProps> = (props) => {
 // ---------------------------------------------------------------------------
 
 export interface ColumnEditorProps {
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }
 
 const ColumnEditor: Component<ColumnEditorProps> = (props) => {
   const sortedStages = () => getSortedStages();
 
   return (
-    <div class={styles.panel}>
-      <div class={styles.panelHeader}>
-        <h3 class={styles.panelTitle}>Column Configuration</h3>
-        <button
-          class={styles.btnClose}
-          onClick={props.onClose}
-          aria-label="Close column editor"
-        >
-          ✕
-        </button>
-      </div>
+    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+      <Dialog.Portal>
+        <Dialog.Overlay class={styles.overlay} />
+        <Dialog.Content class={styles.dialogContent}>
+          <div class={styles.panelHeader}>
+            <Dialog.Title class={styles.panelTitle}>Column Configuration</Dialog.Title>
+            <Dialog.CloseButton
+              class={styles.btnClose}
+              aria-label="Close column editor"
+            >
+              ✕
+            </Dialog.CloseButton>
+          </div>
+          <Dialog.Description class={styles.srOnly}>
+            Edit column titles, colors, WIP limits, and behavior for this board.
+          </Dialog.Description>
 
-      <div class={styles.columnList}>
-        <For each={sortedStages()}>
-          {(stage: PipelineStage) => <StageRow stage={stage} />}
-        </For>
-      </div>
-    </div>
+          <div class={styles.columnList}>
+            <For each={sortedStages()}>
+              {(stage: PipelineStage) => <StageRow stage={stage} />}
+            </For>
+          </div>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog>
   );
 };
 

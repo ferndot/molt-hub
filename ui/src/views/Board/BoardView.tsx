@@ -3,7 +3,7 @@
  * pipeline stage. Exported as the default component for the /board route.
  */
 
-import { For, Show, createSignal, type Component } from "solid-js";
+import { For, createSignal, type Component } from "solid-js";
 import { TbOutlineSettings } from "solid-icons/tb";
 import { moveTask, tasksForStage, getSortedStages, type BoardTask } from "./boardStore";
 import { activeRepoPath } from "../../stores/projectStore";
@@ -96,9 +96,7 @@ const BoardView: Component = () => {
         </button>
       </div>
 
-      <Show when={editorOpen()}>
-        <ColumnEditor onClose={() => setEditorOpen(false)} />
-      </Show>
+      <ColumnEditor open={editorOpen()} onOpenChange={setEditorOpen} />
 
       <div class={styles.columnsContainer}>
         <For each={sortedStages()}>

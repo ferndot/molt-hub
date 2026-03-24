@@ -6,7 +6,7 @@
  */
 
 import type { ParentComponent } from "solid-js";
-import { createSignal, onMount, onCleanup, Show } from "solid-js";
+import { createSignal, onMount, onCleanup } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
 import { processChord, createChordState, type ChordState } from "./chords";
 import CommandPalette from "./CommandPalette";
@@ -187,19 +187,16 @@ const KeyboardManager: ParentComponent = (props) => {
     <>
       {props.children}
 
-      <Show when={showPalette()}>
-        <CommandPalette
-          onClose={() => setShowPalette(false)}
-          onShowHelp={() => {
-            setShowPalette(false);
-            setShowHelp(true);
-          }}
-        />
-      </Show>
+      <CommandPalette
+        open={showPalette()}
+        onOpenChange={setShowPalette}
+        onShowHelp={() => {
+          setShowPalette(false);
+          setShowHelp(true);
+        }}
+      />
 
-      <Show when={showHelp()}>
-        <HelpOverlay onClose={() => setShowHelp(false)} />
-      </Show>
+      <HelpOverlay open={showHelp()} onOpenChange={setShowHelp} />
     </>
   );
 };
