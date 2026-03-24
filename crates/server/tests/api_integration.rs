@@ -57,6 +57,36 @@ async fn get_pipeline_stages_returns_default_stages() {
     assert!(first.get("label").is_some(), "stage missing 'label'");
 }
 
+#[tokio::test]
+async fn project_scoped_pipeline_uses_same_runtime_registry_as_build_router() {
+    let app = app().await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/projects/default/pipeline/stages")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "default project runtime must be registered; empty Extension registry would return 404"
+    );
+
+    let body = axum::body::to_bytes(resp.into_body(), 1_000_000)
+        .await
+        .unwrap();
+    let wrapper: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert!(
+        wrapper["stages"].is_array() && !wrapper["stages"].as_array().unwrap().is_empty(),
+        "expected non-empty stages from default project pipeline"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Settings API round-trip
 // ---------------------------------------------------------------------------

@@ -119,10 +119,6 @@ pub async fn build_router(
     // Project store (YAML-backed)
     let project_state = Arc::new(ProjectConfigStore::load_default());
 
-    // Project runtime registry — holds per-project supervisor + pipeline state.
-    // Injected via axum::Extension into project-scoped handlers.
-    let project_registry = Arc::new(ProjectRuntimeRegistry::new());
-
     // Pipeline sub-router has its own state, so we build it independently
     // and nest it as a service to avoid state type mismatches.
     let pipeline = pipeline_router(pipeline_state);
@@ -166,9 +162,7 @@ pub async fn build_router(
         // Projects CRUD + project-scoped agent/pipeline routes.
         // The project-scoped routes are part of project_router (same nest_service)
         // so there is no wildcard conflict.
-        .nest_service("/api/projects", projects)
-        // Inject the registry as an Extension for all project-scoped handlers.
-        .layer(axum::Extension(Arc::clone(&project_registry)));
+        .nest_service("/api/projects", projects);
 
     // Wire event/task routes if the store initialised successfully.
     if let Some(es_state) = event_store_state {
@@ -180,6 +174,7 @@ pub async fn build_router(
             .nest_service("/api/tasks", tasks);
     }
 
+    // Single `ProjectRuntimeRegistry` Extension (populated above, e.g. `"default"`).
     let router = router
         .fallback_service(ServeDir::new(dist_dir).fallback(ServeFile::new(index_html)))
         .layer(axum::Extension(Arc::clone(&registry)))
