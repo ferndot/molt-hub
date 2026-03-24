@@ -34,7 +34,10 @@ const ImportIssuesMenu: Component<ImportIssuesMenuProps> = (props) => {
           <Show when={props.jiraConnected}>
             <DropdownMenu.Item
               class={styles.item}
-              onSelect={() => props.onSelectJira()}
+              onSelect={() => {
+                // Defer past menu close / focus restore so opening a modal from a menu item is reliable.
+                window.setTimeout(() => props.onSelectJira(), 0);
+              }}
             >
               <DropdownMenu.ItemLabel>Jira</DropdownMenu.ItemLabel>
             </DropdownMenu.Item>
@@ -42,7 +45,9 @@ const ImportIssuesMenu: Component<ImportIssuesMenuProps> = (props) => {
           <Show when={props.githubConnected}>
             <DropdownMenu.Item
               class={styles.item}
-              onSelect={() => props.onSelectGitHub()}
+              onSelect={() => {
+                window.setTimeout(() => props.onSelectGitHub(), 0);
+              }}
             >
               <DropdownMenu.ItemLabel>GitHub</DropdownMenu.ItemLabel>
             </DropdownMenu.Item>
