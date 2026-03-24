@@ -67,6 +67,19 @@ const DEFAULT_PIPELINE_STAGES: PipelineStage[] = [
 
 const BOARD_STORAGE_KEY = "molt:active-board";
 
+/**
+ * Serialize board-list and active-board updates. `initBoardStages` runs on mount;
+ * without this, its stale `listBoards` result can be applied after `createBoard`
+ * and wipe the new board from the store ("create does nothing").
+ */
+let boardStoreOpChain: Promise<unknown> = Promise.resolve();
+
+function runBoardStoreOp<T>(fn: () => Promise<T>): Promise<T> {
+  const p = boardStoreOpChain.then(() => fn());
+  boardStoreOpChain = p.then(() => undefined, () => undefined);
+  return p;
+}
+
 // ---------------------------------------------------------------------------
 // API fetch
 // ---------------------------------------------------------------------------
@@ -117,60 +130,7 @@ async function applyStagesFromFetch(fetched: PipelineStage[] | null): Promise<vo
   }
 }
 
-/**
- * Load board list + stages for the active board.
- * Call when the app mounts (and after external board changes if needed).
- */
-export async function initBoardStages(): Promise<void> {
-  setBoardState("tasks", []);
-  setBoardState("stagesLoaded", false);
-
-  let boards: BoardSummary[] = [];
-  try {
-    const res = await api.listBoards();
-    boards = res.boards ?? [];
-  } catch {
-    boards = [];
-  }
-  if (boards.length === 0) {
-    boards = [{ id: "default", name: "Default" }];
-  }
-  setBoardState("boards", boards);
-
-  const stored = localStorage.getItem(BOARD_STORAGE_KEY);
-  const pick =
-    stored && boards.some((b) => b.id === stored)
-      ? stored
-      : boards[0].id;
-  setBoardState("activeBoardId", pick);
-
-  const fetched = await fetchBoardStages(pick);
-  await applyStagesFromFetch(fetched);
-  setBoardState("stagesLoaded", true);
-}
-
-/**
- * Refresh only the board list from the server (no stage reload, no task clear).
- * Use on the boards index page so navigation does not reset the workboard.
- */
-export async function refreshBoardList(): Promise<void> {
-  let boards: BoardSummary[] = [];
-  try {
-    const res = await api.listBoards();
-    boards = res.boards ?? [];
-  } catch {
-    boards = [];
-  }
-  if (boards.length === 0) {
-    boards = [{ id: "default", name: "Default" }];
-  }
-  setBoardState("boards", boards);
-}
-
-/**
- * Switch the visible board; persists per project. Does not clear tasks.
- */
-export async function setActiveBoard(boardId: string): Promise<void> {
+async function applySetActiveBoard(boardId: string): Promise<void> {
   if (!boardState.boards.some((b) => b.id === boardId)) return;
   setBoardState("activeBoardId", boardId);
   localStorage.setItem(BOARD_STORAGE_KEY, boardId);
@@ -180,27 +140,88 @@ export async function setActiveBoard(boardId: string): Promise<void> {
   setBoardState("stagesLoaded", true);
 }
 
-/** Create a new board (empty default stages on the server). */
-export async function createBoard(id: string, name?: string): Promise<void> {
-  const res = await api.createBoard({
-    id: id.trim(),
-    ...(name?.trim() ? { name: name.trim() } : {}),
+/**
+ * Load board list + stages for the active board.
+ * Call when the app mounts (and after external board changes if needed).
+ */
+export function initBoardStages(): Promise<void> {
+  return runBoardStoreOp(async () => {
+    setBoardState("tasks", []);
+    setBoardState("stagesLoaded", false);
+
+    let boards: BoardSummary[] = [];
+    try {
+      const res = await api.listBoards();
+      boards = res.boards ?? [];
+    } catch {
+      boards = [];
+    }
+    if (boards.length === 0) {
+      boards = [{ id: "default", name: "Default" }];
+    }
+    setBoardState("boards", boards);
+
+    const stored = localStorage.getItem(BOARD_STORAGE_KEY);
+    const pick =
+      stored && boards.some((b) => b.id === stored)
+        ? stored
+        : boards[0].id;
+    await applySetActiveBoard(pick);
   });
-  setBoardState("boards", res.boards ?? []);
-  await setActiveBoard(id.trim());
+}
+
+/**
+ * Refresh only the board list from the server (no stage reload, no task clear).
+ * Use on the boards index page so navigation does not reset the workboard.
+ */
+export function refreshBoardList(): Promise<void> {
+  return runBoardStoreOp(async () => {
+    let boards: BoardSummary[] = [];
+    try {
+      const res = await api.listBoards();
+      boards = res.boards ?? [];
+    } catch {
+      boards = [];
+    }
+    if (boards.length === 0) {
+      boards = [{ id: "default", name: "Default" }];
+    }
+    setBoardState("boards", boards);
+  });
+}
+
+/**
+ * Switch the visible board; persists per project. Does not clear tasks.
+ */
+export function setActiveBoard(boardId: string): Promise<void> {
+  return runBoardStoreOp(() => applySetActiveBoard(boardId));
+}
+
+/** Create a new board (empty default stages on the server). */
+export function createBoard(id: string, name?: string): Promise<void> {
+  return runBoardStoreOp(async () => {
+    const res = await api.createBoard({
+      id: id.trim(),
+      ...(name?.trim() ? { name: name.trim() } : {}),
+    });
+    setBoardState("boards", res.boards ?? []);
+    await applySetActiveBoard(id.trim());
+  });
 }
 
 /** Delete a board (not `default`). */
-export async function deleteBoard(boardId: string): Promise<void> {
-  if (boardId === "default") return;
-  const wasActive = boardState.activeBoardId === boardId;
-  const res = await api.deleteBoard(boardId);
-  const list = res.boards ?? [];
-  setBoardState("boards", list);
-  if (wasActive) {
-    const next = list[0]?.id ?? "default";
-    await setActiveBoard(next);
-  }
+export function deleteBoard(boardId: string): Promise<void> {
+  return runBoardStoreOp(async () => {
+    if (boardId === "default") return;
+    const wasActive = boardState.activeBoardId === boardId;
+    const res = await api.deleteBoard(boardId);
+    const list = res.boards ?? [];
+    setBoardState("boards", list);
+    if (wasActive) {
+      const next = list[0]?.id ?? "default";
+      await applySetActiveBoard(next);
+    }
+  });
 }
 
 /**
