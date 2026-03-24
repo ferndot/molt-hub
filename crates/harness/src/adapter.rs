@@ -173,11 +173,7 @@ pub trait AgentAdapter: Send + Sync + 'static {
     async fn spawn(&self, config: SpawnConfig) -> Result<AgentHandle, AdapterError>;
 
     /// Send a message to a running agent.
-    async fn send(
-        &self,
-        handle: &AgentHandle,
-        message: AgentMessage,
-    ) -> Result<(), AdapterError>;
+    async fn send(&self, handle: &AgentHandle, message: AgentMessage) -> Result<(), AdapterError>;
 
     /// Query the current status of an agent.
     async fn status(&self, handle: &AgentHandle) -> Result<AgentStatus, AdapterError>;

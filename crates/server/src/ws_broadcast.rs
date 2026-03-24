@@ -75,7 +75,11 @@ pub fn broadcast_board_update(
 }
 
 /// Broadcast a full board update payload (allows setting all optional fields).
-pub fn broadcast_board_update_full(manager: &ConnectionManager, project_id: &str, payload: &BoardUpdate) {
+pub fn broadcast_board_update_full(
+    manager: &ConnectionManager,
+    project_id: &str,
+    payload: &BoardUpdate,
+) {
     let topic = format!("project:{project_id}:board:update");
     broadcast_json(manager, &topic, payload);
 }
@@ -100,7 +104,11 @@ pub struct TriageItemPayload {
 }
 
 /// Broadcast a new triage item to clients subscribed to `project:{pid}:triage:new`.
-pub fn broadcast_triage_new(manager: &ConnectionManager, project_id: &str, item: &TriageItemPayload) {
+pub fn broadcast_triage_new(
+    manager: &ConnectionManager,
+    project_id: &str,
+    item: &TriageItemPayload,
+) {
     let topic = format!("project:{project_id}:triage:new");
     broadcast_json(manager, &topic, item);
 }
@@ -238,7 +246,10 @@ mod tests {
     use crate::ws::ConnectionId;
     use tokio::sync::mpsc;
 
-    fn setup() -> (Arc<ConnectionManager>, mpsc::UnboundedReceiver<ServerMessage>) {
+    fn setup() -> (
+        Arc<ConnectionManager>,
+        mpsc::UnboundedReceiver<ServerMessage>,
+    ) {
         let manager = Arc::new(ConnectionManager::new());
         let id = ConnectionId::new();
         let (tx, rx) = mpsc::unbounded_channel();
@@ -252,7 +263,12 @@ mod tests {
         (manager, rx)
     }
 
-    fn setup_with_agent(agent_id: &str) -> (Arc<ConnectionManager>, mpsc::UnboundedReceiver<ServerMessage>) {
+    fn setup_with_agent(
+        agent_id: &str,
+    ) -> (
+        Arc<ConnectionManager>,
+        mpsc::UnboundedReceiver<ServerMessage>,
+    ) {
         let manager = Arc::new(ConnectionManager::new());
         let id = ConnectionId::new();
         let (tx, rx) = mpsc::unbounded_channel();

@@ -102,11 +102,7 @@ impl ConnectionManager {
     }
 
     /// Register a new connection and return its sender half.
-    pub fn register(
-        &self,
-        id: ConnectionId,
-        sender: mpsc::UnboundedSender<ServerMessage>,
-    ) {
+    pub fn register(&self, id: ConnectionId, sender: mpsc::UnboundedSender<ServerMessage>) {
         self.subscriptions.insert(id, HashSet::new());
         self.senders.insert(id, sender);
         info!(conn = %id, "connection registered");

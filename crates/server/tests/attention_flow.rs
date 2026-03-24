@@ -10,11 +10,11 @@
 use molt_hub_core::events::types::{DomainEvent, HumanDecisionKind};
 use molt_hub_core::model::{AgentId, Priority, TaskOutcome, TaskState};
 
+use molt_hub_server::attention::priority::{attention_tier, AttentionCategory};
+use molt_hub_server::attention::router::NotificationStore;
 use molt_hub_server::attention::{
     AttentionSummary, InterruptClassifier, InterruptLevel, NotificationRouter,
 };
-use molt_hub_server::attention::priority::{attention_tier, AttentionCategory};
-use molt_hub_server::attention::router::NotificationStore;
 
 // ---------------------------------------------------------------------------
 // Tests: InterruptClassifier classification
@@ -94,7 +94,10 @@ fn route_p0_lands_in_decision_queue_as_pending() {
     let notification = router.route(&event);
 
     assert_eq!(notification.interrupt_level, InterruptLevel::P0);
-    assert_eq!(notification.attention_category, AttentionCategory::DecisionQueue);
+    assert_eq!(
+        notification.attention_category,
+        AttentionCategory::DecisionQueue
+    );
     assert!(!notification.acknowledged);
 
     let pending = router.store().list_pending();
@@ -115,7 +118,10 @@ fn route_p3_lands_in_passive_dashboard_not_pending() {
     let notification = router.route(&event);
 
     assert_eq!(notification.interrupt_level, InterruptLevel::P3);
-    assert_eq!(notification.attention_category, AttentionCategory::PassiveDashboard);
+    assert_eq!(
+        notification.attention_category,
+        AttentionCategory::PassiveDashboard
+    );
 
     // P3 events do not show in pending.
     let pending = router.store().list_pending();
@@ -142,12 +148,16 @@ fn route_mixed_p0_and_p3_both_classified_correctly() {
     assert_eq!(n_p3.interrupt_level, InterruptLevel::P3);
 
     // P0 in decision queue.
-    let decision_queue = router.store().list_by_tier(AttentionCategory::DecisionQueue);
+    let decision_queue = router
+        .store()
+        .list_by_tier(AttentionCategory::DecisionQueue);
     assert_eq!(decision_queue.len(), 1);
     assert_eq!(decision_queue[0].interrupt_level, InterruptLevel::P0);
 
     // P3 in passive dashboard.
-    let passive = router.store().list_by_tier(AttentionCategory::PassiveDashboard);
+    let passive = router
+        .store()
+        .list_by_tier(AttentionCategory::PassiveDashboard);
     assert_eq!(passive.len(), 1);
     assert_eq!(passive[0].interrupt_level, InterruptLevel::P3);
 }

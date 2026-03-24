@@ -330,10 +330,7 @@ impl ClaudeAdapter {
                 }
                 let _ = event_tx.send(AgentEvent::Error {
                     agent_id: agent_id.clone(),
-                    message: format!(
-                        "agent timed out after {} seconds",
-                        timeout.as_secs()
-                    ),
+                    message: format!("agent timed out after {} seconds", timeout.as_secs()),
                     timestamp: Utc::now(),
                 });
             }
@@ -359,7 +356,9 @@ pub fn parse_claude_line(line: &str) -> String {
     // Try typed deserialization first for known event types.
     if let Ok(event) = serde_json::from_str::<ClaudeStreamEvent>(trimmed) {
         match event {
-            ClaudeStreamEvent::Assistant { content, message, .. } => {
+            ClaudeStreamEvent::Assistant {
+                content, message, ..
+            } => {
                 if let Some(text) = content.or(message) {
                     if !text.is_empty() {
                         return text;
@@ -434,10 +433,9 @@ impl AgentAdapter for ClaudeAdapter {
 
         let mut child = cmd.spawn().map_err(|e| {
             let msg = match e.kind() {
-                io::ErrorKind::NotFound => format!(
-                    "claude binary not found at '{}': {}",
-                    self.binary_path, e
-                ),
+                io::ErrorKind::NotFound => {
+                    format!("claude binary not found at '{}': {}", self.binary_path, e)
+                }
                 _ => format!("failed to spawn claude: {}", e),
             };
             AdapterError::SpawnFailed(msg)
@@ -494,11 +492,7 @@ impl AgentAdapter for ClaudeAdapter {
         Ok(AgentHandle::new(config.agent_id, pid, Box::new(state)))
     }
 
-    async fn send(
-        &self,
-        handle: &AgentHandle,
-        message: AgentMessage,
-    ) -> Result<(), AdapterError> {
+    async fn send(&self, handle: &AgentHandle, message: AgentMessage) -> Result<(), AdapterError> {
         let state = handle
             .downcast_internal::<ClaudeInternalState>()
             .ok_or(AdapterError::AgentNotFound)?;
@@ -614,9 +608,9 @@ impl AgentAdapter for ClaudeAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use molt_hub_core::model::{AgentId, SessionId, TaskId};
     use std::collections::HashMap;
     use std::path::PathBuf;
-    use molt_hub_core::model::{AgentId, SessionId, TaskId};
 
     fn make_spawn_config() -> SpawnConfig {
         SpawnConfig {
@@ -819,10 +813,7 @@ mod tests {
     #[test]
     fn test_parse_tool_result_success() {
         let line = r#"{"type":"tool_result","content":"file contents here","is_error":false}"#;
-        assert_eq!(
-            parse_claude_line(line),
-            "[tool_result] file contents here"
-        );
+        assert_eq!(parse_claude_line(line), "[tool_result] file contents here");
     }
 
     #[test]
@@ -888,8 +879,7 @@ mod tests {
 
     #[test]
     fn test_stream_event_deserialize_result() {
-        let json =
-            r#"{"type":"result","result":"done","cost_usd":0.01,"duration_ms":500,"is_error":false}"#;
+        let json = r#"{"type":"result","result":"done","cost_usd":0.01,"duration_ms":500,"is_error":false}"#;
         let event: ClaudeStreamEvent = serde_json::from_str(json).unwrap();
         match event {
             ClaudeStreamEvent::Result {
@@ -976,10 +966,7 @@ mod tests {
         let adapter = mock_adapter();
         let config = mock_spawn_config();
         let handle = adapter.spawn(config).await.expect("spawn should succeed");
-        assert!(
-            handle.pid().is_some(),
-            "spawned process should have a PID"
-        );
+        assert!(handle.pid().is_some(), "spawned process should have a PID");
         adapter.abort(&handle).await.ok();
     }
 
@@ -1007,7 +994,7 @@ mod tests {
         // buffering, but it should not panic. We just verify it doesn't return
         // AgentNotFound or AlreadyTerminated.
         match &result {
-            Ok(()) => {} // expected
+            Ok(()) => {}                           // expected
             Err(AdapterError::SendFailed(_)) => {} // acceptable — pipe may be closed
             other => panic!("unexpected result: {:?}", other),
         }

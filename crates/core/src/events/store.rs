@@ -113,9 +113,7 @@ fn row_to_envelope(
     let ts = timestamp
         .parse::<DateTime<Utc>>()
         .map_err(|e| serde_json::Error::custom(e.to_string()))?;
-    let cb = caused_by
-        .map(|s| parse_ulid(&s).map(EventId))
-        .transpose()?;
+    let cb = caused_by.map(|s| parse_ulid(&s).map(EventId)).transpose()?;
     let tid = task_id
         .filter(|s| !s.is_empty())
         .map(|s| parse_ulid(&s).map(TaskId))
@@ -191,8 +189,19 @@ impl SqliteEventStore {
     /// Returns: (id, task_id, project_id, session_id, timestamp, caused_by, event_type, payload)
     fn to_row(
         envelope: &EventEnvelope,
-    ) -> Result<(String, Option<String>, String, String, String, Option<String>, String, String), EventStoreError>
-    {
+    ) -> Result<
+        (
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+        ),
+        EventStoreError,
+    > {
         let payload_json = serde_json::to_string(&envelope.payload)?;
         let event_type = {
             // Parse once to get the type tag cleanly.

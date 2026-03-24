@@ -47,7 +47,10 @@ async fn get_pipeline_stages_returns_default_stages() {
     let wrapper: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
     // Response is { "stages": [...] }.
-    assert!(wrapper["stages"].is_array(), "expected stages array in response");
+    assert!(
+        wrapper["stages"].is_array(),
+        "expected stages array in response"
+    );
     let arr = wrapper["stages"].as_array().unwrap();
     assert!(!arr.is_empty(), "expected at least one default stage");
 

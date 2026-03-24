@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 use tracing::{info, instrument, warn};
 use ulid::Ulid;
 
-use molt_hub_core::events::{EventStore, EventStoreError, SqliteEventStore};
 use molt_hub_core::events::types::{DomainEvent, EventEnvelope};
+use molt_hub_core::events::{EventStore, EventStoreError, SqliteEventStore};
 use molt_hub_core::model::{EventId, TaskId};
 
 // ---------------------------------------------------------------------------
@@ -87,7 +87,11 @@ pub async fn list_events(
         };
         let task_id = TaskId(ulid);
         match state.store.get_events_for_task(&task_id).await {
-            Ok(events) => (StatusCode::OK, Json(serde_json::json!({ "events": events }))).into_response(),
+            Ok(events) => (
+                StatusCode::OK,
+                Json(serde_json::json!({ "events": events })),
+            )
+                .into_response(),
             Err(e) => error_response(e),
         }
     }
@@ -104,7 +108,11 @@ pub async fn list_events(
             }
         };
         match state.store.get_events_since(since).await {
-            Ok(events) => (StatusCode::OK, Json(serde_json::json!({ "events": events }))).into_response(),
+            Ok(events) => (
+                StatusCode::OK,
+                Json(serde_json::json!({ "events": events })),
+            )
+                .into_response(),
             Err(e) => error_response(e),
         }
     }
@@ -112,7 +120,11 @@ pub async fn list_events(
     else {
         let since = DateTime::<Utc>::MIN_UTC;
         match state.store.get_events_since(since).await {
-            Ok(events) => (StatusCode::OK, Json(serde_json::json!({ "events": events }))).into_response(),
+            Ok(events) => (
+                StatusCode::OK,
+                Json(serde_json::json!({ "events": events })),
+            )
+                .into_response(),
             Err(e) => error_response(e),
         }
     }
@@ -152,7 +164,11 @@ pub async fn append_event(
     State(state): State<Arc<EventStoreState>>,
     Json(envelope): Json<EventEnvelope>,
 ) -> impl IntoResponse {
-    let task_id_str = envelope.task_id.as_ref().map(|t| t.0.to_string()).unwrap_or_default();
+    let task_id_str = envelope
+        .task_id
+        .as_ref()
+        .map(|t| t.0.to_string())
+        .unwrap_or_default();
     info!(event_id = %envelope.id, task_id = %task_id_str, "appending event via API");
     match state.store.append(envelope).await {
         Ok(()) => (
@@ -169,9 +185,7 @@ pub async fn append_event(
 /// Groups events by task_id and extracts the title from the most recent
 /// `TaskCreated` event for each task.
 #[instrument(skip_all)]
-pub async fn list_tasks(
-    State(state): State<Arc<EventStoreState>>,
-) -> impl IntoResponse {
+pub async fn list_tasks(State(state): State<Arc<EventStoreState>>) -> impl IntoResponse {
     let since = DateTime::<Utc>::MIN_UTC;
     match state.store.get_events_since(since).await {
         Ok(events) => {
@@ -201,7 +215,11 @@ pub async fn list_tasks(
             let mut task_list: Vec<TaskSummary> = tasks.into_values().collect();
             task_list.sort_by(|a, b| b.last_event_at.cmp(&a.last_event_at));
 
-            (StatusCode::OK, Json(serde_json::json!({ "tasks": task_list }))).into_response()
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "tasks": task_list })),
+            )
+                .into_response()
         }
         Err(e) => error_response(e),
     }
@@ -234,9 +252,7 @@ pub fn events_router(state: Arc<EventStoreState>) -> Router {
 
 /// Build the `/api/tasks` sub-router.
 pub fn tasks_router(state: Arc<EventStoreState>) -> Router {
-    Router::new()
-        .route("/", get(list_tasks))
-        .with_state(state)
+    Router::new().route("/", get(list_tasks)).with_state(state)
 }
 
 // ---------------------------------------------------------------------------
@@ -273,7 +289,9 @@ mod tests {
         Arc::new(EventStoreState { store })
     }
 
-    fn test_app(state: Arc<EventStoreState>) -> impl tower::Service<
+    fn test_app(
+        state: Arc<EventStoreState>,
+    ) -> impl tower::Service<
         Request<Body>,
         Response = Response<Body>,
         Error = std::convert::Infallible,
@@ -337,8 +355,14 @@ mod tests {
         let other_task = TaskId::new();
 
         // Insert events for two different tasks.
-        store.append(make_envelope(task_id.clone(), "Task A")).await.unwrap();
-        store.append(make_envelope(other_task, "Task B")).await.unwrap();
+        store
+            .append(make_envelope(task_id.clone(), "Task A"))
+            .await
+            .unwrap();
+        store
+            .append(make_envelope(other_task, "Task B"))
+            .await
+            .unwrap();
 
         let state = test_state(store);
         let app = test_app(state);
@@ -375,7 +399,10 @@ mod tests {
     async fn get_events_with_since_filter() {
         let store = test_store().await;
         let task_id = TaskId::new();
-        store.append(make_envelope(task_id, "Old Task")).await.unwrap();
+        store
+            .append(make_envelope(task_id, "Old Task"))
+            .await
+            .unwrap();
 
         // Use a future timestamp — should return 0 events.
         // Use Zulu (UTC) format to avoid URL-encoding issues with '+'.
@@ -503,8 +530,14 @@ mod tests {
         let task_a = TaskId::new();
         let task_b = TaskId::new();
 
-        store.append(make_envelope(task_a.clone(), "Task A")).await.unwrap();
-        store.append(make_envelope(task_b.clone(), "Task B")).await.unwrap();
+        store
+            .append(make_envelope(task_a.clone(), "Task A"))
+            .await
+            .unwrap();
+        store
+            .append(make_envelope(task_b.clone(), "Task B"))
+            .await
+            .unwrap();
         // Add a second event for task A.
         store
             .append(EventEnvelope {

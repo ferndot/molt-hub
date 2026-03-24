@@ -342,9 +342,7 @@ const ProjectsPanel: Component = () => {
 const IntegrationsPanel: Component<{ onSelect: (id: SectionId) => void }> = (props) => (
   <div>
     <h3 class={styles.sectionTitle}>Integrations</h3>
-    <p class={styles.oauthDescription}>
-      Connect external services to import issues and sync data.
-    </p>
+    <p class={styles.oauthDescription}>Import issues from Jira or GitHub.</p>
     <div class={styles.integrationsList}>
       <button class={styles.integrationCard} onClick={() => props.onSelect("jira")}>
         <span class={styles.integrationIcon}><TbOutlineSquareRotated size={16} /></span>
@@ -369,7 +367,7 @@ const IntegrationsPanel: Component<{ onSelect: (id: SectionId) => void }> = (pro
 );
 
 // ---------------------------------------------------------------------------
-// Section: Jira Integration
+// Section: Jira
 // ---------------------------------------------------------------------------
 
 const JiraPanel: Component<{ onBack: () => void }> = (props) => {
@@ -385,16 +383,12 @@ const JiraPanel: Component<{ onBack: () => void }> = (props) => {
   return (
     <div>
       <button class={styles.backBtn} onClick={props.onBack}><TbOutlineArrowLeft size={14} style={{ "vertical-align": "middle" }} /> Integrations</button>
-      <h3 class={styles.sectionTitle}>Jira Integration</h3>
+      <h3 class={styles.sectionTitle}>Jira</h3>
 
       <Show when={!isConnected()}>
         <div class={styles.oauthSection}>
           <p class={styles.oauthDescription}>
-            Connect your Atlassian account via OAuth to import Jira issues. The app’s Jira{" "}
-            <strong>client id / secret</strong> are fixed in the build you are running (set when the
-            binary was compiled — see project README). If token exchange fails, rebuild with the
-            correct <code>MOLTHUB_JIRA_CLIENT_ID</code> and{" "}
-            <code>MOLTHUB_JIRA_CLIENT_SECRET</code>.
+            Sign in with Atlassian to import Jira issues.
           </p>
           <div class={styles.connectedRow}>
             <span class={`${styles.statusBadge} ${styles.statusIdle}`}>
@@ -443,7 +437,7 @@ const JiraPanel: Component<{ onBack: () => void }> = (props) => {
 };
 
 // ---------------------------------------------------------------------------
-// Section: GitHub Integration
+// Section: GitHub
 // ---------------------------------------------------------------------------
 
 const GitHubPanel: Component<{ onBack: () => void }> = (props) => {
@@ -465,15 +459,13 @@ const GitHubPanel: Component<{ onBack: () => void }> = (props) => {
       <button class={styles.backBtn} onClick={props.onBack}>
         <TbOutlineArrowLeft size={14} style={{ "vertical-align": "middle" }} /> Integrations
       </button>
-      <h3 class={styles.sectionTitle}>GitHub Integration</h3>
+      <h3 class={styles.sectionTitle}>GitHub</h3>
 
       <Show when={!isConnected()}>
         <div class={styles.oauthSection}>
           <p class={styles.oauthDescription}>
-            Connect your GitHub account via OAuth to import issues and pull requests. GitHub app
-            credentials are fixed in this build (set at compile time — see README). After
-            authorizing in the browser, use <strong>Finish in browser (local API)</strong> on the
-            bridge page if you are not using the desktop app.
+            Sign in with GitHub to import issues and pull requests. In the browser, use{" "}
+            <strong>Finish in browser</strong> on the oauth page if the app does not open.
           </p>
           <div class={styles.connectedRow}>
             <span class={`${styles.statusBadge} ${styles.statusIdle}`}>

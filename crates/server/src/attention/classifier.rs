@@ -260,9 +260,7 @@ mod tests {
                 from: Priority::P3,
                 to: Priority::P1,
             },
-            DomainEvent::TaskBlocked {
-                reason: "x".into(),
-            },
+            DomainEvent::TaskBlocked { reason: "x".into() },
             DomainEvent::TaskUnblocked { resolution: None },
             DomainEvent::TaskCompleted {
                 outcome: TaskOutcome::Success,

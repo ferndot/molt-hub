@@ -121,9 +121,7 @@ impl<S: EventStore + 'static> GithubImportService<S> {
             },
         };
 
-        self.store
-            .append_batch(vec![created, imported])
-            .await?;
+        self.store.append_batch(vec![created, imported]).await?;
 
         info!(task_id = %task_id, %external_id, "GitHub issue imported");
         Ok(())
@@ -141,7 +139,12 @@ async fn load_github_imported_external_ids<S: EventStore>(
     let events = store.get_events_for_project(DEFAULT_PROJECT_ID).await?;
     let mut set = HashSet::new();
     for e in events {
-        if let DomainEvent::TaskImported { source, external_id, .. } = e.payload {
+        if let DomainEvent::TaskImported {
+            source,
+            external_id,
+            ..
+        } = e.payload
+        {
             if source == "github" {
                 set.insert(external_id);
             }
@@ -280,9 +283,7 @@ mod tests {
             state: "open".into(),
             body: Some("Body".into()),
             html_url: format!("https://github.com/o/r/issues/{number}"),
-            labels: vec![super::super::github_client::GitHubLabel {
-                name: "bug".into(),
-            }],
+            labels: vec![super::super::github_client::GitHubLabel { name: "bug".into() }],
         }
     }
 
@@ -300,9 +301,7 @@ mod tests {
 
         let issue = sample_issue(42);
         let ext = github_external_id("o", "r", 42);
-        svc.persist_new_issue("o", "r", &issue, &ext)
-            .await
-            .unwrap();
+        svc.persist_new_issue("o", "r", &issue, &ext).await.unwrap();
 
         let all = store.get_events_for_project("default").await.unwrap();
         assert_eq!(all.len(), 2);
@@ -356,9 +355,7 @@ mod tests {
     #[test]
     fn github_priority_from_labels() {
         let mut issue = sample_issue(1);
-        issue.labels = vec![super::super::github_client::GitHubLabel {
-            name: "P1".into(),
-        }];
+        issue.labels = vec![super::super::github_client::GitHubLabel { name: "P1".into() }];
         assert_eq!(github_priority(&issue), Priority::P1);
     }
 }

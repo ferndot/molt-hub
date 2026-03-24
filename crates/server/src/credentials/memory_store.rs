@@ -32,7 +32,8 @@ impl CredentialStore for MemoryStore {
         if alias.is_empty() {
             return Err(CredentialError::InvalidAlias(alias.into()));
         }
-        self.entries.insert(storage_key(alias, scope), value.to_string());
+        self.entries
+            .insert(storage_key(alias, scope), value.to_string());
         Ok(())
     }
 

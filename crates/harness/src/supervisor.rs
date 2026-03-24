@@ -12,7 +12,9 @@ use tracing::{debug, error, info, warn};
 
 use molt_hub_core::model::{AgentId, AgentStatus, TaskId};
 
-use crate::adapter::{AdapterError, AgentAdapter, AgentEvent, AgentHandle, AgentMessage, SpawnConfig};
+use crate::adapter::{
+    AdapterError, AgentAdapter, AgentEvent, AgentHandle, AgentMessage, SpawnConfig,
+};
 
 // ---------------------------------------------------------------------------
 // SteerMessage / SteerPriority
@@ -283,7 +285,10 @@ impl Supervisor {
 
         managed
             .adapter
-            .send(&managed.handle, AgentMessage::Instruction(steer_msg.message))
+            .send(
+                &managed.handle,
+                AgentMessage::Instruction(steer_msg.message),
+            )
             .await?;
 
         Ok(())
@@ -332,7 +337,9 @@ impl Supervisor {
 
     /// Return a snapshot of all active agents with their project IDs:
     /// `(AgentId, TaskId, AgentStatus, Option<String>)`.
-    pub async fn list_agents_with_project(&self) -> Vec<(AgentId, TaskId, AgentStatus, Option<String>)> {
+    pub async fn list_agents_with_project(
+        &self,
+    ) -> Vec<(AgentId, TaskId, AgentStatus, Option<String>)> {
         let mut result = Vec::with_capacity(self.agents.len());
 
         for entry in self.agents.iter() {
@@ -601,8 +608,7 @@ mod tests {
     async fn test_terminate_removes_from_map() {
         let (sup, _rx) = make_supervisor(4);
         // Return Terminated so the poll loop exits immediately.
-        let adapter: Arc<dyn AgentAdapter> =
-            Arc::new(MockAdapter::new(AgentStatus::Terminated));
+        let adapter: Arc<dyn AgentAdapter> = Arc::new(MockAdapter::new(AgentStatus::Terminated));
 
         let id = sup
             .spawn_agent(Arc::clone(&adapter), make_spawn_config())
@@ -669,8 +675,7 @@ mod tests {
     #[tokio::test]
     async fn test_shutdown_all_clears_map() {
         let (sup, _rx) = make_supervisor(4);
-        let adapter: Arc<dyn AgentAdapter> =
-            Arc::new(MockAdapter::new(AgentStatus::Terminated));
+        let adapter: Arc<dyn AgentAdapter> = Arc::new(MockAdapter::new(AgentStatus::Terminated));
 
         sup.spawn_agent(Arc::clone(&adapter), make_spawn_config())
             .await

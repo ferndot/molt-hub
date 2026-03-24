@@ -145,7 +145,10 @@ impl<P: SummaryProvider> SummaryService<P> {
         }
 
         // --- Slow path: call provider, store result ---
-        let summary = self.provider.summarize(content, self.config.max_tokens).await?;
+        let summary = self
+            .provider
+            .summarize(content, self.config.max_tokens)
+            .await?;
 
         // Truncate to max chars if the provider exceeded the limit.
         let summary = if summary.len() > self.config.max_summary_chars {

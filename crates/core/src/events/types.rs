@@ -53,7 +53,6 @@ pub enum DomainEvent {
     // ------------------------------------------------------------------
     // Task lifecycle
     // ------------------------------------------------------------------
-
     /// A new task was created in the system.
     TaskCreated {
         /// Human-readable title of the task.
@@ -105,7 +104,6 @@ pub enum DomainEvent {
     // ------------------------------------------------------------------
     // Agent lifecycle
     // ------------------------------------------------------------------
-
     /// An agent was assigned to work on the task.
     AgentAssigned {
         /// The agent that was assigned.
@@ -133,7 +131,6 @@ pub enum DomainEvent {
     // ------------------------------------------------------------------
     // Human-in-the-loop
     // ------------------------------------------------------------------
-
     /// A human reviewer made a decision on the task (approve / reject / redirect).
     HumanDecision {
         /// The account or name of the human who decided.
@@ -147,7 +144,6 @@ pub enum DomainEvent {
     // ------------------------------------------------------------------
     // Integration events
     // ------------------------------------------------------------------
-
     /// A task was imported from an external system (e.g. Jira, GitHub).
     TaskImported {
         /// Integration source identifier, e.g. `"jira"` or `"github"`.
@@ -169,7 +165,6 @@ pub enum DomainEvent {
     // ------------------------------------------------------------------
     // Project lifecycle
     // ------------------------------------------------------------------
-
     /// A new project was created.
     ProjectCreated {
         /// The project's unique identifier.

@@ -12,16 +12,20 @@
 //!
 //! File descriptors can be injected into agent processes via [`fd_inject`].
 
+pub mod alias_index;
 pub mod fd_inject;
 pub mod keyring_store;
 pub mod memory_store;
 
+pub use alias_index::CredentialAliasIndex;
 pub use fd_inject::inject_credential;
 pub use keyring_store::KeyringStore;
 pub use memory_store::MemoryStore;
 
+use molt_hub_core::model::ProjectId;
 use std::fmt;
 use thiserror::Error;
+use ulid::Ulid;
 
 // ─── CredentialScope ─────────────────────────────────────────────────────────
 
@@ -33,6 +37,8 @@ use thiserror::Error;
 pub enum CredentialScope {
     /// Accessible from any pipeline.
     Global,
+    /// Scoped to a monitored project (integrations, per-repo settings).
+    Project(ProjectId),
     /// Scoped to a named pipeline.
     Pipeline(String),
     /// Scoped to a specific stage within a pipeline.
@@ -43,9 +49,27 @@ impl fmt::Display for CredentialScope {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CredentialScope::Global => write!(f, "global"),
+            CredentialScope::Project(id) => write!(f, "project:{id}"),
             CredentialScope::Pipeline(name) => write!(f, "pipeline:{name}"),
             CredentialScope::Stage(pipeline, stage) => write!(f, "stage:{pipeline}:{stage}"),
         }
+    }
+}
+
+/// Resolve integration credential scope from an optional `projectId` query param.
+///
+/// Missing, empty, `default`, or invalid ULIDs map to [`CredentialScope::Global`] so existing
+/// clients keep working; valid project ULIDs use [`CredentialScope::Project`].
+pub fn credential_scope_for_integration(project_id_param: Option<&str>) -> CredentialScope {
+    let Some(raw) = project_id_param.map(str::trim).filter(|s| !s.is_empty()) else {
+        return CredentialScope::Global;
+    };
+    if raw == "default" {
+        return CredentialScope::Global;
+    }
+    match Ulid::from_string(raw) {
+        Ok(u) => CredentialScope::Project(ProjectId(u)),
+        Err(_) => CredentialScope::Global,
     }
 }
 
@@ -129,6 +153,45 @@ mod tests {
             CredentialScope::Stage("ci".into(), "build".into()).to_string(),
             "stage:ci:build"
         );
+    }
+
+    #[test]
+    fn scope_display_project() {
+        let id = ProjectId::new();
+        assert_eq!(
+            CredentialScope::Project(id.clone()).to_string(),
+            format!("project:{id}")
+        );
+    }
+
+    #[test]
+    fn credential_scope_for_integration_defaults() {
+        assert!(matches!(
+            credential_scope_for_integration(None),
+            CredentialScope::Global
+        ));
+        assert!(matches!(
+            credential_scope_for_integration(Some("")),
+            CredentialScope::Global
+        ));
+        assert!(matches!(
+            credential_scope_for_integration(Some("default")),
+            CredentialScope::Global
+        ));
+        assert!(matches!(
+            credential_scope_for_integration(Some("not-a-ulid")),
+            CredentialScope::Global
+        ));
+    }
+
+    #[test]
+    fn credential_scope_for_integration_parses_ulid() {
+        let id = ProjectId::new();
+        let s = id.to_string();
+        match credential_scope_for_integration(Some(&s)) {
+            CredentialScope::Project(p) => assert_eq!(p, id),
+            _ => panic!("expected Project scope"),
+        }
     }
 
     #[test]

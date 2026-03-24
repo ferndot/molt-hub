@@ -33,10 +33,7 @@ pub struct Notification {
 
 impl Notification {
     /// Create a new unacknowledged notification.
-    pub fn new(
-        interrupt_level: InterruptLevel,
-        summary: impl Into<String>,
-    ) -> Self {
+    pub fn new(interrupt_level: InterruptLevel, summary: impl Into<String>) -> Self {
         let attention_category = attention_tier(interrupt_level);
         Self {
             id: Ulid::new(),
@@ -296,10 +293,9 @@ mod tests {
 
         let pending = store.list_pending();
         assert_eq!(pending.len(), 2);
-        assert!(pending.iter().all(|n| matches!(
-            n.interrupt_level,
-            InterruptLevel::P0 | InterruptLevel::P1
-        )));
+        assert!(pending
+            .iter()
+            .all(|n| matches!(n.interrupt_level, InterruptLevel::P0 | InterruptLevel::P1)));
     }
 
     #[test]
@@ -416,7 +412,9 @@ mod tests {
         };
         r.route(&event);
 
-        let digest = r.store().list_by_tier(AttentionCategory::NotificationDigest);
+        let digest = r
+            .store()
+            .list_by_tier(AttentionCategory::NotificationDigest);
         assert_eq!(digest.len(), 1);
     }
 

@@ -314,10 +314,7 @@ impl WorktreeManager {
     }
 
     /// Remove the worktree and branch for an agent.
-    pub async fn remove_agent_worktree(
-        &self,
-        agent_id: &AgentId,
-    ) -> Result<(), WorktreeError> {
+    pub async fn remove_agent_worktree(&self, agent_id: &AgentId) -> Result<(), WorktreeError> {
         let info = self
             .agent_worktrees
             .get(agent_id)
@@ -401,7 +398,13 @@ pub async fn run_git(repo_root: &Path, args: &[&str]) -> Result<String, Worktree
 /// into a valid git branch-name component.
 fn sanitize_task_id(id: &str) -> String {
     id.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -587,7 +590,10 @@ mod tests {
 
         // Remove
         mgr.remove_agent_worktree(&agent_id).await.unwrap();
-        assert!(!info.path.exists(), "agent worktree directory should be gone");
+        assert!(
+            !info.path.exists(),
+            "agent worktree directory should be gone"
+        );
         assert!(mgr.get_agent_worktree(&agent_id).is_none());
         assert!(mgr.list_agent_worktrees().is_empty());
     }
@@ -659,12 +665,7 @@ mod tests {
         // First remove it from git, then delete directory.
         run_git(
             repo.path(),
-            &[
-                "worktree",
-                "remove",
-                "--force",
-                info.path.to_str().unwrap(),
-            ],
+            &["worktree", "remove", "--force", info.path.to_str().unwrap()],
         )
         .await
         .unwrap();

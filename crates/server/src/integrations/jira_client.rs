@@ -132,10 +132,7 @@ impl JiraClient {
     pub fn from_oauth(cloud_id: &str, access_token: &str) -> Self {
         Self {
             client: Client::new(),
-            base_url: format!(
-                "https://api.atlassian.com/ex/jira/{}/rest/api/3",
-                cloud_id
-            ),
+            base_url: format!("https://api.atlassian.com/ex/jira/{}/rest/api/3", cloud_id),
             access_token: access_token.to_owned(),
         }
     }
@@ -393,7 +390,9 @@ mod tests {
             fields: IssueFields {
                 summary: "OAuth issue".into(),
                 description: None,
-                status: StatusField { name: "Done".into() },
+                status: StatusField {
+                    name: "Done".into(),
+                },
                 priority: None,
                 labels: None,
             },

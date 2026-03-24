@@ -26,10 +26,7 @@ impl EventStore for MemoryEventStore {
         Ok(())
     }
 
-    async fn append_batch(
-        &self,
-        envelopes: Vec<EventEnvelope>,
-    ) -> Result<(), EventStoreError> {
+    async fn append_batch(&self, envelopes: Vec<EventEnvelope>) -> Result<(), EventStoreError> {
         self.events.lock().unwrap().extend(envelopes);
         Ok(())
     }
@@ -104,11 +101,7 @@ impl EventStore for MemoryEventStore {
     }
 }
 
-fn stage(
-    name: &str,
-    requires_approval: bool,
-    hooks: Vec<HookDefinition>,
-) -> StageDefinition {
+fn stage(name: &str, requires_approval: bool, hooks: Vec<HookDefinition>) -> StageDefinition {
     StageDefinition {
         name: name.to_string(),
         label: None,
@@ -189,7 +182,10 @@ async fn task_stage_changed_runs_exit_then_enter_hooks() {
         pipeline_config: Arc::clone(&pipeline),
     });
 
-    handle.send_event(assign_event(&task_id, &session_id)).await.unwrap();
+    handle
+        .send_event(assign_event(&task_id, &session_id))
+        .await
+        .unwrap();
 
     handle
         .send_event(EventEnvelope {
@@ -251,7 +247,10 @@ async fn aborting_enter_hook_reverts_stage_and_skips_persist() {
         pipeline_config: Arc::clone(&pipeline),
     });
 
-    handle.send_event(assign_event(&task_id, &session_id)).await.unwrap();
+    handle
+        .send_event(assign_event(&task_id, &session_id))
+        .await
+        .unwrap();
 
     let result = handle
         .send_event(EventEnvelope {
@@ -275,7 +274,11 @@ async fn aborting_enter_hook_reverts_stage_and_skips_persist() {
     );
 
     let stored = store.get_events_for_task(&task_id).await.unwrap();
-    assert_eq!(stored.len(), 1, "stage-change event must not persist on hook abort");
+    assert_eq!(
+        stored.len(),
+        1,
+        "stage-change event must not persist on hook abort"
+    );
 
     // Watch channel / get_state: still InProgress on plan
     let state = handle.get_state().await.unwrap();
@@ -321,7 +324,10 @@ async fn agent_completed_success_runs_exit_hook_on_stage() {
         pipeline_config: Arc::clone(&pipeline),
     });
 
-    handle.send_event(assign_event(&task_id, &session_id)).await.unwrap();
+    handle
+        .send_event(assign_event(&task_id, &session_id))
+        .await
+        .unwrap();
     handle
         .send_event(EventEnvelope {
             id: EventId::new(),

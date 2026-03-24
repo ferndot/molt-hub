@@ -477,7 +477,10 @@ mod tests {
     #[test]
     fn priority_guard_fails_when_not_matching() {
         let ctx = default_ctx(agent_completed_event()); // P2
-        assert!(!evaluate_guard(&serde_json::json!({"priority": "p0"}), &ctx));
+        assert!(!evaluate_guard(
+            &serde_json::json!({"priority": "p0"}),
+            &ctx
+        ));
     }
 
     #[test]
@@ -492,7 +495,10 @@ mod tests {
     #[test]
     fn state_guard_fails_when_not_matching() {
         let ctx = default_ctx(agent_completed_event()); // InProgress
-        assert!(!evaluate_guard(&serde_json::json!({"state": "pending"}), &ctx));
+        assert!(!evaluate_guard(
+            &serde_json::json!({"state": "pending"}),
+            &ctx
+        ));
     }
 
     #[test]

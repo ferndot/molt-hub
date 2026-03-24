@@ -143,9 +143,7 @@ impl<S: EventStore + 'static> ImportService<S> {
             },
         };
 
-        self.store
-            .append_batch(vec![created, imported])
-            .await?;
+        self.store.append_batch(vec![created, imported]).await?;
 
         info!(task_id = %task_id, jira_key = %issue.key, "issue imported");
         Ok(task_id)

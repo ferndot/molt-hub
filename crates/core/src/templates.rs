@@ -162,9 +162,7 @@ impl TemplateEngine {
         if !self.hbs.has_template(name) {
             return Err(TemplateError::TemplateNotFound(name.to_string()));
         }
-        self.hbs
-            .render(name, context)
-            .map_err(TemplateError::from)
+        self.hbs.render(name, context).map_err(TemplateError::from)
     }
 
     /// Render an inline template string directly without registering it.
@@ -287,7 +285,10 @@ mod tests {
     fn custom_variables_accessible() {
         let engine = TemplateEngine::new();
         let mut custom = HashMap::new();
-        custom.insert("repo_url".to_string(), "https://github.com/org/repo".to_string());
+        custom.insert(
+            "repo_url".to_string(),
+            "https://github.com/org/repo".to_string(),
+        );
         let ctx = basic_context().with_custom(custom);
         let result = engine
             .render_inline("{{custom.repo_url}}", &ctx)
@@ -352,10 +353,7 @@ mod tests {
             ..basic_context()
         };
         let result = engine
-            .render_inline(
-                "{{#if agent_name}}Agent: {{agent_name}}{{/if}}",
-                &ctx,
-            )
+            .render_inline("{{#if agent_name}}Agent: {{agent_name}}{{/if}}", &ctx)
             .expect("render");
         assert_eq!(result, "Agent: agent-alpha");
     }
@@ -365,10 +363,7 @@ mod tests {
         let engine = TemplateEngine::new();
         let ctx = basic_context(); // agent_name is None
         let result = engine
-            .render_inline(
-                "{{#if agent_name}}Agent: {{agent_name}}{{/if}}",
-                &ctx,
-            )
+            .render_inline("{{#if agent_name}}Agent: {{agent_name}}{{/if}}", &ctx)
             .expect("render");
         assert_eq!(result, "");
     }
@@ -427,7 +422,9 @@ mod tests {
             .expect("register from config");
 
         let ctx = basic_context();
-        let result = engine.render("stage/work", &ctx).expect("render stage/work");
+        let result = engine
+            .render("stage/work", &ctx)
+            .expect("render stage/work");
         assert_eq!(result, "Work on: My Task (p1)");
 
         // "done" stage has no template, so it should not be registered
@@ -442,8 +439,7 @@ mod tests {
     #[test]
     fn from_task_and_stage_without_agent() {
         let task = make_task();
-        let ctx =
-            TemplateContext::from_task_and_stage(&task, "my-pipeline", "planning", None);
+        let ctx = TemplateContext::from_task_and_stage(&task, "my-pipeline", "planning", None);
         assert_eq!(ctx.task_title, "My Task");
         assert_eq!(ctx.pipeline_name, "my-pipeline");
         assert_eq!(ctx.stage_name, "planning");

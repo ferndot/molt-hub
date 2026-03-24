@@ -187,11 +187,8 @@ fn load_pipeline_yaml(contents: &str) -> Result<PipelineConfig, String> {
         return Ok(cfg);
     }
     if let Ok(legacy) = serde_yaml::from_str::<LegacyPipelineYamlV1>(contents) {
-        let stages: Result<Vec<StageDefinition>, String> = legacy
-            .stages
-            .into_iter()
-            .map(stage_from_response)
-            .collect();
+        let stages: Result<Vec<StageDefinition>, String> =
+            legacy.stages.into_iter().map(stage_from_response).collect();
         let stages = stages?;
         let mut cfg = PipelineConfig::board_defaults();
         cfg.stages = stages;
@@ -308,11 +305,8 @@ impl PipelineConfigStore {
                 return Err(format!("duplicate stage id: {}", s.id));
             }
         }
-        let new_stages: Result<Vec<StageDefinition>, String> = body
-            .stages
-            .into_iter()
-            .map(stage_from_response)
-            .collect();
+        let new_stages: Result<Vec<StageDefinition>, String> =
+            body.stages.into_iter().map(stage_from_response).collect();
         let new_stages = new_stages?;
 
         let mut guard = self.config.write().await;
@@ -448,11 +442,7 @@ pub async fn put_stages(
             info!(count = body.stages.len(), "pipeline stages updated");
             (StatusCode::OK, Json(body)).into_response()
         }
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { error: e }),
-        )
-            .into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response(),
     }
 }
 
@@ -468,11 +458,7 @@ pub async fn post_stage(
             info!(count = body.stages.len(), "pipeline stage added");
             (StatusCode::CREATED, Json(body)).into_response()
         }
-        Err(e) => (
-            StatusCode::CONFLICT,
-            Json(ErrorResponse { error: e }),
-        )
-            .into_response(),
+        Err(e) => (StatusCode::CONFLICT, Json(ErrorResponse { error: e })).into_response(),
     }
 }
 
@@ -488,11 +474,7 @@ pub async fn patch_stage(
             info!(stage_id, "pipeline stage patched");
             (StatusCode::OK, Json(stage)).into_response()
         }
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse { error: e }),
-        )
-            .into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(ErrorResponse { error: e })).into_response(),
     }
 }
 
@@ -508,11 +490,7 @@ pub async fn delete_stage(
             info!(stage_id, "pipeline stage removed");
             (StatusCode::OK, Json(body)).into_response()
         }
-        Err(e) => (
-            StatusCode::GONE,
-            Json(ErrorResponse { error: e }),
-        )
-            .into_response(),
+        Err(e) => (StatusCode::GONE, Json(ErrorResponse { error: e })).into_response(),
     }
 }
 
@@ -520,18 +498,15 @@ pub async fn delete_stage(
 // Router builder
 // ---------------------------------------------------------------------------
 
-use axum::{routing::get, Router};
 use axum::extract::Extension as AxumExtension;
+use axum::{routing::get, Router};
 
 use crate::projects::runtime::ProjectRuntimeRegistry;
 
 /// Build the `/api/pipeline` sub-router.
 pub fn pipeline_router(state: Arc<PipelineConfigStore>) -> Router {
     Router::new()
-        .route(
-            "/stages",
-            get(get_stages).put(put_stages).post(post_stage),
-        )
+        .route("/stages", get(get_stages).put(put_stages).post(post_stage))
         .route(
             "/stages/:id",
             axum::routing::delete(delete_stage).patch(patch_stage),
@@ -591,11 +566,7 @@ pub async fn put_project_pipeline_stages(
             let body = runtime.pipeline_config.get_stages_response().await;
             (StatusCode::OK, Json(body)).into_response()
         }
-        Err(e) => (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { error: e }),
-        )
-            .into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response(),
     }
 }
 
@@ -621,14 +592,9 @@ pub async fn patch_project_pipeline_stage(
 
     match runtime.pipeline_config.patch_stage(&stage_id, patch).await {
         Ok(stage) => (StatusCode::OK, Json(stage)).into_response(),
-        Err(e) => (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse { error: e }),
-        )
-            .into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(ErrorResponse { error: e })).into_response(),
     }
 }
-
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -812,7 +778,13 @@ mod tests {
         let ids: Vec<&str> = stages.iter().map(|s| s.id.as_str()).collect();
         assert_eq!(
             ids,
-            vec!["backlog", "in-progress", "code-review", "testing", "deployed"]
+            vec![
+                "backlog",
+                "in-progress",
+                "code-review",
+                "testing",
+                "deployed"
+            ]
         );
     }
 
@@ -989,9 +961,7 @@ mod tests {
             .method(Method::POST)
             .uri("/api/pipeline/stages")
             .header("content-type", "application/json")
-            .body(Body::from(
-                r#"{"id":"backlog","label":"Dupe"}"#,
-            ))
+            .body(Body::from(r#"{"id":"backlog","label":"Dupe"}"#))
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CONFLICT);

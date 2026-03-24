@@ -55,7 +55,10 @@ impl TaskMachine {
 
     /// Returns `true` if the task is in a terminal state (`Completed` or `Failed`).
     pub fn is_terminal(&self) -> bool {
-        matches!(self.state, TaskState::Completed { .. } | TaskState::Failed { .. })
+        matches!(
+            self.state,
+            TaskState::Completed { .. } | TaskState::Failed { .. }
+        )
     }
 
     /// Returns `true` if the machine can accept the given event without erroring.
@@ -160,19 +163,18 @@ impl TaskMachine {
             // ------------------------------------------------------------------
             // AwaitingApproval → Completed | InProgress
             // ------------------------------------------------------------------
-            (
-                TaskState::AwaitingApproval { .. },
-                DomainEvent::HumanDecision { decision, .. },
-            ) => match decision {
-                HumanDecisionKind::Approved => TaskState::Completed {
-                    outcome: TaskOutcome::Success,
-                },
-                HumanDecisionKind::Rejected { .. } => TaskState::InProgress,
-                HumanDecisionKind::Redirected { to_stage, .. } => {
-                    self.current_stage = to_stage.clone();
-                    TaskState::InProgress
+            (TaskState::AwaitingApproval { .. }, DomainEvent::HumanDecision { decision, .. }) => {
+                match decision {
+                    HumanDecisionKind::Approved => TaskState::Completed {
+                        outcome: TaskOutcome::Success,
+                    },
+                    HumanDecisionKind::Rejected { .. } => TaskState::InProgress,
+                    HumanDecisionKind::Redirected { to_stage, .. } => {
+                        self.current_stage = to_stage.clone();
+                        TaskState::InProgress
+                    }
                 }
-            },
+            }
 
             // ------------------------------------------------------------------
             // Any other combination is invalid
@@ -341,7 +343,9 @@ mod tests {
     fn agent_completed_without_approval_yields_success() {
         let mut m = TaskMachine::new("impl".into());
         m.apply(&agent_assigned()).unwrap();
-        let result = m.apply_with_approval_flag(&agent_completed(), false).unwrap();
+        let result = m
+            .apply_with_approval_flag(&agent_completed(), false)
+            .unwrap();
         assert_eq!(
             result,
             TaskState::Completed {
@@ -356,7 +360,9 @@ mod tests {
     fn agent_completed_with_approval_yields_awaiting_approval() {
         let mut m = TaskMachine::new("review".into());
         m.apply(&agent_assigned()).unwrap();
-        let result = m.apply_with_approval_flag(&agent_completed(), true).unwrap();
+        let result = m
+            .apply_with_approval_flag(&agent_completed(), true)
+            .unwrap();
         assert!(matches!(result, TaskState::AwaitingApproval { .. }));
     }
 
@@ -366,7 +372,8 @@ mod tests {
     fn awaiting_approval_approved_yields_completed_success() {
         let mut m = TaskMachine::new("review".into());
         m.apply(&agent_assigned()).unwrap();
-        m.apply_with_approval_flag(&agent_completed(), true).unwrap();
+        m.apply_with_approval_flag(&agent_completed(), true)
+            .unwrap();
         let result = m.apply(&human_approved()).unwrap();
         assert_eq!(
             result,
@@ -383,7 +390,8 @@ mod tests {
     fn awaiting_approval_rejected_yields_in_progress() {
         let mut m = TaskMachine::new("review".into());
         m.apply(&agent_assigned()).unwrap();
-        m.apply_with_approval_flag(&agent_completed(), true).unwrap();
+        m.apply_with_approval_flag(&agent_completed(), true)
+            .unwrap();
         let result = m.apply(&human_rejected()).unwrap();
         assert!(matches!(result, TaskState::InProgress));
         assert!(!m.is_terminal());
@@ -395,7 +403,8 @@ mod tests {
     fn awaiting_approval_redirected_yields_in_progress_with_new_stage() {
         let mut m = TaskMachine::new("review".into());
         m.apply(&agent_assigned()).unwrap();
-        m.apply_with_approval_flag(&agent_completed(), true).unwrap();
+        m.apply_with_approval_flag(&agent_completed(), true)
+            .unwrap();
         let result = m.apply(&human_redirected("impl")).unwrap();
         assert_eq!(result, TaskState::InProgress);
         assert_eq!(m.current_stage, "impl");
@@ -452,7 +461,8 @@ mod tests {
     fn terminal_state_rejects_any_event() {
         let mut m = TaskMachine::new("impl".into());
         m.apply(&agent_assigned()).unwrap();
-        m.apply_with_approval_flag(&agent_completed(), false).unwrap();
+        m.apply_with_approval_flag(&agent_completed(), false)
+            .unwrap();
         assert!(m.is_terminal());
 
         let err = m.apply(&agent_assigned()).unwrap_err();
@@ -482,7 +492,8 @@ mod tests {
     fn can_accept_returns_false_for_terminal() {
         let mut m = TaskMachine::new("impl".into());
         m.apply(&agent_assigned()).unwrap();
-        m.apply_with_approval_flag(&agent_completed(), false).unwrap();
+        m.apply_with_approval_flag(&agent_completed(), false)
+            .unwrap();
         assert!(!m.can_accept(&priority_changed()));
     }
 }

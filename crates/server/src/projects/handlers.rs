@@ -7,18 +7,16 @@
 //!   PATCH  /api/projects/:id   — update project name
 //!   DELETE /api/projects/:id   — archive (soft-delete) a project
 
+use crate::agents::handlers::{delete_project_agent, get_project_agent, list_project_agents};
+use crate::pipeline::handlers::{
+    get_project_pipeline_stages, patch_project_pipeline_stage, put_project_pipeline_stages,
+};
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::IntoResponse,
     routing::get,
     Json, Router,
-};
-use crate::agents::handlers::{
-    delete_project_agent, get_project_agent, list_project_agents,
-};
-use crate::pipeline::handlers::{
-    get_project_pipeline_stages, patch_project_pipeline_stage, put_project_pipeline_stages,
 };
 use chrono::Utc;
 use molt_hub_core::model::ProjectId;
@@ -228,17 +226,14 @@ impl ProjectConfigStore {
         }
 
         // Check for duplicate name among other active projects.
-        let has_dup = guard.iter().any(|p| {
-            p.id.to_string() != id && p.name == name && p.status == ProjectStatus::Active
-        });
+        let has_dup = guard
+            .iter()
+            .any(|p| p.id.to_string() != id && p.name == name && p.status == ProjectStatus::Active);
         if has_dup {
             return Err(format!("project with name '{}' already exists", name));
         }
 
-        let project = guard
-            .iter_mut()
-            .find(|p| p.id.to_string() == id)
-            .unwrap();
+        let project = guard.iter_mut().find(|p| p.id.to_string() == id).unwrap();
         project.name = name;
         project.updated_at = Utc::now();
 
@@ -281,8 +276,7 @@ impl ProjectConfigStore {
         let yaml = ProjectsYaml {
             projects: projects.to_vec(),
         };
-        let content =
-            serde_yaml::to_string(&yaml).map_err(|e| format!("yaml serialize: {e}"))?;
+        let content = serde_yaml::to_string(&yaml).map_err(|e| format!("yaml serialize: {e}"))?;
         std::fs::write(path, content).map_err(|e| format!("write {}: {e}", path.display()))
     }
 }
@@ -302,7 +296,10 @@ pub type ProjectState = ProjectConfigStore;
 pub async fn list_projects(State(state): State<Arc<ProjectConfigStore>>) -> impl IntoResponse {
     let projects = state.list().await;
     let items: Vec<ProjectResponse> = projects.iter().map(ProjectResponse::from).collect();
-    (StatusCode::OK, Json(ProjectsListResponse { projects: items }))
+    (
+        StatusCode::OK,
+        Json(ProjectsListResponse { projects: items }),
+    )
 }
 
 /// POST /api/projects
@@ -311,7 +308,10 @@ pub async fn create_project(
     State(state): State<Arc<ProjectConfigStore>>,
     Json(body): Json<CreateProjectRequest>,
 ) -> impl IntoResponse {
-    match state.create(body.name, PathBuf::from(&body.repo_path)).await {
+    match state
+        .create(body.name, PathBuf::from(&body.repo_path))
+        .await
+    {
         Ok(project) => {
             info!(id = %project.id, name = %project.name, "project created");
             (StatusCode::CREATED, Json(ProjectResponse::from(&project))).into_response()
@@ -409,10 +409,7 @@ pub fn project_router(state: Arc<ProjectConfigStore>) -> Router {
                 .delete(archive_project),
         )
         // Project-scoped agent routes (Extension-based, no State conflict)
-        .route(
-            "/:pid/agents",
-            get(list_project_agents),
-        )
+        .route("/:pid/agents", get(list_project_agents))
         .route(
             "/:pid/agents/:aid",
             get(get_project_agent).delete(delete_project_agent),
@@ -556,7 +553,10 @@ mod tests {
         let state = Arc::new(ProjectConfigStore::in_memory());
 
         // Create first.
-        state.create("dup".into(), PathBuf::from("/tmp")).await.unwrap();
+        state
+            .create("dup".into(), PathBuf::from("/tmp"))
+            .await
+            .unwrap();
 
         let app = test_app_with_state(state);
         let req = Request::builder()
@@ -653,7 +653,10 @@ mod tests {
     #[tokio::test]
     async fn update_project_duplicate_name_rejected() {
         let state = Arc::new(ProjectConfigStore::in_memory());
-        state.create("proj-a".into(), PathBuf::from("/tmp")).await.unwrap();
+        state
+            .create("proj-a".into(), PathBuf::from("/tmp"))
+            .await
+            .unwrap();
         let proj_b = state
             .create("proj-b".into(), PathBuf::from("/tmp"))
             .await
@@ -781,8 +784,14 @@ mod tests {
     #[tokio::test]
     async fn store_list_excludes_archived() {
         let store = ProjectConfigStore::in_memory();
-        let p = store.create("a".into(), PathBuf::from("/tmp")).await.unwrap();
-        store.create("b".into(), PathBuf::from("/tmp")).await.unwrap();
+        let p = store
+            .create("a".into(), PathBuf::from("/tmp"))
+            .await
+            .unwrap();
+        store
+            .create("b".into(), PathBuf::from("/tmp"))
+            .await
+            .unwrap();
         store.archive(&p.id.to_string()).await.unwrap();
 
         assert_eq!(store.list().await.len(), 1);
@@ -792,7 +801,10 @@ mod tests {
     #[tokio::test]
     async fn store_update_archived_rejected() {
         let store = ProjectConfigStore::in_memory();
-        let p = store.create("x".into(), PathBuf::from("/tmp")).await.unwrap();
+        let p = store
+            .create("x".into(), PathBuf::from("/tmp"))
+            .await
+            .unwrap();
         store.archive(&p.id.to_string()).await.unwrap();
 
         let err = store.update(&p.id.to_string(), "y".into()).await;

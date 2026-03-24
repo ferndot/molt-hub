@@ -169,7 +169,10 @@ mod tests {
             .await
             .expect("pool");
         let store = Arc::new(SettingsStore::new(pool).await.expect("store"));
-        store.set("app_settings", r#"{"theme":"dark"}"#).await.unwrap();
+        store
+            .set("app_settings", r#"{"theme":"dark"}"#)
+            .await
+            .unwrap();
 
         let state = Arc::new(SettingsState { store });
         let app = Router::new()

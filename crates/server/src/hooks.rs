@@ -161,11 +161,8 @@ impl HookExecutor {
         trigger: HookTrigger,
         ctx: &HookContext,
     ) -> Result<Vec<HookResult>, HookExecutorError> {
-        let matching: Vec<&HookDefinition> = stage
-            .hooks
-            .iter()
-            .filter(|h| h.on == trigger)
-            .collect();
+        let matching: Vec<&HookDefinition> =
+            stage.hooks.iter().filter(|h| h.on == trigger).collect();
 
         if matching.is_empty() {
             return Ok(vec![]);
@@ -226,10 +223,12 @@ impl HookExecutor {
         let mut results = Vec::with_capacity(handles.len());
         for handle in handles {
             // Propagate join errors as execution failures.
-            let result = handle.await.map_err(|e| HookExecutorError::ExecutionFailed {
-                hook_kind: "unknown".into(),
-                error: e.to_string(),
-            })??;
+            let result = handle
+                .await
+                .map_err(|e| HookExecutorError::ExecutionFailed {
+                    hook_kind: "unknown".into(),
+                    error: e.to_string(),
+                })??;
             results.push(result);
         }
 
@@ -335,11 +334,7 @@ impl HookExecutor {
     /// - `timeout_seconds` (optional, default 300): max wait time
     /// - `working_dir` (optional, default `"."`): working directory for the agent
     /// - `adapter_config` (optional): opaque JSON forwarded to the adapter
-    async fn execute_agent_dispatch(
-        &self,
-        hook: &HookDefinition,
-        ctx: &HookContext,
-    ) -> HookResult {
+    async fn execute_agent_dispatch(&self, hook: &HookDefinition, ctx: &HookContext) -> HookResult {
         let adapter = match &self.adapter {
             Some(a) => Arc::clone(a),
             None => {
@@ -482,9 +477,7 @@ impl HookExecutor {
             }
         };
 
-        let timeout_secs = config
-            .get("timeout_seconds")
-            .and_then(|v| v.as_u64());
+        let timeout_secs = config.get("timeout_seconds").and_then(|v| v.as_u64());
 
         let working_dir = config
             .get("working_dir")
@@ -700,7 +693,10 @@ mod tests {
 
         assert!(matches!(
             result,
-            HookResult::Failed { retryable: false, .. }
+            HookResult::Failed {
+                retryable: false,
+                ..
+            }
         ));
     }
 
@@ -799,10 +795,7 @@ mod tests {
         let executor = HookExecutor::new();
 
         // Use a temp file to track order; each hook appends a number.
-        let tmp = std::env::temp_dir().join(format!(
-            "molt-hook-order-{}.txt",
-            ulid::Ulid::new()
-        ));
+        let tmp = std::env::temp_dir().join(format!("molt-hook-order-{}.txt", ulid::Ulid::new()));
         let path_str = tmp.to_string_lossy().to_string();
 
         let make_hook = |n: u32| HookDefinition {
@@ -970,7 +963,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use async_trait::async_trait;
-    use molt_hub_core::model::{AgentStatus};
+    use molt_hub_core::model::AgentStatus;
     use molt_hub_harness::adapter::{
         AdapterError, AgentAdapter, AgentHandle, AgentMessage, SpawnConfig,
     };
@@ -1067,7 +1060,13 @@ mod tests {
             config: json!({}), // no instruction
         };
         let result = executor.execute_single(&hook, &make_ctx()).await;
-        assert!(matches!(result, HookResult::Failed { retryable: false, .. }));
+        assert!(matches!(
+            result,
+            HookResult::Failed {
+                retryable: false,
+                ..
+            }
+        ));
     }
 
     #[tokio::test]
@@ -1081,7 +1080,13 @@ mod tests {
         };
         let result = executor.execute_single(&hook, &make_ctx()).await;
         assert!(
-            matches!(result, HookResult::Failed { retryable: true, .. }),
+            matches!(
+                result,
+                HookResult::Failed {
+                    retryable: true,
+                    ..
+                }
+            ),
             "spawn failure should be retryable, got {result:?}"
         );
     }
@@ -1113,7 +1118,13 @@ mod tests {
         };
         let result = executor.execute_single(&hook, &make_ctx()).await;
         assert!(
-            matches!(result, HookResult::Failed { retryable: false, .. }),
+            matches!(
+                result,
+                HookResult::Failed {
+                    retryable: false,
+                    ..
+                }
+            ),
             "expected Failed, got {result:?}"
         );
     }

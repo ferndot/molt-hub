@@ -136,10 +136,7 @@ impl SettingsFileStore {
         }
     }
 
-    fn flush_to_disk(
-        path: &PathBuf,
-        settings: &ServerSettings,
-    ) -> Result<(), std::io::Error> {
+    fn flush_to_disk(path: &PathBuf, settings: &ServerSettings) -> Result<(), std::io::Error> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -341,17 +338,11 @@ mod tests {
         {
             let store = SettingsFileStore::open(path.clone());
             store
-                .patch_section(
-                    "sidebarWidths",
-                    serde_json::json!({ "navSidebar": 300 }),
-                )
+                .patch_section("sidebarWidths", serde_json::json!({ "navSidebar": 300 }))
                 .await
                 .unwrap();
             store
-                .patch_section(
-                    "jiraConfig",
-                    serde_json::json!({ "connected": false }),
-                )
+                .patch_section("jiraConfig", serde_json::json!({ "connected": false }))
                 .await
                 .unwrap();
             store

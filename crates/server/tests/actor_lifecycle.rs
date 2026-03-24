@@ -139,7 +139,7 @@ fn make_pipeline(stages: &[(&str, bool)]) -> Arc<PipelineConfig> {
         version: 1,
         stages: stage_defs,
         integrations: vec![],
-            columns: vec![],
+        columns: vec![],
     })
 }
 
@@ -229,12 +229,18 @@ async fn full_lifecycle_without_approval() {
     assert_eq!(initial, TaskState::Pending);
 
     // AgentAssigned → InProgress
-    let state = handle.send_event(assign_event(&task_id, &session_id)).await.unwrap();
+    let state = handle
+        .send_event(assign_event(&task_id, &session_id))
+        .await
+        .unwrap();
     assert_eq!(state, TaskState::InProgress);
 
     // AgentCompleted (no approval needed) → Completed(Success)
     // Per state machine: without requires_approval, AgentCompleted terminates the task.
-    let state = handle.send_event(complete_event(&task_id, &session_id)).await.unwrap();
+    let state = handle
+        .send_event(complete_event(&task_id, &session_id))
+        .await
+        .unwrap();
     assert!(
         matches!(state, TaskState::Completed { .. }),
         "expected Completed(Success) without approval gate, got {state:?}"
@@ -261,11 +267,17 @@ async fn full_lifecycle_with_approval_gate() {
     let handle = registry.spawn_task(config);
 
     // Pending → InProgress
-    let state = handle.send_event(assign_event(&task_id, &session_id)).await.unwrap();
+    let state = handle
+        .send_event(assign_event(&task_id, &session_id))
+        .await
+        .unwrap();
     assert_eq!(state, TaskState::InProgress);
 
     // InProgress → AwaitingApproval (requires_approval stage)
-    let state = handle.send_event(complete_event(&task_id, &session_id)).await.unwrap();
+    let state = handle
+        .send_event(complete_event(&task_id, &session_id))
+        .await
+        .unwrap();
     assert!(
         matches!(state, TaskState::AwaitingApproval { .. }),
         "expected AwaitingApproval, got {state:?}"
@@ -298,8 +310,14 @@ async fn lifecycle_rejection_routes_to_in_progress() {
     let config = make_config(task_id.clone(), "review", pipeline);
     let handle = registry.spawn_task(config);
 
-    handle.send_event(assign_event(&task_id, &session_id)).await.unwrap();
-    handle.send_event(complete_event(&task_id, &session_id)).await.unwrap();
+    handle
+        .send_event(assign_event(&task_id, &session_id))
+        .await
+        .unwrap();
+    handle
+        .send_event(complete_event(&task_id, &session_id))
+        .await
+        .unwrap();
 
     let rejected_event = EventEnvelope {
         id: EventId::new(),
@@ -339,7 +357,10 @@ async fn state_watch_tracks_each_transition() {
     let mut state_rx = handle.state_rx.clone();
 
     // Pending → InProgress
-    handle.send_event(assign_event(&task_id, &session_id)).await.unwrap();
+    handle
+        .send_event(assign_event(&task_id, &session_id))
+        .await
+        .unwrap();
     state_rx.changed().await.unwrap();
     {
         let update = state_rx.borrow_and_update().clone();
@@ -348,7 +369,10 @@ async fn state_watch_tracks_each_transition() {
     }
 
     // InProgress → AwaitingApproval
-    handle.send_event(complete_event(&task_id, &session_id)).await.unwrap();
+    handle
+        .send_event(complete_event(&task_id, &session_id))
+        .await
+        .unwrap();
     state_rx.changed().await.unwrap();
     {
         let update = state_rx.borrow_and_update().clone();
@@ -360,7 +384,10 @@ async fn state_watch_tracks_each_transition() {
     }
 
     // AwaitingApproval → Completed(Success) (per state machine rules)
-    handle.send_event(human_approved_event(&task_id, &session_id)).await.unwrap();
+    handle
+        .send_event(human_approved_event(&task_id, &session_id))
+        .await
+        .unwrap();
     state_rx.changed().await.unwrap();
     {
         let update = state_rx.borrow_and_update().clone();
@@ -385,7 +412,10 @@ async fn state_watch_includes_current_stage() {
     let handle = registry.spawn_task(config);
     let mut state_rx = handle.state_rx.clone();
 
-    handle.send_event(assign_event(&task_id, &session_id)).await.unwrap();
+    handle
+        .send_event(assign_event(&task_id, &session_id))
+        .await
+        .unwrap();
     state_rx.changed().await.unwrap();
     let update = state_rx.borrow_and_update().clone();
 
@@ -569,7 +599,11 @@ async fn invalid_transition_rejected_state_unchanged() {
 
     // No events persisted.
     let events = store.get_events_for_task(&task_id).await.unwrap();
-    assert_eq!(events.len(), 0, "no events should be stored for invalid transition");
+    assert_eq!(
+        events.len(),
+        0,
+        "no events should be stored for invalid transition"
+    );
 }
 
 /// Sending HumanDecision to a Pending actor (wrong state) is rejected.
@@ -607,7 +641,10 @@ async fn registry_get_returns_spawned_actor() {
     let store = make_store();
     let registry = make_registry(Arc::clone(&store));
 
-    assert!(registry.get(&task_id).is_none(), "should not exist before spawn");
+    assert!(
+        registry.get(&task_id).is_none(),
+        "should not exist before spawn"
+    );
 
     let config = make_config(task_id.clone(), "work", pipeline);
     registry.spawn_task(config);

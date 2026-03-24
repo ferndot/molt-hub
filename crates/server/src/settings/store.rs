@@ -41,11 +41,10 @@ impl SettingsStore {
 
     /// Return the stored value for `key`, or `None` if it does not exist.
     pub async fn get(&self, key: &str) -> Result<Option<String>, sqlx::Error> {
-        let row: Option<(String,)> =
-            sqlx::query_as("SELECT value FROM settings WHERE key = ?")
-                .bind(key)
-                .fetch_optional(&self.pool)
-                .await?;
+        let row: Option<(String,)> = sqlx::query_as("SELECT value FROM settings WHERE key = ?")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await?;
 
         Ok(row.map(|(v,)| v))
     }
@@ -71,10 +70,9 @@ impl SettingsStore {
 
     /// Return every key/value pair in the settings table.
     pub async fn get_all(&self) -> Result<HashMap<String, String>, sqlx::Error> {
-        let rows: Vec<(String, String)> =
-            sqlx::query_as("SELECT key, value FROM settings")
-                .fetch_all(&self.pool)
-                .await?;
+        let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value FROM settings")
+            .fetch_all(&self.pool)
+            .await?;
 
         Ok(rows.into_iter().collect())
     }
@@ -236,14 +234,8 @@ mod tests {
 
         store.set_bulk(&batch).await.expect("set_bulk");
 
-        assert_eq!(
-            store.get("x").await.expect("get").as_deref(),
-            Some("new")
-        );
-        assert_eq!(
-            store.get("z").await.expect("get").as_deref(),
-            Some("30")
-        );
+        assert_eq!(store.get("x").await.expect("get").as_deref(), Some("new"));
+        assert_eq!(store.get("z").await.expect("get").as_deref(), Some("30"));
     }
 
     #[tokio::test]

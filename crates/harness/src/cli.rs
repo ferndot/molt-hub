@@ -11,7 +11,9 @@ use tracing::warn;
 
 use molt_hub_core::model::{AgentId, AgentStatus};
 
-use crate::adapter::{AdapterError, AgentAdapter, AgentEvent, AgentHandle, AgentMessage, SpawnConfig};
+use crate::adapter::{
+    AdapterError, AgentAdapter, AgentEvent, AgentHandle, AgentMessage, SpawnConfig,
+};
 
 // ---------------------------------------------------------------------------
 // OutputMode
@@ -205,12 +207,7 @@ fn spawn_reader_task(
 
         let success = exit_code.map(|c| c == 0).unwrap_or(false);
         if success {
-            set_status(
-                &agent_id,
-                &status,
-                &event_tx,
-                AgentStatus::Completed,
-            ).await;
+            set_status(&agent_id, &status, &event_tx, AgentStatus::Completed).await;
             let _ = event_tx.send(AgentEvent::Completed {
                 agent_id: agent_id.clone(),
                 exit_code,
@@ -220,10 +217,7 @@ fn spawn_reader_task(
             set_status(&agent_id, &status, &event_tx, AgentStatus::Failed).await;
             let _ = event_tx.send(AgentEvent::Error {
                 agent_id: agent_id.clone(),
-                message: format!(
-                    "process exited with code {:?}",
-                    exit_code
-                ),
+                message: format!("process exited with code {:?}", exit_code),
                 timestamp: Utc::now(),
             });
         }
@@ -252,7 +246,10 @@ fn parse_json_line(agent_id: &AgentId, line: &str) -> Option<AgentEvent> {
         }
         "progress" => {
             let percent = v.get("percent")?.as_u64()? as u8;
-            let message = v.get("message").and_then(|m| m.as_str()).map(|s| s.to_string());
+            let message = v
+                .get("message")
+                .and_then(|m| m.as_str())
+                .map(|s| s.to_string());
             Some(AgentEvent::Progress {
                 agent_id: agent_id.clone(),
                 percent,
@@ -269,7 +266,10 @@ fn parse_json_line(agent_id: &AgentId, line: &str) -> Option<AgentEvent> {
             })
         }
         "completed" => {
-            let exit_code = v.get("exit_code").and_then(|c| c.as_i64()).map(|c| c as i32);
+            let exit_code = v
+                .get("exit_code")
+                .and_then(|c| c.as_i64())
+                .map(|c| c as i32);
             Some(AgentEvent::Completed {
                 agent_id: agent_id.clone(),
                 exit_code,
@@ -369,12 +369,16 @@ impl AgentAdapter for CliAdapter {
         if !config.instructions.is_empty() {
             let mut stdin_guard = stdin_arc.lock().await;
             let payload = format!("{}\n", config.instructions);
-            stdin_guard.write_all(payload.as_bytes()).await.map_err(|e| {
-                AdapterError::SendFailed(format!("failed to write initial instructions: {e}"))
-            })?;
-            stdin_guard.flush().await.map_err(|e| {
-                AdapterError::SendFailed(format!("failed to flush stdin: {e}"))
-            })?;
+            stdin_guard
+                .write_all(payload.as_bytes())
+                .await
+                .map_err(|e| {
+                    AdapterError::SendFailed(format!("failed to write initial instructions: {e}"))
+                })?;
+            stdin_guard
+                .flush()
+                .await
+                .map_err(|e| AdapterError::SendFailed(format!("failed to flush stdin: {e}")))?;
         }
 
         // Launch background reader.
@@ -406,12 +410,14 @@ impl AgentAdapter for CliAdapter {
             AgentMessage::Instruction(s) => {
                 let mut stdin = state.stdin.lock().await;
                 let payload = format!("{s}\n");
-                stdin.write_all(payload.as_bytes()).await.map_err(|e| {
-                    AdapterError::SendFailed(format!("stdin write error: {e}"))
-                })?;
-                stdin.flush().await.map_err(|e| {
-                    AdapterError::SendFailed(format!("stdin flush error: {e}"))
-                })?;
+                stdin
+                    .write_all(payload.as_bytes())
+                    .await
+                    .map_err(|e| AdapterError::SendFailed(format!("stdin write error: {e}")))?;
+                stdin
+                    .flush()
+                    .await
+                    .map_err(|e| AdapterError::SendFailed(format!("stdin flush error: {e}")))?;
             }
 
             AgentMessage::Pause => {
@@ -423,7 +429,8 @@ impl AgentAdapter for CliAdapter {
                     &state.status,
                     &state.event_tx,
                     AgentStatus::Paused,
-                ).await;
+                )
+                .await;
             }
 
             AgentMessage::Resume => {
@@ -432,7 +439,8 @@ impl AgentAdapter for CliAdapter {
                     &state.status,
                     &state.event_tx,
                     AgentStatus::Running,
-                ).await;
+                )
+                .await;
             }
 
             AgentMessage::Data(v) => {
@@ -441,12 +449,14 @@ impl AgentAdapter for CliAdapter {
                 })?;
                 let mut stdin = state.stdin.lock().await;
                 let payload = format!("{line}\n");
-                stdin.write_all(payload.as_bytes()).await.map_err(|e| {
-                    AdapterError::SendFailed(format!("stdin write error: {e}"))
-                })?;
-                stdin.flush().await.map_err(|e| {
-                    AdapterError::SendFailed(format!("stdin flush error: {e}"))
-                })?;
+                stdin
+                    .write_all(payload.as_bytes())
+                    .await
+                    .map_err(|e| AdapterError::SendFailed(format!("stdin write error: {e}")))?;
+                stdin
+                    .flush()
+                    .await
+                    .map_err(|e| AdapterError::SendFailed(format!("stdin flush error: {e}")))?;
             }
         }
 
@@ -479,7 +489,8 @@ impl AgentAdapter for CliAdapter {
             &state.status,
             &state.event_tx,
             AgentStatus::Terminated,
-        ).await;
+        )
+        .await;
 
         Ok(())
     }
@@ -501,7 +512,8 @@ impl AgentAdapter for CliAdapter {
             &state.status,
             &state.event_tx,
             AgentStatus::Terminated,
-        ).await;
+        )
+        .await;
 
         Ok(())
     }
@@ -599,7 +611,9 @@ mod tests {
         let line = r#"{"type":"progress","percent":42,"message":"halfway"}"#;
         let event = parse_json_line(&agent_id, line).unwrap();
         match event {
-            AgentEvent::Progress { percent, message, .. } => {
+            AgentEvent::Progress {
+                percent, message, ..
+            } => {
                 assert_eq!(percent, 42);
                 assert_eq!(message.as_deref(), Some("halfway"));
             }
@@ -673,7 +687,10 @@ mod tests {
         }));
         // cat will hang reading stdin; we just verify spawn succeeds and returns Running.
         let handle = adapter.spawn(config).await.expect("spawn should succeed");
-        let status = adapter.status(&handle).await.expect("status should succeed");
+        let status = adapter
+            .status(&handle)
+            .await
+            .expect("status should succeed");
         assert_eq!(status, AgentStatus::Running);
         // Clean up.
         adapter.abort(&handle).await.ok();

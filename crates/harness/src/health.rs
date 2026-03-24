@@ -49,8 +49,8 @@ impl std::fmt::Display for HealthStatus {
         match self {
             HealthStatus::Healthy => write!(f, "Healthy"),
             HealthStatus::Warning => write!(f, "Warning"),
-            HealthStatus::Stuck   => write!(f, "Stuck"),
-            HealthStatus::Dead    => write!(f, "Dead"),
+            HealthStatus::Stuck => write!(f, "Stuck"),
+            HealthStatus::Dead => write!(f, "Dead"),
         }
     }
 }
@@ -72,7 +72,7 @@ impl Default for HealthConfig {
     fn default() -> Self {
         Self {
             warning_after: Duration::from_secs(60),
-            stuck_after:   Duration::from_secs(300),
+            stuck_after: Duration::from_secs(300),
         }
     }
 }
@@ -84,23 +84,23 @@ impl Default for HealthConfig {
 /// Tracked health state for a single agent.
 #[derive(Debug, Clone)]
 pub struct AgentHealth {
-    pub agent_id:           AgentId,
-    pub last_output_at:     Option<Instant>,
+    pub agent_id: AgentId,
+    pub last_output_at: Option<Instant>,
     pub last_file_change_at: Option<Instant>,
     /// Set to true when the agent's process is known to have exited.
-    pub is_dead:            bool,
+    pub is_dead: bool,
     /// The most recently computed health status.
-    pub status:             HealthStatus,
+    pub status: HealthStatus,
 }
 
 impl AgentHealth {
     fn new(agent_id: AgentId) -> Self {
         Self {
             agent_id,
-            last_output_at:      None,
+            last_output_at: None,
             last_file_change_at: None,
-            is_dead:             false,
-            status:              HealthStatus::Healthy,
+            is_dead: false,
+            status: HealthStatus::Healthy,
         }
     }
 
@@ -108,9 +108,9 @@ impl AgentHealth {
     fn most_recent_activity(&self) -> Option<Instant> {
         match (self.last_output_at, self.last_file_change_at) {
             (Some(a), Some(b)) => Some(if a > b { a } else { b }),
-            (Some(a), None)    => Some(a),
-            (None, Some(b))    => Some(b),
-            (None, None)       => None,
+            (Some(a), None) => Some(a),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
         }
     }
 
@@ -181,7 +181,8 @@ impl HealthMonitor {
     /// Register an agent to be monitored.
     pub fn register(&self, agent_id: AgentId) {
         debug!(agent_id = %agent_id, "registering agent in health monitor");
-        self.agents.insert(agent_id.clone(), AgentHealth::new(agent_id));
+        self.agents
+            .insert(agent_id.clone(), AgentHealth::new(agent_id));
     }
 
     /// Remove an agent from monitoring.
@@ -219,7 +220,7 @@ impl HealthMonitor {
             return;
         };
         entry.is_dead = true;
-        entry.status  = HealthStatus::Dead;
+        entry.status = HealthStatus::Dead;
     }
 
     /// Compute and return the current health status for an agent.
@@ -227,7 +228,7 @@ impl HealthMonitor {
     /// Returns `None` if the agent is not registered.
     pub fn check_health(&self, agent_id: &AgentId) -> Option<HealthStatus> {
         let mut entry = self.agents.get_mut(agent_id)?;
-        let now    = Instant::now();
+        let now = Instant::now();
         let status = entry.compute_status(now, &self.config);
         entry.status = status;
         Some(status)
@@ -254,9 +255,12 @@ impl HealthMonitor {
     pub fn run_health_checks(
         self: &Arc<Self>,
         interval: Duration,
-    ) -> (broadcast::Receiver<HealthStatusChange>, tokio::task::JoinHandle<()>) {
+    ) -> (
+        broadcast::Receiver<HealthStatusChange>,
+        tokio::task::JoinHandle<()>,
+    ) {
         let (tx, rx) = broadcast::channel(64);
-        let monitor  = Arc::clone(self);
+        let monitor = Arc::clone(self);
 
         let handle = tokio::spawn(async move {
             let mut ticker = tokio::time::interval(interval);
@@ -272,8 +276,8 @@ impl HealthMonitor {
                 let now = Instant::now();
                 for mut entry in monitor.agents.iter_mut() {
                     let new_status = entry.compute_status(now, &monitor.config);
-                    entry.status   = new_status;
-                    let agent_id   = entry.key().clone();
+                    entry.status = new_status;
+                    let agent_id = entry.key().clone();
 
                     let old_status = prev.get(&agent_id).copied();
                     if old_status != Some(new_status) {
@@ -289,7 +293,7 @@ impl HealthMonitor {
                         }
 
                         let change = HealthStatusChange {
-                            agent_id:   agent_id.clone(),
+                            agent_id: agent_id.clone(),
                             old_status,
                             new_status,
                         };
@@ -322,7 +326,7 @@ impl HealthMonitor {
 /// An event emitted by the health-check loop when an agent's status changes.
 #[derive(Debug, Clone)]
 pub struct HealthStatusChange {
-    pub agent_id:   AgentId,
+    pub agent_id: AgentId,
     /// `None` on the very first observation of an agent.
     pub old_status: Option<HealthStatus>,
     pub new_status: HealthStatus,
@@ -352,7 +356,7 @@ mod tests {
     fn make_monitor(warning: u64, stuck: u64) -> HealthMonitor {
         HealthMonitor::new(HealthConfig {
             warning_after: Duration::from_secs(warning),
-            stuck_after:   Duration::from_secs(stuck),
+            stuck_after: Duration::from_secs(stuck),
         })
     }
 
@@ -371,48 +375,60 @@ mod tests {
     fn test_healthy_within_warning_threshold() {
         let config = HealthConfig {
             warning_after: Duration::from_secs(60),
-            stuck_after:   Duration::from_secs(300),
+            stuck_after: Duration::from_secs(300),
         };
         let h = health_with_last_activity(30); // 30s ago — well within threshold
-        assert_eq!(h.compute_status(Instant::now(), &config), HealthStatus::Healthy);
+        assert_eq!(
+            h.compute_status(Instant::now(), &config),
+            HealthStatus::Healthy
+        );
     }
 
     #[test]
     fn test_warning_between_thresholds() {
         let config = HealthConfig {
             warning_after: Duration::from_secs(10),
-            stuck_after:   Duration::from_secs(60),
+            stuck_after: Duration::from_secs(60),
         };
         let h = health_with_last_activity(20); // 20s ago — past warning, not stuck
-        assert_eq!(h.compute_status(Instant::now(), &config), HealthStatus::Warning);
+        assert_eq!(
+            h.compute_status(Instant::now(), &config),
+            HealthStatus::Warning
+        );
     }
 
     #[test]
     fn test_stuck_past_stuck_threshold() {
         let config = HealthConfig {
             warning_after: Duration::from_secs(5),
-            stuck_after:   Duration::from_secs(10),
+            stuck_after: Duration::from_secs(10),
         };
         let h = health_with_last_activity(15); // 15s ago — past stuck threshold
-        assert_eq!(h.compute_status(Instant::now(), &config), HealthStatus::Stuck);
+        assert_eq!(
+            h.compute_status(Instant::now(), &config),
+            HealthStatus::Stuck
+        );
     }
 
     #[test]
     fn test_dead_overrides_all() {
         let config = HealthConfig {
             warning_after: Duration::from_secs(60),
-            stuck_after:   Duration::from_secs(300),
+            stuck_after: Duration::from_secs(300),
         };
         let mut h = health_with_last_activity(0); // Just active
         h.is_dead = true;
-        assert_eq!(h.compute_status(Instant::now(), &config), HealthStatus::Dead);
+        assert_eq!(
+            h.compute_status(Instant::now(), &config),
+            HealthStatus::Dead
+        );
     }
 
     #[test]
     fn test_file_activity_keeps_agent_healthy_without_output() {
         let config = HealthConfig {
             warning_after: Duration::from_secs(60),
-            stuck_after:   Duration::from_secs(300),
+            stuck_after: Duration::from_secs(300),
         };
         let mut h = AgentHealth::new(AgentId::new());
         // No output for 90s (past warning threshold).
@@ -421,7 +437,10 @@ mod tests {
         h.last_file_change_at = Some(Instant::now() - Duration::from_secs(5));
 
         // Should still be Healthy because file changes are recent.
-        assert_eq!(h.compute_status(Instant::now(), &config), HealthStatus::Healthy);
+        assert_eq!(
+            h.compute_status(Instant::now(), &config),
+            HealthStatus::Healthy
+        );
     }
 
     #[test]
@@ -429,7 +448,10 @@ mod tests {
         let config = HealthConfig::default();
         let h = AgentHealth::new(AgentId::new());
         // Freshly registered — no activity timestamps at all.
-        assert_eq!(h.compute_status(Instant::now(), &config), HealthStatus::Healthy);
+        assert_eq!(
+            h.compute_status(Instant::now(), &config),
+            HealthStatus::Healthy
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -472,7 +494,10 @@ mod tests {
         monitor.record_activity(&id, ActivityType::ProcessHeartbeat);
 
         let entry = monitor.agents.get(&id).unwrap();
-        assert!(entry.last_output_at.is_some(), "heartbeat should set last_output_at");
+        assert!(
+            entry.last_output_at.is_some(),
+            "heartbeat should set last_output_at"
+        );
     }
 
     #[test]
@@ -577,8 +602,7 @@ mod tests {
             entry.last_output_at = Some(Instant::now() - Duration::from_secs(15));
         }
 
-        let (mut rx, handle) =
-            monitor.run_health_checks(Duration::from_millis(50));
+        let (mut rx, handle) = monitor.run_health_checks(Duration::from_millis(50));
 
         // Wait for at least one event.
         let event = tokio::time::timeout(Duration::from_millis(500), rx.recv())

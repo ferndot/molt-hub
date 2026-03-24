@@ -33,9 +33,7 @@ pub struct TypedSettingsState {
 // ---------------------------------------------------------------------------
 
 #[instrument(skip_all)]
-pub async fn get_typed_settings(
-    State(state): State<Arc<TypedSettingsState>>,
-) -> impl IntoResponse {
+pub async fn get_typed_settings(State(state): State<Arc<TypedSettingsState>>) -> impl IntoResponse {
     let settings = state.store.get().await;
     Json(settings).into_response()
 }
@@ -72,10 +70,7 @@ pub async fn patch_settings_section(
     match state.store.patch_section(&section, body).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(e) => {
-            let status = if matches!(
-                e,
-                super::file_store::SettingsPatchError::UnknownSection(_)
-            ) {
+            let status = if matches!(e, super::file_store::SettingsPatchError::UnknownSection(_)) {
                 StatusCode::BAD_REQUEST
             } else {
                 StatusCode::UNPROCESSABLE_ENTITY

@@ -65,18 +65,14 @@ impl Default for ScheduledJobId {
 #[derive(Debug, Clone)]
 pub enum JobKind {
     /// Approval deadline expired — emit a `HumanDecision(Rejected)` for the task.
-    ApprovalTimeout {
-        decided_by: String,
-    },
+    ApprovalTimeout { decided_by: String },
     /// Escalate task priority by one level.
     Escalation {
         from_priority: Priority,
         to_priority: Priority,
     },
     /// Fire an arbitrary domain event.
-    DelayedTransition {
-        event: DomainEvent,
-    },
+    DelayedTransition { event: DomainEvent },
 }
 
 // ---------------------------------------------------------------------------
@@ -313,9 +309,7 @@ impl SchedulerLoop {
 
         loop {
             // Compute how long to sleep until the next deadline (or indefinitely).
-            let sleep_target = {
-                self.inner.next_due()
-            };
+            let sleep_target = { self.inner.next_due() };
 
             let sleep_fut: tokio::time::Sleep = match sleep_target {
                 Some(t) => sleep_until(t),
@@ -485,10 +479,7 @@ mod tests {
             Ok(())
         }
 
-        async fn append_batch(
-            &self,
-            envelopes: Vec<EventEnvelope>,
-        ) -> Result<(), EventStoreError> {
+        async fn append_batch(&self, envelopes: Vec<EventEnvelope>) -> Result<(), EventStoreError> {
             self.events.lock().unwrap().extend(envelopes);
             Ok(())
         }
@@ -641,10 +632,7 @@ mod tests {
 
         let (fired_tx, mut fired_rx) = tokio::sync::mpsc::unbounded_channel::<ScheduledJobId>();
         let reg = Arc::clone(&registry);
-        let scheduler = spawn_scheduler_test(
-            move |id| reg.get(id),
-            fired_tx,
-        );
+        let scheduler = spawn_scheduler_test(move |id| reg.get(id), fired_tx);
 
         let job_id = scheduler
             .schedule(
@@ -708,8 +696,7 @@ mod tests {
         assert!(cancelled, "cancel should return true for existing job");
 
         // Wait past the deadline — should NOT fire.
-        let result =
-            tokio::time::timeout(Duration::from_millis(400), fired_rx.recv()).await;
+        let result = tokio::time::timeout(Duration::from_millis(400), fired_rx.recv()).await;
 
         assert!(result.is_err(), "job should NOT fire after cancellation");
 
@@ -834,7 +821,10 @@ mod tests {
             .unwrap();
 
         assert!(
-            matches!(state, molt_hub_core::model::TaskState::AwaitingApproval { .. }),
+            matches!(
+                state,
+                molt_hub_core::model::TaskState::AwaitingApproval { .. }
+            ),
             "expected AwaitingApproval, got {state:?}"
         );
 
@@ -866,7 +856,8 @@ mod tests {
         assert!(
             matches!(
                 final_state,
-                molt_hub_core::model::TaskState::InProgress | molt_hub_core::model::TaskState::Failed { .. }
+                molt_hub_core::model::TaskState::InProgress
+                    | molt_hub_core::model::TaskState::Failed { .. }
             ),
             "unexpected final state after timeout rejection: {final_state:?}"
         );
@@ -939,7 +930,10 @@ mod tests {
                 }
             )
         });
-        assert!(has_priority_change, "TaskPriorityChanged event should be stored");
+        assert!(
+            has_priority_change,
+            "TaskPriorityChanged event should be stored"
+        );
 
         scheduler.shutdown().await;
     }

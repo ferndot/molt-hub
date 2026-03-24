@@ -95,6 +95,11 @@ impl GitHubClient {
         }
     }
 
+    /// Bearer token sent to the GitHub API.
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
     /// Create a client with a custom base URL (useful for testing).
     #[cfg(test)]
     pub fn with_base_url(token: String, base_url: String) -> Self {
@@ -265,8 +270,7 @@ mod tests {
 
     #[test]
     fn github_client_with_base_url() {
-        let client =
-            GitHubClient::with_base_url("tok".into(), "http://localhost:9999".into());
+        let client = GitHubClient::with_base_url("tok".into(), "http://localhost:9999".into());
         assert_eq!(client.base_url, "http://localhost:9999");
     }
 

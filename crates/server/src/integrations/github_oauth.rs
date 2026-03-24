@@ -51,7 +51,9 @@ pub enum GithubOAuthError {
     AuthServerError { error: String, description: String },
     #[error("parse error: {0}")]
     ParseError(String),
-    #[error("client secret not configured at build time — set GITHUB_CLIENT_SECRET and rebuild")]
+    #[error(
+        "client secret not configured at build time — set MOLTHUB_GITHUB_CLIENT_SECRET and rebuild"
+    )]
     MissingClientSecret,
 }
 
@@ -116,7 +118,7 @@ impl GithubOAuthService {
         let (client_id, client_secret) = github_client_credentials();
         if client_secret.is_none() {
             tracing::warn!(
-                "GitHub OAuth: no client secret in this build — set GITHUB_CLIENT_SECRET (or MOLTHUB_GITHUB_CLIENT_SECRET) and rebuild"
+                "GitHub OAuth: no client secret in this build — set MOLTHUB_GITHUB_CLIENT_SECRET and rebuild"
             );
         }
         Self::with_credentials(redirect_uri, client_id, client_secret)

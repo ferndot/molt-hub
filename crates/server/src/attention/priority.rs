@@ -91,22 +91,34 @@ mod tests {
 
     #[test]
     fn tier_mapping_p0_to_decision_queue() {
-        assert_eq!(attention_tier(InterruptLevel::P0), AttentionCategory::DecisionQueue);
+        assert_eq!(
+            attention_tier(InterruptLevel::P0),
+            AttentionCategory::DecisionQueue
+        );
     }
 
     #[test]
     fn tier_mapping_p1_to_decision_queue() {
-        assert_eq!(attention_tier(InterruptLevel::P1), AttentionCategory::DecisionQueue);
+        assert_eq!(
+            attention_tier(InterruptLevel::P1),
+            AttentionCategory::DecisionQueue
+        );
     }
 
     #[test]
     fn tier_mapping_p2_to_notification_digest() {
-        assert_eq!(attention_tier(InterruptLevel::P2), AttentionCategory::NotificationDigest);
+        assert_eq!(
+            attention_tier(InterruptLevel::P2),
+            AttentionCategory::NotificationDigest
+        );
     }
 
     #[test]
     fn tier_mapping_p3_to_passive_dashboard() {
-        assert_eq!(attention_tier(InterruptLevel::P3), AttentionCategory::PassiveDashboard);
+        assert_eq!(
+            attention_tier(InterruptLevel::P3),
+            AttentionCategory::PassiveDashboard
+        );
     }
 
     #[test]
@@ -127,9 +139,18 @@ mod tests {
 
     #[test]
     fn attention_category_display() {
-        assert_eq!(AttentionCategory::DecisionQueue.to_string(), "DecisionQueue");
-        assert_eq!(AttentionCategory::NotificationDigest.to_string(), "NotificationDigest");
-        assert_eq!(AttentionCategory::PassiveDashboard.to_string(), "PassiveDashboard");
+        assert_eq!(
+            AttentionCategory::DecisionQueue.to_string(),
+            "DecisionQueue"
+        );
+        assert_eq!(
+            AttentionCategory::NotificationDigest.to_string(),
+            "NotificationDigest"
+        );
+        assert_eq!(
+            AttentionCategory::PassiveDashboard.to_string(),
+            "PassiveDashboard"
+        );
     }
 
     #[test]

@@ -48,7 +48,10 @@ pub async fn get_audit_entries(
     Query(params): Query<AuditQuery>,
 ) -> impl IntoResponse {
     let limit = params.limit.unwrap_or(100).min(1000);
-    let action_filter = params.action.as_deref().and_then(AuditAction::from_str_loose);
+    let action_filter = params
+        .action
+        .as_deref()
+        .and_then(AuditAction::from_str_loose);
     let entries = state.handle.recent(limit, action_filter).await;
     Json(entries).into_response()
 }

@@ -445,10 +445,7 @@ stages:
         // The transition `then: done` is a known stage, so only possible issue would be
         // the approved transition pointing to "done" which exists — no errors expected.
         // (Warnings count as errors in load_and_validate, but validate() returns them raw.)
-        assert!(
-            errs.is_empty(),
-            "unexpected errors: {errs:?}"
-        );
+        assert!(errs.is_empty(), "unexpected errors: {errs:?}");
     }
 
     #[test]
@@ -524,9 +521,7 @@ stages:
 "#;
         let cfg = PipelineConfig::from_yaml(yaml).unwrap();
         let errs = cfg.validate();
-        assert!(errs
-            .iter()
-            .any(|e| matches!(e, ConfigError::Warning(_))));
+        assert!(errs.iter().any(|e| matches!(e, ConfigError::Warning(_))));
     }
 
     #[test]

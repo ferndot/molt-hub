@@ -50,7 +50,9 @@ pub enum OAuthError {
     AuthServerError { error: String, description: String },
     #[error("parse error: {0}")]
     ParseError(String),
-    #[error("client secret not configured at build time — set JIRA_CLIENT_SECRET and rebuild")]
+    #[error(
+        "client secret not configured at build time — set MOLTHUB_JIRA_CLIENT_SECRET and rebuild"
+    )]
     MissingClientSecret,
 }
 
@@ -108,7 +110,7 @@ impl JiraOAuthService {
         let (client_id, client_secret) = jira_client_credentials();
         if client_secret.is_none() {
             tracing::warn!(
-                "Jira OAuth: no client secret in this build — set JIRA_CLIENT_SECRET (or MOLTHUB_JIRA_CLIENT_SECRET) and rebuild"
+                "Jira OAuth: no client secret in this build — set MOLTHUB_JIRA_CLIENT_SECRET and rebuild"
             );
         }
         Self::with_credentials(redirect_uri, client_id, client_secret)

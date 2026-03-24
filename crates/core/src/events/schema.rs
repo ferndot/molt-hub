@@ -113,11 +113,9 @@ pub async fn apply_migrations(conn: &mut sqlx::SqliteConnection) -> Result<(), s
             sqlx::query("ALTER TABLE events ADD COLUMN project_id TEXT")
                 .execute(&mut *conn)
                 .await?;
-            sqlx::query(
-                "UPDATE events SET project_id = 'default' WHERE project_id IS NULL",
-            )
-            .execute(&mut *conn)
-            .await?;
+            sqlx::query("UPDATE events SET project_id = 'default' WHERE project_id IS NULL")
+                .execute(&mut *conn)
+                .await?;
         }
         record_migration(conn, 1).await?;
     }
@@ -145,12 +143,11 @@ async fn column_exists(
     table: &str,
     column: &str,
 ) -> Result<bool, sqlx::Error> {
-    let rows =
-        sqlx::query("SELECT name FROM pragma_table_info(?1) WHERE name = ?2")
-            .bind(table)
-            .bind(column)
-            .fetch_all(&mut *conn)
-            .await?;
+    let rows = sqlx::query("SELECT name FROM pragma_table_info(?1) WHERE name = ?2")
+        .bind(table)
+        .bind(column)
+        .fetch_all(&mut *conn)
+        .await?;
     Ok(!rows.is_empty())
 }
 

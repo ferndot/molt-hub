@@ -199,11 +199,7 @@ impl AuditHandle {
         guard
             .iter()
             .rev()
-            .filter(|e| {
-                action_filter
-                    .as_ref()
-                    .map_or(true, |a| e.action == *a)
-            })
+            .filter(|e| action_filter.as_ref().map_or(true, |a| e.action == *a))
             .take(limit)
             .cloned()
             .collect()
@@ -399,10 +395,19 @@ mod tests {
 
     #[test]
     fn audit_action_from_str_loose() {
-        assert_eq!(AuditAction::from_str_loose("Spawn"), Some(AuditAction::Spawn));
+        assert_eq!(
+            AuditAction::from_str_loose("Spawn"),
+            Some(AuditAction::Spawn)
+        );
         assert_eq!(AuditAction::from_str_loose("send"), Some(AuditAction::Send));
-        assert_eq!(AuditAction::from_str_loose("TERMINATE"), Some(AuditAction::Terminate));
-        assert_eq!(AuditAction::from_str_loose("import"), Some(AuditAction::Import));
+        assert_eq!(
+            AuditAction::from_str_loose("TERMINATE"),
+            Some(AuditAction::Terminate)
+        );
+        assert_eq!(
+            AuditAction::from_str_loose("import"),
+            Some(AuditAction::Import)
+        );
         assert_eq!(AuditAction::from_str_loose("unknown"), None);
     }
 }

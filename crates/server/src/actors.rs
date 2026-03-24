@@ -21,8 +21,8 @@ use tracing::{debug, error, info, warn};
 
 use molt_hub_core::config::{HookTrigger, PipelineConfig};
 use molt_hub_core::events::store::EventStore;
-use molt_hub_core::events::HumanDecisionKind;
 use molt_hub_core::events::types::{DomainEvent, EventEnvelope};
+use molt_hub_core::events::HumanDecisionKind;
 use molt_hub_core::machine::{TaskMachine, TransitionError};
 use molt_hub_core::model::{AgentId, SessionId, TaskId, TaskState};
 
@@ -225,9 +225,7 @@ pub enum TaskCommand {
         reply: oneshot::Sender<Result<TaskState, ActorError>>,
     },
     /// Query the actor's current state without modifying it.
-    GetState {
-        reply: oneshot::Sender<TaskState>,
-    },
+    GetState { reply: oneshot::Sender<TaskState> },
     /// Ask the actor to shut down gracefully.
     Shutdown,
 }
@@ -513,10 +511,7 @@ impl TaskActorHandle {
     ///
     /// Returns the new `TaskState` on success, or an `ActorError` if the
     /// transition is invalid or the actor is unreachable.
-    pub async fn send_event(
-        &self,
-        envelope: EventEnvelope,
-    ) -> Result<TaskState, ActorError> {
+    pub async fn send_event(&self, envelope: EventEnvelope) -> Result<TaskState, ActorError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx
             .send(TaskCommand::ApplyEvent {
@@ -670,11 +665,7 @@ impl<S: EventStore + 'static> TaskRegistry<S> {
     /// Send shutdown commands to all registered actors and clear the registry.
     pub async fn shutdown_all(&self) {
         // Drain the map first to avoid holding references while awaiting.
-        let handles: Vec<_> = self
-            .actors
-            .iter()
-            .map(|e| e.value().clone())
-            .collect();
+        let handles: Vec<_> = self.actors.iter().map(|e| e.value().clone()).collect();
         self.actors.clear();
 
         for handle in handles {
@@ -714,10 +705,7 @@ mod tests {
             Ok(())
         }
 
-        async fn append_batch(
-            &self,
-            envelopes: Vec<EventEnvelope>,
-        ) -> Result<(), EventStoreError> {
+        async fn append_batch(&self, envelopes: Vec<EventEnvelope>) -> Result<(), EventStoreError> {
             self.events.lock().unwrap().extend(envelopes);
             Ok(())
         }
@@ -924,7 +912,10 @@ mod tests {
 
         // InProgress + AgentCompleted with requires_approval=true → AwaitingApproval
         let new_state = handle
-            .send_event(agent_completed_envelope(task_id.clone(), session_id.clone()))
+            .send_event(agent_completed_envelope(
+                task_id.clone(),
+                session_id.clone(),
+            ))
             .await
             .unwrap();
 
@@ -947,7 +938,10 @@ mod tests {
 
         // Pending → AgentCompleted is invalid (must be InProgress first).
         let result = handle
-            .send_event(agent_completed_envelope(task_id.clone(), session_id.clone()))
+            .send_event(agent_completed_envelope(
+                task_id.clone(),
+                session_id.clone(),
+            ))
             .await;
 
         assert!(

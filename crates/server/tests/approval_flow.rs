@@ -116,7 +116,10 @@ impl EventStore for MemoryEventStore {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn make_approval_pipeline(stage_name: &str, required_approvers: Vec<String>) -> Arc<PipelineConfig> {
+fn make_approval_pipeline(
+    stage_name: &str,
+    required_approvers: Vec<String>,
+) -> Arc<PipelineConfig> {
     Arc::new(PipelineConfig {
         name: "test-pipeline".into(),
         description: None,
@@ -137,7 +140,7 @@ fn make_approval_pipeline(stage_name: &str, required_approvers: Vec<String>) -> 
             wip_limit: None,
         }],
         integrations: vec![],
-            columns: vec![],
+        columns: vec![],
     })
 }
 
@@ -278,7 +281,14 @@ async fn rejection_path_drives_actor_to_in_progress() {
     let service = ApprovalService::new(Arc::clone(&approval_store));
 
     service
-        .open_request(task_id.clone(), session_id.clone(), "review".into(), 1, vec![], None)
+        .open_request(
+            task_id.clone(),
+            session_id.clone(),
+            "review".into(),
+            1,
+            vec![],
+            None,
+        )
         .await
         .unwrap();
 
@@ -317,7 +327,14 @@ async fn multi_approver_waits_for_threshold() {
 
     // Require 2 approvals.
     service
-        .open_request(task_id.clone(), session_id.clone(), "review".into(), 2, vec![], None)
+        .open_request(
+            task_id.clone(),
+            session_id.clone(),
+            "review".into(),
+            2,
+            vec![],
+            None,
+        )
         .await
         .unwrap();
 
@@ -387,7 +404,14 @@ async fn approving_already_approved_request_returns_already_closed() {
 
     // Single-approver threshold.
     service
-        .open_request(task_id.clone(), session_id.clone(), "review".into(), 1, vec![], None)
+        .open_request(
+            task_id.clone(),
+            session_id.clone(),
+            "review".into(),
+            1,
+            vec![],
+            None,
+        )
         .await
         .unwrap();
 
@@ -483,10 +507,7 @@ async fn open_request_sets_timeout_at_when_provided() {
 
     // Sanity check: timeout is in the future.
     let timeout = request.timeout_at.unwrap();
-    assert!(
-        timeout > Utc::now(),
-        "timeout_at should be in the future"
-    );
+    assert!(timeout > Utc::now(), "timeout_at should be in the future");
 }
 
 /// When no timeout is provided, timeout_at is None.
@@ -498,7 +519,14 @@ async fn open_request_with_no_timeout_has_none_timeout_at() {
     let service = ApprovalService::new(Arc::clone(&approval_store));
 
     let request = service
-        .open_request(task_id.clone(), session_id.clone(), "review".into(), 1, vec![], None)
+        .open_request(
+            task_id.clone(),
+            session_id.clone(),
+            "review".into(),
+            1,
+            vec![],
+            None,
+        )
         .await
         .unwrap();
 
