@@ -2818,6 +2818,7 @@ dependencies = [
  "clap",
  "dashmap",
  "dirs",
+ "dotenvy",
  "hex",
  "hmac",
  "jsonwebtoken",

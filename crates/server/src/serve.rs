@@ -31,7 +31,6 @@ use crate::integrations::github_oauth_handlers::GithubOAuthState;
 use crate::integrations::handlers::{jira_integrations_router, JiraAppState};
 use crate::integrations::jira_oauth_handlers::{jira_oauth_router, JiraOAuthState};
 use crate::integrations::oauth::JiraOAuthService;
-use crate::integrations::oauth_clients::warm_oauth_clients_cache;
 use crate::integrations::oauth_redirect::{github_redirect_uri, jira_redirect_uri};
 use crate::pipeline::handlers::{pipeline_router, PipelineState};
 use crate::projects::handlers::{project_router, ProjectConfigStore};
@@ -73,9 +72,6 @@ fn default_events_db_path() -> PathBuf {
 pub async fn build_router(
     dist_dir: PathBuf,
 ) -> (Router, Arc<ConnectionManager>, Arc<Supervisor>, AuditHandle) {
-    // After `load_dotenv_files()` in `main`, load or create `oauth-clients.json` (see `oauth_clients`).
-    warm_oauth_clients_cache();
-
     let manager = Arc::new(ConnectionManager::new());
     let index_html = dist_dir.join("index.html");
 

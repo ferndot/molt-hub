@@ -1,6 +1,6 @@
 //! Shared OAuth helpers (PKCE CSRF, success HTML).
 //!
-//! OAuth **app** credentials: [`super::oauth_clients`] only (`oauth-clients.json`).
+//! OAuth **app** credentials: [`super::oauth_clients`] (compile-time via `build.rs`).
 
 /// Cryptographically random CSRF `state` for OAuth authorize → callback correlation.
 pub fn random_oauth_state() -> String {

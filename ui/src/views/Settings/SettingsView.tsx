@@ -390,11 +390,10 @@ const JiraPanel: Component<{ onBack: () => void }> = (props) => {
       <Show when={!isConnected()}>
         <div class={styles.oauthSection}>
           <p class={styles.oauthDescription}>
-            Connect your Atlassian account via OAuth to import Jira issues. Put your 3LO app’s{" "}
-            <strong>client_secret</strong> in <code>oauth-clients.json</code> under your Molt Hub
-            config folder (same place as <code>.env</code> on macOS/Linux — see README). Use{" "}
-            <code>jira.client_id</code> / <code>jira.client_secret</code>; restart the server after
-            editing, then connect again.
+            Connect your Atlassian account via OAuth to import Jira issues. The app’s Jira{" "}
+            <strong>client id / secret</strong> are fixed in the build you are running (set when the
+            binary was compiled — see project README). If token exchange fails, rebuild with the
+            correct <code>JIRA_CLIENT_SECRET</code> (and optional <code>JIRA_CLIENT_ID</code>).
           </p>
           <div class={styles.connectedRow}>
             <span class={`${styles.statusBadge} ${styles.statusIdle}`}>
@@ -470,11 +469,10 @@ const GitHubPanel: Component<{ onBack: () => void }> = (props) => {
       <Show when={!isConnected()}>
         <div class={styles.oauthSection}>
           <p class={styles.oauthDescription}>
-            Connect your GitHub account via OAuth to import issues and pull requests. Add{" "}
-            <code>github.client_secret</code> to <code>oauth-clients.json</code> in your Molt Hub
-            config folder (see README), restart the server, then connect. After authorizing in the
-            browser, use <strong>Finish in browser (local API)</strong> on the bridge page if you are
-            not using the desktop app.
+            Connect your GitHub account via OAuth to import issues and pull requests. GitHub app
+            credentials are fixed in this build (set at compile time — see README). After
+            authorizing in the browser, use <strong>Finish in browser (local API)</strong> on the
+            bridge page if you are not using the desktop app.
           </p>
           <div class={styles.connectedRow}>
             <span class={`${styles.statusBadge} ${styles.statusIdle}`}>

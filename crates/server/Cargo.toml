@@ -3,6 +3,9 @@ name = "molt-hub-server"
 version.workspace = true
 edition.workspace = true
 
+[build-dependencies]
+dotenvy = { workspace = true }
+
 [[bin]]
 name = "molt-hub"
 path = "src/main.rs"

@@ -15,8 +15,8 @@ The default API origin is `http://127.0.0.1:13401`. If you use another port, ope
 2. Register **exactly** those URLs in [Atlassian](https://developer.atlassian.com/console/myapps/) and your [GitHub OAuth App](https://github.com/settings/developers). GitHub allows [one callback URL](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps) per app.
 3. Put the same URLs in **`redirect-uris.json`** (`jira` / `github`). They are embedded at build time; empty values panic unless you set **`MOLTHUB_JIRA_REDIRECT_URI`** / **`MOLTHUB_GITHUB_REDIRECT_URI`**. Forks should point this file at **their** hosted bridge URLs (or use those env vars).
 
-**GitHub / Jira token exchange** needs each app’s **client secret** in the server’s **`oauth-clients.json`** (under the OS config `molt-hub` folder — see repo README). No environment variables for OAuth app id/secret.
+**GitHub / Jira token exchange** uses **client secrets baked into the server binary** at `cargo build` time (repo `.env` or env vars — see `crates/server/build.rs` and the main README).
 
-**“Callback URL is invalid” (Atlassian)** — `redirect_uri` and console must match; `client_id` in `oauth-clients.json` must be that Atlassian app’s id (defaults are provided for the upstream bridge).
+**“Callback URL is invalid” (Atlassian)** — `redirect_uri` and console must match; the compiled-in `client_id` must be that Atlassian app’s id (defaults match the upstream bridge).
 
 Any static HTTPS host works if paths match what you register.

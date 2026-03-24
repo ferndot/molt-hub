@@ -1,6 +1,6 @@
 //! Atlassian OAuth 2.0 (3LO) with PKCE via [`oauth2`].
 //!
-//! OAuth app credentials: only [`super::oauth_clients`] (`oauth-clients.json`).
+//! OAuth app credentials: [`super::oauth_clients`] (embedded at compile time; see crate `build.rs`).
 
 use oauth2::basic::{BasicClient, BasicErrorResponse, BasicTokenResponse};
 use oauth2::TokenResponse as _;
@@ -50,7 +50,7 @@ pub enum OAuthError {
     AuthServerError { error: String, description: String },
     #[error("parse error: {0}")]
     ParseError(String),
-    #[error("client secret not configured — set jira.client_secret in oauth-clients.json")]
+    #[error("client secret not configured at build time — set JIRA_CLIENT_SECRET and rebuild")]
     MissingClientSecret,
 }
 
@@ -103,12 +103,12 @@ pub struct JiraOAuthService {
 }
 
 impl JiraOAuthService {
-    /// Build from the registered OAuth callback URL (HTTPS bridge) and `oauth-clients.json`.
+    /// Build from the registered OAuth callback URL (HTTPS bridge) and compile-time credentials.
     pub fn from_redirect_uri(redirect_uri: &str) -> Self {
         let (client_id, client_secret) = jira_client_credentials();
         if client_secret.is_none() {
             tracing::warn!(
-                "Jira OAuth: add jira.client_secret to oauth-clients.json (see integrations::oauth_clients)"
+                "Jira OAuth: no client secret in this build — set JIRA_CLIENT_SECRET (or MOLTHUB_JIRA_CLIENT_SECRET) and rebuild"
             );
         }
         Self::with_credentials(redirect_uri, client_id, client_secret)

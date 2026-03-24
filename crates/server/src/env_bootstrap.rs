@@ -1,11 +1,9 @@
-//! Load optional `.env` files before OAuth and other `std::env` reads.
+//! Load optional `.env` files before other `std::env` reads at runtime.
 //!
 //! Order (each step only sets variables **not** already in the process environment):
 //! 1. **User config** — [`dirs::config_dir`]`/molt-hub/.env` (stable for desktop apps regardless of cwd).
 //! 2. **Working tree** — first `.env` found walking up from [`std::env::current_dir`] (developer convenience).
 //!
-//! GitHub/Jira OAuth **app** credentials live only in `molt-hub/oauth-clients.json` under this same
-//! config directory (created on first run; see `integrations::oauth_clients`).
 
 use std::path::{Path, PathBuf};
 
