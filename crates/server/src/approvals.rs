@@ -658,6 +658,7 @@ mod tests {
             version: 1,
             stages: vec![StageDefinition {
                 name: stage_name.to_string(),
+                label: None,
                 instructions: None,
                 instructions_template: None,
                 requires_approval: true,
@@ -666,6 +667,9 @@ mod tests {
                 terminal: false,
                 hooks: vec![],
                 transition_rules: vec![],
+                color: None,
+                order: 0,
+                wip_limit: None,
             }],
             integrations: vec![],
             columns: vec![],

@@ -118,6 +118,7 @@ fn make_pipeline(stages: &[(&str, bool)]) -> Arc<PipelineConfig> {
         .iter()
         .map(|(name, requires_approval)| StageDefinition {
             name: name.to_string(),
+            label: None,
             instructions: None,
             instructions_template: None,
             requires_approval: *requires_approval,
@@ -126,6 +127,9 @@ fn make_pipeline(stages: &[(&str, bool)]) -> Arc<PipelineConfig> {
             terminal: false,
             hooks: vec![],
             transition_rules: vec![],
+            color: None,
+            order: 0,
+            wip_limit: None,
         })
         .collect();
 

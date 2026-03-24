@@ -642,6 +642,7 @@ mod tests {
     fn stage_with_hooks(hooks: Vec<HookDefinition>) -> StageDefinition {
         StageDefinition {
             name: "build".into(),
+            label: None,
             instructions: None,
             instructions_template: None,
             requires_approval: false,
@@ -650,6 +651,9 @@ mod tests {
             terminal: false,
             hooks,
             transition_rules: vec![],
+            color: None,
+            order: 0,
+            wip_limit: None,
         }
     }
 

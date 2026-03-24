@@ -601,6 +601,7 @@ mod tests {
             .iter()
             .map(|(name, requires_approval)| StageDefinition {
                 name: name.to_string(),
+                label: None,
                 instructions: None,
                 instructions_template: None,
                 requires_approval: *requires_approval,
@@ -609,6 +610,9 @@ mod tests {
                 terminal: false,
                 hooks: vec![],
                 transition_rules: vec![],
+                color: None,
+                order: 0,
+                wip_limit: None,
             })
             .collect();
 

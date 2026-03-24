@@ -386,6 +386,7 @@ mod tests {
             stages: vec![
                 StageDefinition {
                     name: "work".to_string(),
+                    label: None,
                     instructions: None,
                     instructions_template: Some(
                         "Work on: {{task_title}} ({{priority}})".to_string(),
@@ -396,9 +397,13 @@ mod tests {
                     terminal: false,
                     hooks: vec![],
                     transition_rules: vec![],
+                    color: None,
+                    order: 0,
+                    wip_limit: None,
                 },
                 StageDefinition {
                     name: "done".to_string(),
+                    label: None,
                     instructions: Some("You are done.".to_string()),
                     instructions_template: None, // no template for this stage
                     requires_approval: false,
@@ -407,6 +412,9 @@ mod tests {
                     terminal: true,
                     hooks: vec![],
                     transition_rules: vec![],
+                    color: None,
+                    order: 0,
+                    wip_limit: None,
                 },
             ],
             integrations: vec![],

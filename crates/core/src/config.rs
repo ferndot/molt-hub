@@ -52,7 +52,7 @@ pub enum HookTrigger {
     OnStall,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HookDefinition {
     pub kind: HookKind,
     pub on: HookTrigger,
@@ -72,7 +72,7 @@ pub enum TransitionTrigger {
     Manual,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TransitionDefinition {
     pub when: TransitionTrigger,
     pub then: String,
@@ -83,7 +83,12 @@ pub struct TransitionDefinition {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StageDefinition {
+    /// Stable stage identifier (`id` is accepted as a YAML/JSON alias).
+    #[serde(alias = "id")]
     pub name: String,
+    /// Display label for the board; when omitted, APIs default to `name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
     pub instructions: Option<String>,
     pub instructions_template: Option<String>,
     #[serde(default)]
@@ -97,12 +102,18 @@ pub struct StageDefinition {
     pub hooks: Vec<HookDefinition>,
     #[serde(default)]
     pub transition_rules: Vec<TransitionDefinition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub order: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wip_limit: Option<u32>,
 }
 
 // ─── Column types ─────────────────────────────────────────────────────────────
 
 /// WIP limits, auto-assignment, and gating behavior for a kanban column.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct ColumnBehavior {
     /// Maximum number of tasks allowed in the column at once.
     pub wip_limit: Option<u32>,
@@ -117,7 +128,7 @@ pub struct ColumnBehavior {
 }
 
 /// Hook IDs that fire when tasks enter, exit, or stall in a column.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct ColumnHooks {
     /// Hook IDs to run when a task enters this column.
     #[serde(default)]
@@ -131,7 +142,7 @@ pub struct ColumnHooks {
 }
 
 /// A kanban column definition, including display settings, stage mapping, and behavior.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ColumnConfig {
     /// Stable identifier for this column, used in hook references and API calls.
     pub id: String,
@@ -181,6 +192,146 @@ pub struct PipelineConfig {
 }
 
 impl PipelineConfig {
+    /// Default pipeline matching the built-in board stages (backlog → deployed).
+    pub fn board_defaults() -> Self {
+        Self {
+            name: "default".into(),
+            description: None,
+            version: 1,
+            stages: vec![
+                StageDefinition {
+                    name: "backlog".into(),
+                    label: Some("Backlog".into()),
+                    instructions: None,
+                    instructions_template: None,
+                    requires_approval: false,
+                    approvers: vec![],
+                    timeout_seconds: None,
+                    terminal: false,
+                    hooks: vec![],
+                    transition_rules: vec![],
+                    color: Some("#94a3b8".into()),
+                    order: 0,
+                    wip_limit: None,
+                },
+                StageDefinition {
+                    name: "in-progress".into(),
+                    label: Some("In Progress".into()),
+                    instructions: None,
+                    instructions_template: None,
+                    requires_approval: false,
+                    approvers: vec![],
+                    timeout_seconds: None,
+                    terminal: false,
+                    hooks: vec![],
+                    transition_rules: vec![],
+                    color: Some("#6366f1".into()),
+                    order: 1,
+                    wip_limit: Some(5),
+                },
+                StageDefinition {
+                    name: "code-review".into(),
+                    label: Some("Code Review".into()),
+                    instructions: None,
+                    instructions_template: None,
+                    requires_approval: true,
+                    approvers: vec![],
+                    timeout_seconds: None,
+                    terminal: false,
+                    hooks: vec![],
+                    transition_rules: vec![],
+                    color: Some("#f59e0b".into()),
+                    order: 2,
+                    wip_limit: None,
+                },
+                StageDefinition {
+                    name: "testing".into(),
+                    label: Some("Testing".into()),
+                    instructions: None,
+                    instructions_template: None,
+                    requires_approval: false,
+                    approvers: vec![],
+                    timeout_seconds: None,
+                    terminal: false,
+                    hooks: vec![],
+                    transition_rules: vec![],
+                    color: Some("#10b981".into()),
+                    order: 3,
+                    wip_limit: None,
+                },
+                StageDefinition {
+                    name: "deployed".into(),
+                    label: Some("Deployed".into()),
+                    instructions: None,
+                    instructions_template: None,
+                    requires_approval: false,
+                    approvers: vec![],
+                    timeout_seconds: None,
+                    terminal: true,
+                    hooks: vec![],
+                    transition_rules: vec![],
+                    color: Some("#22c55e".into()),
+                    order: 4,
+                    wip_limit: None,
+                },
+            ],
+            integrations: vec![],
+            columns: vec![
+                ColumnConfig {
+                    id: "backlog".into(),
+                    title: "Backlog".into(),
+                    stage_match: vec!["backlog".into()],
+                    color: Some("#94a3b8".into()),
+                    order: 0,
+                    behavior: ColumnBehavior {
+                        wip_limit: None,
+                        ..Default::default()
+                    },
+                    hooks: ColumnHooks::default(),
+                },
+                ColumnConfig {
+                    id: "in-progress".into(),
+                    title: "In Progress".into(),
+                    stage_match: vec!["in-progress".into()],
+                    color: Some("#6366f1".into()),
+                    order: 1,
+                    behavior: ColumnBehavior {
+                        wip_limit: Some(5),
+                        ..Default::default()
+                    },
+                    hooks: ColumnHooks::default(),
+                },
+                ColumnConfig {
+                    id: "code-review".into(),
+                    title: "Code Review".into(),
+                    stage_match: vec!["code-review".into()],
+                    color: Some("#f59e0b".into()),
+                    order: 2,
+                    behavior: ColumnBehavior::default(),
+                    hooks: ColumnHooks::default(),
+                },
+                ColumnConfig {
+                    id: "testing".into(),
+                    title: "Testing".into(),
+                    stage_match: vec!["testing".into()],
+                    color: Some("#10b981".into()),
+                    order: 3,
+                    behavior: ColumnBehavior::default(),
+                    hooks: ColumnHooks::default(),
+                },
+                ColumnConfig {
+                    id: "deployed".into(),
+                    title: "Deployed".into(),
+                    stage_match: vec!["deployed".into()],
+                    color: Some("#22c55e".into()),
+                    order: 4,
+                    behavior: ColumnBehavior::default(),
+                    hooks: ColumnHooks::default(),
+                },
+            ],
+        }
+    }
+
     /// Parse a YAML string into a `PipelineConfig`.
     pub fn from_yaml(yaml: &str) -> Result<Self, ConfigError> {
         serde_yaml::from_str(yaml).map_err(|e| ConfigError::Parse(e.to_string()))
@@ -402,5 +553,19 @@ stages:
         assert_eq!(hook.kind, HookKind::Shell);
         assert_eq!(hook.on, HookTrigger::Enter);
         assert_eq!(hook.config["command"], "make build");
+    }
+
+    #[test]
+    fn stage_accepts_id_alias_and_label_in_yaml() {
+        let yaml = r#"
+name: aliased
+version: 1
+stages:
+  - id: build
+    label: Build
+"#;
+        let cfg = PipelineConfig::from_yaml(yaml).unwrap();
+        assert_eq!(cfg.stages[0].name, "build");
+        assert_eq!(cfg.stages[0].label.as_deref(), Some("Build"));
     }
 }

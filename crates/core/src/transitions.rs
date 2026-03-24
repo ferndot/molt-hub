@@ -311,6 +311,7 @@ mod tests {
             stages: vec![
                 StageDefinition {
                     name: "implementation".into(),
+                    label: None,
                     instructions: None,
                     instructions_template: None,
                     requires_approval: false,
@@ -319,9 +320,13 @@ mod tests {
                     terminal: false,
                     hooks: vec![],
                     transition_rules,
+                    color: None,
+                    order: 0,
+                    wip_limit: None,
                 },
                 StageDefinition {
                     name: "done".into(),
+                    label: None,
                     instructions: None,
                     instructions_template: None,
                     requires_approval: false,
@@ -330,6 +335,9 @@ mod tests {
                     terminal: true,
                     hooks: vec![],
                     transition_rules: vec![],
+                    color: None,
+                    order: 0,
+                    wip_limit: None,
                 },
             ],
             integrations: vec![],
@@ -345,6 +353,7 @@ mod tests {
             stages: vec![
                 StageDefinition {
                     name: "implementation".into(),
+                    label: None,
                     instructions: None,
                     instructions_template: None,
                     requires_approval: false,
@@ -357,9 +366,13 @@ mod tests {
                         then: "review".into(),
                         guard: None,
                     }],
+                    color: None,
+                    order: 0,
+                    wip_limit: None,
                 },
                 StageDefinition {
                     name: "review".into(),
+                    label: None,
                     instructions: None,
                     instructions_template: None,
                     requires_approval: false,
@@ -372,9 +385,13 @@ mod tests {
                         then: "done".into(),
                         guard: None,
                     }],
+                    color: None,
+                    order: 0,
+                    wip_limit: None,
                 },
                 StageDefinition {
                     name: "done".into(),
+                    label: None,
                     instructions: None,
                     instructions_template: None,
                     requires_approval: false,
@@ -383,6 +400,9 @@ mod tests {
                     terminal: true,
                     hooks: vec![],
                     transition_rules: vec![],
+                    color: None,
+                    order: 0,
+                    wip_limit: None,
                 },
             ],
             integrations: vec![],
@@ -545,6 +565,7 @@ mod tests {
             1,
             StageDefinition {
                 name: "review".into(),
+                label: None,
                 instructions: None,
                 instructions_template: None,
                 requires_approval: false,
@@ -553,6 +574,9 @@ mod tests {
                 terminal: false,
                 hooks: vec![],
                 transition_rules: vec![],
+                color: None,
+                order: 0,
+                wip_limit: None,
             },
         );
 
