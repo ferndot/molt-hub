@@ -22,6 +22,7 @@ export interface BoardColumnProps {
   onDrop: (taskId: string, fromStage: string, toStage: string) => void;
   onApprove?: (taskId: string) => void;
   onReject?: (taskId: string) => void;
+  onRunAgent?: (task: BoardTask) => void;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +125,7 @@ const BoardColumn: Component<BoardColumnProps> = (props) => {
                   onDragStart={handleDragStart}
                   onApprove={props.onApprove}
                   onReject={props.onReject}
+                  onRunAgent={props.onRunAgent}
                 />
               </div>
             )}

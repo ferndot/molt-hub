@@ -47,6 +47,14 @@ export function switchProject(id: string): void {
   setProjectState("activeProjectId", id);
 }
 
+/** Repository path for the active project, or `undefined` if none / default context. */
+export function activeRepoPath(): string | undefined {
+  const id = projectState.activeProjectId;
+  const project = projectState.projects.find((p) => p.id === id);
+  const path = project?.repo_path?.trim();
+  return path && path.length > 0 ? path : undefined;
+}
+
 /** Create a project via POST /api/projects (snake_case body for Rust API). */
 export async function createProject(
   name: string,

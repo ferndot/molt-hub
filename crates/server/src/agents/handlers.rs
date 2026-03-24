@@ -20,17 +20,19 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tracing::instrument;
+use tracing::{instrument, warn};
 
 use molt_hub_core::model::{AgentId, SessionId, TaskId};
 use molt_hub_harness::adapter::SpawnConfig;
 use molt_hub_harness::claude::ClaudeAdapter;
 use molt_hub_harness::cli::CliAdapter;
 use molt_hub_harness::supervisor::{SteerMessage, SteerPriority, Supervisor, SupervisorError};
+use molt_hub_harness::worktree::{validate_repo, WorktreeConfig, WorktreeManager};
 
 use crate::projects::runtime::ProjectRuntimeRegistry;
 
 use super::output_buffer::AgentOutputBuffer;
+use super::worktree_registry::{WorktreeManagerCache, WorktreeRegistry};
 
 // ---------------------------------------------------------------------------
 // Shared state
@@ -44,6 +46,9 @@ pub struct AgentState {
     pub claude_adapter: Arc<ClaudeAdapter>,
     /// When set, [`spawn_agent`] uses this adapter for any `adapter_type` (unit tests only).
     pub test_spawn_adapter: Option<Arc<dyn molt_hub_harness::adapter::AgentAdapter>>,
+    /// One [`WorktreeManager`] per repository root (agent isolation under `.molt/worktrees/`).
+    pub worktree_managers: Arc<WorktreeManagerCache>,
+    pub worktree_registry: Arc<WorktreeRegistry>,
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +140,16 @@ pub struct SteerResponse {
 // Handlers
 // ---------------------------------------------------------------------------
 
+async fn remove_agent_worktree_if_any(state: &AgentState, agent_id: &AgentId) {
+    if let Some(repo) = state.worktree_registry.take_repo_for_agent(agent_id) {
+        if let Some(mgr) = state.worktree_managers.get(&repo) {
+            if let Err(e) = mgr.remove_agent_worktree(agent_id).await {
+                warn!(%agent_id, error = %e, "failed to remove agent worktree");
+            }
+        }
+    }
+}
+
 fn resolve_spawn_adapter(
     state: &AgentState,
     adapter_type: &str,
@@ -180,12 +195,47 @@ async fn spawn_agent(
             .into_response();
     }
 
+    let repo_root = std::fs::canonicalize(&working_dir).unwrap_or_else(|_| working_dir.clone());
+
     let agent_id = AgentId::new();
+    let mut effective_working_dir = working_dir.clone();
+
+    if validate_repo(&repo_root).is_ok() {
+        match state
+            .worktree_managers
+            .get_or_insert(repo_root.clone(), || {
+                WorktreeManager::new(repo_root.clone(), WorktreeConfig::default())
+            }) {
+            Ok(mgr) => match mgr.create_for_agent(agent_id.clone(), None).await {
+                Ok(info) => {
+                    state
+                        .worktree_registry
+                        .record(agent_id.clone(), repo_root.clone());
+                    effective_working_dir = info.path;
+                }
+                Err(e) => {
+                    warn!(
+                        repo = %repo_root.display(),
+                        error = %e,
+                        "worktree create failed; using repository root as working directory"
+                    );
+                }
+            },
+            Err(e) => {
+                warn!(
+                    repo = %repo_root.display(),
+                    error = %e,
+                    "WorktreeManager init failed; using repository root as working directory"
+                );
+            }
+        }
+    }
+
     let spawn_cfg = SpawnConfig {
         agent_id: agent_id.clone(),
         task_id: TaskId::new(),
         session_id: SessionId::new(),
-        working_dir,
+        working_dir: effective_working_dir,
         instructions: body.instructions,
         env: HashMap::new(),
         timeout: None,
@@ -202,35 +252,38 @@ async fn spawn_agent(
             })
             .into_response()
         }
-        Err(SupervisorError::MaxAgentsReached(n)) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(MessageResponse {
-                message: format!("maximum concurrent agents reached ({n})"),
-            }),
-        )
-            .into_response(),
-        Err(SupervisorError::AdapterError(e)) => (
-            StatusCode::BAD_GATEWAY,
-            Json(MessageResponse {
-                message: format!("adapter error: {e}"),
-            }),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(MessageResponse {
-                message: format!("spawn failed: {e}"),
-            }),
-        )
-            .into_response(),
+        Err(e) => {
+            remove_agent_worktree_if_any(state.as_ref(), &agent_id).await;
+            match e {
+                SupervisorError::MaxAgentsReached(n) => (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(MessageResponse {
+                        message: format!("maximum concurrent agents reached ({n})"),
+                    }),
+                )
+                    .into_response(),
+                SupervisorError::AdapterError(adapt_err) => (
+                    StatusCode::BAD_GATEWAY,
+                    Json(MessageResponse {
+                        message: format!("adapter error: {adapt_err}"),
+                    }),
+                )
+                    .into_response(),
+                other => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(MessageResponse {
+                        message: format!("spawn failed: {other}"),
+                    }),
+                )
+                    .into_response(),
+            }
+        }
     }
 }
 
 /// GET /api/agents — list all agents with status.
 #[instrument(skip(state))]
-async fn list_agents(
-    State(state): State<Arc<AgentState>>,
-) -> impl IntoResponse {
+async fn list_agents(State(state): State<Arc<AgentState>>) -> impl IntoResponse {
     let agents = state.supervisor.list_agents().await;
     let responses: Vec<AgentResponse> = agents
         .into_iter()
@@ -270,7 +323,10 @@ async fn terminate_agent(
 
     let agent_id = AgentId(ulid);
 
-    match state.supervisor.terminate_agent(&agent_id).await {
+    let result = state.supervisor.terminate_agent(&agent_id).await;
+    remove_agent_worktree_if_any(state.as_ref(), &agent_id).await;
+
+    match result {
         Ok(()) => Json(MessageResponse {
             message: format!("agent {agent_id_str} terminated"),
         })
@@ -608,7 +664,6 @@ pub async fn get_project_agent(
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -619,10 +674,12 @@ mod tests {
     use async_trait::async_trait;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use molt_hub_harness::adapter::{AdapterError, AgentAdapter, AgentEvent, AgentHandle, AgentMessage};
+    use molt_hub_core::model::AgentStatus;
+    use molt_hub_harness::adapter::{
+        AdapterError, AgentAdapter, AgentEvent, AgentHandle, AgentMessage,
+    };
     use molt_hub_harness::claude::ClaudeAdapter;
     use molt_hub_harness::supervisor::SupervisorConfig;
-    use molt_hub_core::model::AgentStatus;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
     use tokio::sync::broadcast;
@@ -653,7 +710,11 @@ mod tests {
             Ok(AgentHandle::new(config.agent_id, None, Box::new(())))
         }
 
-        async fn send(&self, _handle: &AgentHandle, _message: AgentMessage) -> Result<(), AdapterError> {
+        async fn send(
+            &self,
+            _handle: &AgentHandle,
+            _message: AgentMessage,
+        ) -> Result<(), AdapterError> {
             Ok(())
         }
 
@@ -690,6 +751,8 @@ mod tests {
             output_buffer: Arc::new(AgentOutputBuffer::new()),
             claude_adapter: Arc::new(ClaudeAdapter::new()),
             test_spawn_adapter: None,
+            worktree_managers: Arc::new(WorktreeManagerCache::new()),
+            worktree_registry: Arc::new(WorktreeRegistry::new()),
         })
     }
 
@@ -728,7 +791,10 @@ mod tests {
         // Handler returns 400 for malformed ULID, but Axum may return 404
         // if the route pattern doesn't match. Either is acceptable for invalid IDs.
         let status = resp.status().as_u16();
-        assert!(status == 400 || status == 404, "expected 400 or 404, got {status}");
+        assert!(
+            status == 400 || status == 404,
+            "expected 400 or 404, got {status}"
+        );
     }
 
     #[tokio::test]
@@ -816,6 +882,8 @@ mod tests {
             output_buffer,
             claude_adapter: Arc::new(ClaudeAdapter::new()),
             test_spawn_adapter: None,
+            worktree_managers: Arc::new(WorktreeManagerCache::new()),
+            worktree_registry: Arc::new(WorktreeRegistry::new()),
         });
         let app = agent_router(state);
 
@@ -881,7 +949,10 @@ mod tests {
 
         let resp = app.oneshot(req).await.unwrap();
         let status = resp.status().as_u16();
-        assert!(status == 400 || status == 404, "expected 400 or 404, got {status}");
+        assert!(
+            status == 400 || status == 404,
+            "expected 400 or 404, got {status}"
+        );
     }
 
     #[test]
@@ -904,6 +975,8 @@ mod tests {
             output_buffer: Arc::new(AgentOutputBuffer::new()),
             claude_adapter: Arc::new(ClaudeAdapter::new()),
             test_spawn_adapter: Some(adapter),
+            worktree_managers: Arc::new(WorktreeManagerCache::new()),
+            worktree_registry: Arc::new(WorktreeRegistry::new()),
         });
         let app = agent_router(state);
 

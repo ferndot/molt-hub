@@ -51,6 +51,8 @@ export interface TaskCardProps {
   onDragStart?: (e: DragEvent, taskId: string, fromStage: string) => void;
   onApprove?: (taskId: string) => void;
   onReject?: (taskId: string) => void;
+  /** Spawn an agent with instructions derived from this task (uses active project repo path). */
+  onRunAgent?: (task: BoardTask) => void;
   focused?: boolean;
 }
 
@@ -137,6 +139,20 @@ const TaskCard: Component<TaskCardProps> = (props) => {
           <p class={styles.timeLabel}>
             Time in stage: {props.task.timeInStage}
           </p>
+          <Show when={props.onRunAgent}>
+            <div class={styles.runAgentRow}>
+              <button
+                type="button"
+                class={`${styles.actionBtn} ${styles.runAgentBtn}`}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  props.onRunAgent?.(props.task);
+                }}
+              >
+                Run agent
+              </button>
+            </div>
+          </Show>
           <Show
             when={
               props.task.status === "waiting" ||

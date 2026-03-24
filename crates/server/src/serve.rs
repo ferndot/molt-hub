@@ -19,16 +19,17 @@ use molt_hub_harness::claude::ClaudeAdapter;
 use molt_hub_harness::supervisor::{Supervisor, SupervisorConfig};
 
 use crate::agents::handlers::{agent_router, AgentState};
-use crate::agents::output_buffer::shared_output_buffer;
+use crate::agents::output_buffer::{shared_output_buffer, spawn_agent_output_buffer_task};
+use crate::agents::worktree_registry::{WorktreeManagerCache, WorktreeRegistry};
 use crate::audit::{audit_router, start_audit_writer, AuditHandle, AuditState};
-use crate::events::handlers::{events_router, tasks_router, EventStoreState};
 use crate::credentials::KeyringStore;
-use crate::integrations::github_oauth::GITHUB_CLIENT_SECRET;
-use crate::integrations::oauth_redirect::{github_redirect_uri, jira_redirect_uri};
+use crate::events::handlers::{events_router, tasks_router, EventStoreState};
 use crate::integrations::github_oauth::GithubOAuthService;
+use crate::integrations::github_oauth::GITHUB_CLIENT_SECRET;
 use crate::integrations::github_oauth_handlers::{github_oauth_router, GithubOAuthState};
 use crate::integrations::jira_oauth_handlers::{jira_oauth_router, JiraOAuthState};
 use crate::integrations::oauth::JiraOAuthService;
+use crate::integrations::oauth_redirect::{github_redirect_uri, jira_redirect_uri};
 use crate::pipeline::handlers::{pipeline_router, PipelineState};
 use crate::projects::handlers::{project_router, ProjectConfigStore};
 use crate::projects::runtime::{ProjectRuntime, ProjectRuntimeRegistry};
@@ -71,10 +72,13 @@ pub async fn build_router(
 
     // Process supervisor
     let (event_tx, _event_rx) = tokio::sync::broadcast::channel::<AgentEvent>(256);
-    let supervisor = Arc::new(Supervisor::new(SupervisorConfig::default(), event_tx));
 
     // Agent output buffer (shared with broadcast layer)
     let output_buffer = shared_output_buffer();
+    let _agent_output_fanout =
+        spawn_agent_output_buffer_task(event_tx.subscribe(), Arc::clone(&output_buffer));
+
+    let supervisor = Arc::new(Supervisor::new(SupervisorConfig::default(), event_tx));
 
     // Agent API state
     let agent_state = Arc::new(AgentState {
@@ -82,6 +86,8 @@ pub async fn build_router(
         output_buffer,
         claude_adapter: Arc::new(ClaudeAdapter::new()),
         test_spawn_adapter: None,
+        worktree_managers: Arc::new(WorktreeManagerCache::new()),
+        worktree_registry: Arc::new(WorktreeRegistry::new()),
     });
 
     // Audit log writer
@@ -135,14 +141,19 @@ pub async fn build_router(
         Some(secret) => GithubOAuthService::with_secret(&github_callback, secret.to_owned()),
         None => GithubOAuthService::new(&github_callback),
     };
-    let github_oauth_state = Arc::new(GithubOAuthState::new(github_oauth_svc, Arc::clone(&credential_store)));
+    let github_oauth_state = Arc::new(GithubOAuthState::new(
+        github_oauth_svc,
+        Arc::clone(&credential_store),
+    ));
     let github_oauth = github_oauth_router(github_oauth_state);
 
     // Jira OAuth — PKCE only, no client secret required
     let jira_oauth_svc = JiraOAuthService::new(&jira_redirect_uri());
-    let jira_oauth_state = Arc::new(JiraOAuthState::new(jira_oauth_svc, Arc::clone(&credential_store)));
+    let jira_oauth_state = Arc::new(JiraOAuthState::new(
+        jira_oauth_svc,
+        Arc::clone(&credential_store),
+    ));
     let jira_oauth = jira_oauth_router(jira_oauth_state);
-
 
     let mut router = Router::new()
         .route("/ws", get(ws_handler))

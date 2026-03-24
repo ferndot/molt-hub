@@ -5,7 +5,8 @@
 
 import { For, Show, createSignal, onMount, type Component } from "solid-js";
 import { TbOutlineSettings } from "solid-icons/tb";
-import { moveTask, tasksForStage, initBoardStages, getSortedStages } from "./boardStore";
+import { moveTask, tasksForStage, initBoardStages, getSortedStages, type BoardTask } from "./boardStore";
+import { activeRepoPath } from "../../stores/projectStore";
 import BoardColumn from "./BoardColumn";
 import ColumnEditor from "./ColumnEditor";
 import styles from "./BoardView.module.css";
@@ -38,6 +39,48 @@ const BoardView: Component = () => {
   const handleReject = (taskId: string) => {
     // Stub: in a real implementation this would dispatch a rejection event
     console.log("[board] reject", taskId);
+  };
+
+  const handleRunAgent = async (task: BoardTask) => {
+    const repo = activeRepoPath();
+    if (!repo) {
+      window.alert(
+        "Choose a project with a repository path in Settings before running an agent.",
+      );
+      return;
+    }
+    const instructions = [
+      `Board task ${task.id} (stage: ${task.stage}): ${task.name}`,
+      task.summary ? task.summary : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+    try {
+      const res = await fetch("/api/agents/spawn", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instructions,
+          workingDir: repo,
+          adapterType: "claude",
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        message?: string;
+        agentId?: string;
+      };
+      if (!res.ok) {
+        window.alert(
+          data.message ?? `Spawn failed (HTTP ${res.status})`,
+        );
+        return;
+      }
+      if (data.agentId) {
+        window.alert(`Agent started: ${data.agentId}`);
+      }
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Network error");
+    }
   };
 
   // Derive columns from boardStore pipeline stages (server-driven)
@@ -73,6 +116,7 @@ const BoardView: Component = () => {
               onDrop={handleDrop}
               onApprove={handleApprove}
               onReject={handleReject}
+              onRunAgent={handleRunAgent}
             />
           )}
         </For>

@@ -2,3 +2,4 @@
 
 pub mod handlers;
 pub mod output_buffer;
+pub mod worktree_registry;

@@ -9,7 +9,11 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
+use molt_hub_harness::adapter::AgentEvent;
 use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
+use tokio::task::JoinHandle;
+use tracing::debug;
 
 /// Default capacity per agent (number of lines retained).
 const DEFAULT_CAPACITY: usize = 500;
@@ -86,6 +90,42 @@ impl Default for AgentOutputBuffer {
 /// Create a shared output buffer wrapped in `Arc`.
 pub fn shared_output_buffer() -> Arc<AgentOutputBuffer> {
     Arc::new(AgentOutputBuffer::new())
+}
+
+/// Subscribe to supervisor/agent [`AgentEvent`] stream and append `Output` lines to `buffer`.
+///
+/// Late subscribers miss prior messages; this task only needs live `Output` events for REST
+/// `GET /api/agents/:id/output`.
+pub fn spawn_agent_output_buffer_task(
+    mut rx: broadcast::Receiver<AgentEvent>,
+    buffer: Arc<AgentOutputBuffer>,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        loop {
+            match rx.recv().await {
+                Ok(AgentEvent::Output {
+                    agent_id, content, ..
+                }) => {
+                    let id = agent_id.to_string();
+                    if content.is_empty() {
+                        continue;
+                    }
+                    // One broadcast chunk may contain multiple lines.
+                    for line in content.lines() {
+                        buffer.push(&id, line.to_string());
+                    }
+                }
+                Ok(_) => {}
+                Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                    debug!(
+                        skipped,
+                        "agent output buffer subscriber lagged; dropped events"
+                    );
+                }
+                Err(broadcast::error::RecvError::Closed) => break,
+            }
+        }
+    })
 }
 
 // ---------------------------------------------------------------------------

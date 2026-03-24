@@ -96,6 +96,17 @@
   margin-bottom: 0.75rem;
 }
 
+.runAgentRow {
+  margin-bottom: 0.75rem;
+}
+
+.runAgentBtn {
+  flex: none;
+  width: 100%;
+  background: var(--accent, #3b82f6);
+  color: #ffffff;
+}
+
 .actions {
   display: flex;
   gap: 0.5rem;
