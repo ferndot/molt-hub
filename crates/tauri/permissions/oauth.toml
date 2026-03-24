@@ -1,4 +1,0 @@
-[[permission]]
-identifier = "allow-oauth-auth-start-url"
-description = "Fetch Jira/GitHub OAuth authorization URLs from the local API (native HTTP, not the WebView)."
-commands.allow = ["oauth_auth_start_url"]

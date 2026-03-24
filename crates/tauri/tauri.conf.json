@@ -7,7 +7,8 @@
     "frontendDist": "../../ui/dist",
     "devUrl": "http://localhost:5173",
     "beforeDevCommand": "",
-    "beforeBuildCommand": ""
+    "beforeBuildCommand": "",
+    "removeUnusedCommands": false
   },
   "bundle": {
     "icon": [
