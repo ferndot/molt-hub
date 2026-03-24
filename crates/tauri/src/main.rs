@@ -10,12 +10,14 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use std::io::ErrorKind;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::time::Duration;
 
 use tauri::Manager;
 use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_dialog::DialogExt;
 use url::Url;
 
 use molt_hub_server::serve::{build_router, spawn_health_metrics_task};
@@ -124,26 +126,78 @@ fn main() {
             if !cfg!(debug_assertions) {
                 let bind_port = local_api_port();
                 let dist_dir = resolve_embedded_dist_dir(app);
+                let app_handle = app.handle().clone();
+                let (tx_ready, rx_ready) = std::sync::mpsc::channel::<()>();
                 std::thread::spawn(move || {
                     let rt =
                         tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
-                    rt.block_on(async {
-                        let (router, manager, supervisor, _audit) = build_router(dist_dir).await;
-                        let _metrics_handle = spawn_health_metrics_task(
-                            manager,
-                            supervisor,
-                            std::time::Duration::from_secs(5),
-                        );
-                        let addr: SocketAddr =
-                            format!("127.0.0.1:{bind_port}").parse().unwrap();
-                        tracing::info!(address = %addr, "embedded server starting");
-                        let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-                        axum::serve(listener, router).await.unwrap();
-                    });
+                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        rt.block_on(async {
+                            let (router, manager, supervisor, _audit) =
+                                build_router(dist_dir).await;
+                            let _metrics_handle = spawn_health_metrics_task(
+                                manager,
+                                supervisor,
+                                std::time::Duration::from_secs(5),
+                            );
+                            let addr: SocketAddr =
+                                format!("127.0.0.1:{bind_port}").parse().unwrap();
+                            tracing::info!(address = %addr, "embedded server starting");
+                            let listener = match tokio::net::TcpListener::bind(addr).await {
+                                Ok(l) => l,
+                                Err(e) if e.kind() == ErrorKind::AddrInUse => {
+                                    tracing::info!(
+                                        port = bind_port,
+                                        "embedded server skipped: port in use — using existing process on this port (e.g. `molt-hub serve`)"
+                                    );
+                                    let _ = tx_ready.send(());
+                                    return;
+                                }
+                                Err(e) => {
+                                    tracing::error!(error = %e, "embedded server bind failed");
+                                    let ah = app_handle.clone();
+                                    let msg = e.to_string();
+                                    let port = bind_port;
+                                    tokio::task::spawn_blocking(move || {
+                                        let _ = ah
+                                            .dialog()
+                                            .message(format!(
+                                                "Molt Hub could not start its built-in API on port {port} ({msg}).\n\nQuit other apps using that port or set MOLTHUB_LOCAL_API_PORT."
+                                            ))
+                                            .blocking_show();
+                                    })
+                                    .await
+                                    .ok();
+                                    let _ = tx_ready.send(());
+                                    return;
+                                }
+                            };
+
+                            let _ = tx_ready.send(());
+                            if let Err(e) = axum::serve(listener, router).await {
+                                tracing::error!(error = %e, "embedded server stopped with error");
+                            }
+                        })
+                    }));
+                    if outcome.is_err() {
+                        tracing::error!("embedded server panicked during startup");
+                        let _ = app_handle
+                            .dialog()
+                            .message(
+                                "Molt Hub’s built-in API crashed while starting. Close duplicate copies of the app, then try again — or run from Terminal to see the panic.",
+                            )
+                            .blocking_show();
+                        let _ = tx_ready.send(());
+                    }
                 });
-                // Avoid navigating before `bind`: otherwise `/api/*` can fall through to the
-                // SPA static fallback (200 + index.html) and OAuth sees “invalid JSON”.
-                wait_for_local_port(bind_port, Duration::from_secs(30));
+                // Wait until bind succeeds, port is intentionally shared, or startup fails — avoids
+                // loading the webview before `/api/*` is served (otherwise OAuth sees index.html).
+                if rx_ready.recv_timeout(Duration::from_secs(120)).is_err() {
+                    tracing::error!(
+                        port = bind_port,
+                        "embedded server never signaled ready (timeout) — UI may be broken until restart"
+                    );
+                }
             } else {
                 tracing::info!(
                     "dev mode — webview points to Vite dev server. \
@@ -202,20 +256,3 @@ fn resolve_dist_dir_from_exe_or_cwd() -> PathBuf {
     PathBuf::from("ui/dist")
 }
 
-fn wait_for_local_port(port: u16, timeout: Duration) {
-    let addr = format!("127.0.0.1:{port}");
-    let deadline = std::time::Instant::now() + timeout;
-    loop {
-        if std::net::TcpStream::connect(&addr).is_ok() {
-            return;
-        }
-        if std::time::Instant::now() > deadline {
-            tracing::error!(
-                port,
-                "embedded server did not accept connections in time — UI may be broken until refresh"
-            );
-            return;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-}

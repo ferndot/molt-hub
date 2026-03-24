@@ -27,6 +27,21 @@ async function openExternalUrl(url: string): Promise<void> {
   }
 }
 
+function isTauriShell(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
+/** Shown when /api OAuth returns non-JSON or the desktop API never came up. */
+function oauthApiMissingHint(): string {
+  if (isTauriShell()) {
+    if (import.meta.env.DEV) {
+      return "This desktop window does not bundle the API. Run `molt-hub serve` (or `cargo run --bin molt-hub -- serve`) on port 13401, or use `./dev.sh` with the Vite dev server.";
+    }
+    return "The built-in server on port 13401 did not return API data (often port conflict or startup failure). Quit other copies of Molt Hub, stop `molt-hub serve` if you want the app to own the port, then restart.";
+  }
+  return "Start the API on port 13401 (e.g. `./dev.sh` or `molt-hub serve`) and try again.";
+}
+
 /**
  * Parse `{ url: string }` from a successful auth response.
  * Avoids `Response#json()`: Safari/WebKit throws a vague DOMException
@@ -428,7 +443,7 @@ export async function connectJira(): Promise<void> {
     if (!response.ok) {
       const ct = response.headers.get("content-type") ?? "";
       if (!ct.includes("application/json")) {
-        setJiraConnected(false, "", "", "Backend not available — start the server first");
+        setJiraConnected(false, "", "", oauthApiMissingHint());
         return;
       }
       const text = await response.text();
@@ -437,12 +452,7 @@ export async function connectJira(): Promise<void> {
     }
     const parsed = await parseOAuthAuthJson(response);
     if (!parsed) {
-      setJiraConnected(
-        false,
-        "",
-        "",
-        "Invalid response from server. Start the backend on port 13401 (e.g. ./dev.sh or molt-hub serve) and try again.",
-      );
+      setJiraConnected(false, "", "", oauthApiMissingHint());
       return;
     }
     await openExternalUrl(parsed.url);
@@ -577,7 +587,7 @@ export async function connectGitHub(): Promise<void> {
       if (!ct.includes("application/json")) {
         setSettingsState(
           produce((s) => {
-            s.githubConfig.lastError = "Backend not available — start the server first";
+            s.githubConfig.lastError = oauthApiMissingHint();
           }),
         );
         return;
@@ -594,8 +604,7 @@ export async function connectGitHub(): Promise<void> {
     if (!parsed) {
       setSettingsState(
         produce((s) => {
-          s.githubConfig.lastError =
-            "Invalid response from server. Start the backend on port 13401 (e.g. ./dev.sh or molt-hub serve) and try again.";
+          s.githubConfig.lastError = oauthApiMissingHint();
         }),
       );
       return;
