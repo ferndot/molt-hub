@@ -1,9 +1,8 @@
 //! GitHub OAuth App user flow with PKCE via [`oauth2`].
 //!
-//! Configuration is resolved from environment (and optional compile-time defaults) so the same
-//! binary works in local dev and shipped desktop/server builds:
-//! - **Client ID**: `MOLTHUB_GITHUB_CLIENT_ID`, `GITHUB_CLIENT_ID`, then `option_env!("GITHUB_CLIENT_ID")`, then upstream fallback.
-//! - **Client secret**: `MOLTHUB_GITHUB_CLIENT_SECRET`, `GITHUB_CLIENT_SECRET`, then `option_env!("GITHUB_CLIENT_SECRET")`.
+//! Configuration is resolved via [`super::oauth_clients`] (env → optional `oauth-clients.json` →
+//! optional compile-time **client id only** → default id). Client secrets are never read from
+//! compile-time flags.
 
 use oauth2::basic::{BasicClient, BasicErrorResponse, BasicTokenResponse};
 use oauth2::TokenResponse as _;
@@ -15,7 +14,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use thiserror::Error;
 
-use super::oauth_common::{resolve_client_id, resolve_oauth_secret};
+use super::oauth_clients::github_client_credentials;
 
 const GITHUB_AUTH_URL: &str = "https://github.com/login/oauth/authorize";
 const GITHUB_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
@@ -54,7 +53,7 @@ pub enum GithubOAuthError {
     AuthServerError { error: String, description: String },
     #[error("parse error: {0}")]
     ParseError(String),
-    #[error("client secret not configured — set MOLTHUB_GITHUB_CLIENT_SECRET or GITHUB_CLIENT_SECRET")]
+    #[error("client secret not configured — set env vars or oauth-clients.json (see oauth_clients module)")]
     MissingClientSecret,
 }
 
@@ -116,19 +115,12 @@ pub struct GithubOAuthService {
 impl GithubOAuthService {
     /// Build from the registered OAuth callback URL (HTTPS bridge) and current process environment.
     pub fn from_redirect_uri(redirect_uri: &str) -> Self {
-        let client_id = resolve_client_id(
-            &["MOLTHUB_GITHUB_CLIENT_ID", "GITHUB_CLIENT_ID"],
-            option_env!("GITHUB_CLIENT_ID"),
-            DEFAULT_GITHUB_CLIENT_ID,
-        );
-        let client_secret = resolve_oauth_secret(
-            &["MOLTHUB_GITHUB_CLIENT_SECRET", "GITHUB_CLIENT_SECRET"],
-            option_env!("GITHUB_CLIENT_SECRET"),
-        );
+        let (client_id, client_secret) =
+            github_client_credentials(DEFAULT_GITHUB_CLIENT_ID, option_env!("GITHUB_CLIENT_ID"));
         if client_secret.is_none() {
             tracing::warn!(
-                "GitHub OAuth: no client secret. Set MOLTHUB_GITHUB_CLIENT_SECRET or GITHUB_CLIENT_SECRET \
-                 (or compile with GITHUB_CLIENT_SECRET) so token exchange succeeds."
+                "GitHub OAuth: no client secret. Set MOLTHUB_GITHUB_CLIENT_SECRET / GITHUB_CLIENT_SECRET \
+                 or add github.client_secret to oauth-clients.json (see integrations::oauth_clients)."
             );
         }
         Self::with_credentials(redirect_uri, client_id, client_secret)
@@ -223,11 +215,7 @@ mod tests {
 
     #[test]
     fn authorize_url_github_pkce() {
-        let svc = GithubOAuthService::with_credentials(
-            TEST_REDIRECT,
-            "test_client".into(),
-            None,
-        );
+        let svc = GithubOAuthService::with_credentials(TEST_REDIRECT, "test_client".into(), None);
         let (url, verifier) = svc.authorization_url("st");
         assert!(url.contains("github.com/login/oauth/authorize"));
         let ch = PkceCodeChallenge::from_code_verifier_sha256(&PkceCodeVerifier::new(verifier));
@@ -236,11 +224,7 @@ mod tests {
 
     #[tokio::test]
     async fn exchange_requires_secret() {
-        let svc = GithubOAuthService::with_credentials(
-            TEST_REDIRECT,
-            "id".into(),
-            None,
-        );
+        let svc = GithubOAuthService::with_credentials(TEST_REDIRECT, "id".into(), None);
         assert!(matches!(
             svc.exchange_code("c", "v").await.unwrap_err(),
             GithubOAuthError::MissingClientSecret

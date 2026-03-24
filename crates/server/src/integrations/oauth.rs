@@ -1,8 +1,6 @@
 //! Atlassian OAuth 2.0 (3LO) with PKCE via [`oauth2`].
 //!
-//! Configuration matches [`super::github_oauth`] so dev and release builds share one mental model:
-//! - **Client ID**: `MOLTHUB_JIRA_CLIENT_ID`, `JIRA_CLIENT_ID`, `option_env!("JIRA_CLIENT_ID")`, then default.
-//! - **Client secret**: `MOLTHUB_JIRA_CLIENT_SECRET`, `JIRA_CLIENT_SECRET`, `option_env!("JIRA_CLIENT_SECRET")`.
+//! Configuration matches [`super::oauth_clients`] (same precedence as GitHub; secrets never from compile-time).
 
 use oauth2::basic::{BasicClient, BasicErrorResponse, BasicTokenResponse};
 use oauth2::TokenResponse as _;
@@ -15,7 +13,7 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::oauth_common::{resolve_client_id, resolve_oauth_secret};
+use super::oauth_clients::jira_client_credentials;
 
 const ATLASSIAN_AUTH_URL: &str = "https://auth.atlassian.com/authorize";
 const ATLASSIAN_TOKEN_URL: &str = "https://auth.atlassian.com/oauth/token";
@@ -52,7 +50,7 @@ pub enum OAuthError {
     AuthServerError { error: String, description: String },
     #[error("parse error: {0}")]
     ParseError(String),
-    #[error("client secret not configured — set MOLTHUB_JIRA_CLIENT_SECRET or JIRA_CLIENT_SECRET")]
+    #[error("client secret not configured — set env vars or oauth-clients.json (see oauth_clients module)")]
     MissingClientSecret,
 }
 
@@ -107,19 +105,12 @@ pub struct JiraOAuthService {
 impl JiraOAuthService {
     /// Build from the registered OAuth callback URL (HTTPS bridge) and current process environment.
     pub fn from_redirect_uri(redirect_uri: &str) -> Self {
-        let client_id = resolve_client_id(
-            &["MOLTHUB_JIRA_CLIENT_ID", "JIRA_CLIENT_ID"],
-            option_env!("JIRA_CLIENT_ID"),
-            DEFAULT_JIRA_CLIENT_ID,
-        );
-        let client_secret = resolve_oauth_secret(
-            &["MOLTHUB_JIRA_CLIENT_SECRET", "JIRA_CLIENT_SECRET"],
-            option_env!("JIRA_CLIENT_SECRET"),
-        );
+        let (client_id, client_secret) =
+            jira_client_credentials(DEFAULT_JIRA_CLIENT_ID, option_env!("JIRA_CLIENT_ID"));
         if client_secret.is_none() {
             tracing::warn!(
-                "Jira OAuth: no client secret. Atlassian 3LO requires it for code exchange; set \
-                 MOLTHUB_JIRA_CLIENT_SECRET or JIRA_CLIENT_SECRET (or compile with JIRA_CLIENT_SECRET)."
+                "Jira OAuth: no client secret. Set MOLTHUB_JIRA_CLIENT_SECRET / JIRA_CLIENT_SECRET \
+                 or add jira.client_secret to oauth-clients.json (see integrations::oauth_clients)."
             );
         }
         Self::with_credentials(redirect_uri, client_id, client_secret)
@@ -128,11 +119,8 @@ impl JiraOAuthService {
     /// Explicit credentials (tests).
     pub fn with_client_secret(redirect_uri: &str, client_secret: String) -> Self {
         let secret = client_secret.trim().to_owned();
-        let client_id = resolve_client_id(
-            &["MOLTHUB_JIRA_CLIENT_ID", "JIRA_CLIENT_ID"],
-            option_env!("JIRA_CLIENT_ID"),
-            DEFAULT_JIRA_CLIENT_ID,
-        );
+        let (client_id, _) =
+            jira_client_credentials(DEFAULT_JIRA_CLIENT_ID, option_env!("JIRA_CLIENT_ID"));
         Self::with_credentials(
             redirect_uri,
             client_id,

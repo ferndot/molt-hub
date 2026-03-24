@@ -1,8 +1,7 @@
-//! Shared OAuth helpers for third-party integrations (PKCE CSRF, env resolution, success HTML).
+//! Shared OAuth helpers (PKCE CSRF, env reads, success HTML).
 //!
-//! Client IDs and secrets are resolved the same way for every provider so **dev** (`.env` on disk)
-//! and **release** (injected env, optional compile-time `option_env!` defaults from your CI) behave
-//! consistently.
+//! OAuth **app** client id + secret resolution lives in [`super::oauth_clients`] (env, optional JSON
+//! file, compile-time client id only — never compile-time secrets).
 
 /// Read the first non-empty trimmed value from the given environment variable names.
 pub fn first_env_trimmed(keys: &[&'static str]) -> Option<String> {
@@ -15,37 +14,6 @@ pub fn first_env_trimmed(keys: &[&'static str]) -> Option<String> {
         }
     }
     None
-}
-
-/// OAuth client secret: runtime env keys first, then optional compile-time embedding (no rebuild
-/// needed when using runtime env in production).
-pub fn resolve_oauth_secret(
-    env_keys: &[&'static str],
-    compile_time: Option<&'static str>,
-) -> Option<String> {
-    if let Some(s) = first_env_trimmed(env_keys) {
-        return Some(s);
-    }
-    compile_time
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(std::string::ToString::to_string)
-}
-
-/// OAuth client ID: prefer runtime env, then optional compile-time default, then a crate-level
-/// fallback string (upstream dev app — forks should set env or `option_env!` at build time).
-pub fn resolve_client_id(
-    env_keys: &[&'static str],
-    compile_time: Option<&'static str>,
-    fallback: &'static str,
-) -> String {
-    if let Some(id) = first_env_trimmed(env_keys) {
-        return id;
-    }
-    if let Some(id) = compile_time.map(str::trim).filter(|s| !s.is_empty()) {
-        return id.to_owned();
-    }
-    fallback.to_owned()
 }
 
 /// Cryptographically random CSRF `state` for OAuth authorize → callback correlation.
