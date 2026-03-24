@@ -82,6 +82,7 @@ pub enum TaskCommand {
 /// Sent on the watch channel each time the actor's state changes.
 #[derive(Debug, Clone)]
 pub struct StateUpdate {
+    pub project_id: String,
     pub task_id: TaskId,
     pub new_state: TaskState,
     pub current_stage: String,
@@ -93,6 +94,7 @@ pub struct StateUpdate {
 
 /// Configuration passed when spawning a new actor.
 pub struct TaskActorConfig {
+    pub project_id: String,
     pub task_id: TaskId,
     pub session_id: SessionId,
     pub initial_stage: String,
@@ -101,6 +103,7 @@ pub struct TaskActorConfig {
 
 /// Runs a per-task event loop, owning a `TaskMachine` and responding to commands.
 struct TaskActor<S: EventStore + 'static> {
+    project_id: String,
     task_id: TaskId,
     #[allow(dead_code)] // will be used when constructing outbound event envelopes
     session_id: SessionId,
@@ -123,6 +126,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
     ) -> Self {
         let machine = TaskMachine::new(config.initial_stage.clone());
         Self {
+            project_id: config.project_id,
             task_id: config.task_id,
             session_id: config.session_id,
             machine,
@@ -199,6 +203,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
 
         // Broadcast the state update to any watchers (internal watch channel).
         let update = StateUpdate {
+            project_id: self.project_id.clone(),
             task_id: self.task_id.clone(),
             new_state: new_state.clone(),
             current_stage: self.machine.current_stage.clone(),
@@ -224,6 +229,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
     ) {
         let task_id_str = self.task_id.to_string();
         let stage = &self.machine.current_stage;
+        let project_id = &self.project_id;
 
         // Map TaskState to a board status string.
         let status = match new_state {
@@ -236,7 +242,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
         };
 
         // Board update — always broadcast state changes.
-        broadcast_board_update(mgr, &task_id_str, stage, status);
+        broadcast_board_update(mgr, project_id, &task_id_str, stage, status);
 
         // Event-specific broadcasts.
         match event {
@@ -258,7 +264,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
                     created_at: chrono::Utc::now().to_rfc3339(),
                     summary: format!("Task blocked: {reason}"),
                 };
-                broadcast_triage_new(mgr, &item);
+                broadcast_triage_new(mgr, project_id, &item);
             }
 
             // AwaitingApproval → triage:new (P1 item).
@@ -276,21 +282,21 @@ impl<S: EventStore + 'static> TaskActor<S> {
                     created_at: chrono::Utc::now().to_rfc3339(),
                     summary: "Awaiting human approval".to_string(),
                 };
-                broadcast_triage_new(mgr, &item);
+                broadcast_triage_new(mgr, project_id, &item);
             }
 
             // Task unblocked → triage:resolved.
             DomainEvent::TaskUnblocked { .. } => {
                 // We don't have the original triage item ID; broadcast with
                 // task_id so the frontend can match and remove it.
-                broadcast_triage_resolved(mgr, &task_id_str);
+                broadcast_triage_resolved(mgr, project_id, &task_id_str);
             }
 
             // Human decision (approved) → triage:resolved.
             DomainEvent::HumanDecision { .. }
                 if matches!(new_state, TaskState::Completed { .. }) =>
             {
-                broadcast_triage_resolved(mgr, &task_id_str);
+                broadcast_triage_resolved(mgr, project_id, &task_id_str);
             }
 
             _ => {}
@@ -416,6 +422,7 @@ impl<S: EventStore + 'static> TaskRegistry<S> {
     pub fn spawn_task(&self, config: TaskActorConfig) -> TaskActorHandle {
         let task_id = config.task_id.clone();
         let initial_state = StateUpdate {
+            project_id: config.project_id.clone(),
             task_id: task_id.clone(),
             new_state: TaskState::Pending,
             current_stage: config.initial_stage.clone(),
@@ -615,6 +622,7 @@ mod tests {
         pipeline: Arc<PipelineConfig>,
     ) -> TaskActorConfig {
         TaskActorConfig {
+            project_id: "default".to_owned(),
             task_id,
             session_id: SessionId::new(),
             initial_stage: initial_stage.to_string(),

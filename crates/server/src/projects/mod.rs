@@ -11,5 +11,6 @@
 //! | DELETE | `/api/projects/:id`   | Archive (soft-delete)    |
 
 pub mod handlers;
+pub mod runtime;
 
 pub use handlers::project_router;
