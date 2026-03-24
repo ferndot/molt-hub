@@ -118,7 +118,14 @@ const BoardsView: Component = () => {
         </div>
       </Show>
 
-      <div class={styles.createPanel}>
+      <form
+        class={styles.createPanel}
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (busy()) return;
+          void handleCreate();
+        }}
+      >
         <div class={`${styles.field} ${styles.fieldGrow}`}>
           <label class={styles.fieldLabel} for="board-new-name">
             Board name
@@ -132,18 +139,13 @@ const BoardsView: Component = () => {
             disabled={busy()}
           />
         </div>
-        <button
-          type="button"
-          class={styles.createBtn}
-          onClick={() => void handleCreate()}
-          disabled={busy()}
-        >
+        <button type="submit" class={styles.createBtn} disabled={busy()}>
           Create board
         </button>
         <Show when={error()}>
           {(msg) => <p class={styles.errorText}>{msg()}</p>}
         </Show>
-      </div>
+      </form>
 
       <div class={styles.list}>
         <Show
