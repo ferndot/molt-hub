@@ -76,6 +76,14 @@ describe("api client", () => {
     expect(result.stages).toHaveLength(1);
   });
 
+  it("listProjects sends GET /api/projects", async () => {
+    mockJsonResponse({ projects: [{ id: "p1", name: "App", repo_path: "/tmp/r" }] });
+    const result = await api.listProjects();
+    expect(mockFetch).toHaveBeenCalledWith("/api/projects");
+    expect(result.projects).toHaveLength(1);
+    expect(result.projects[0].repo_path).toBe("/tmp/r");
+  });
+
   it("getBoardTemplate sends GET /api/projects/default/board-template", async () => {
     const data = { stages: [{ id: "backlog", label: "Backlog", wip_limit: null, order: 0 }] };
     mockJsonResponse(data);

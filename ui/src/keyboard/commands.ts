@@ -42,6 +42,13 @@ export const COMMANDS: Command[] = [
     keywords: ["agents", "workers", "runners"],
   },
   {
+    id: "goto-code-chat",
+    label: "Go to Claude Code",
+    description: "Project chat — Claude CLI session in your repo",
+    category: "navigation",
+    keywords: ["claude", "code", "chat", "terminal", "cli", "copilot"],
+  },
+  {
     id: "approve-item",
     label: "Approve Selected",
     description: "Approve the selected triage item",

@@ -108,17 +108,89 @@ function mapApiAgent(a: AgentSummary): AgentDetail {
 
 /**
  * Fetch agents from the backend and merge into the store.
+ * Preserves `outputLines` for agents still present so polling does not wipe the terminal buffer.
  */
 export async function fetchAgents(): Promise<void> {
   try {
     const data = await api.getAgents();
     const agents = data.agents ?? [];
-    if (agents.length > 0) {
-      setState("agents", agents.map(mapApiAgent));
-    }
+    setState("agents", (prev) => {
+      if (agents.length === 0) return [];
+      const prevById = new Map(prev.map((a) => [a.id, a]));
+      return agents.map((raw) => {
+        const m = mapApiAgent(raw);
+        const old = prevById.get(m.id);
+        if (old && old.outputLines.length > 0) {
+          return { ...m, outputLines: old.outputLines };
+        }
+        return m;
+      });
+    });
   } catch {
     // API unreachable — keep existing state
   }
+}
+
+function formatOutputTimestamp(iso: string | undefined): string {
+  if (!iso) {
+    return new Date().toLocaleTimeString("en-US", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  }
+  const d = new Date(iso);
+  return d.toLocaleTimeString("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
+
+/** Ensure a row exists so detail/chat views can render before the next poll. */
+export function registerAgentPlaceholder(
+  id: string,
+  opts?: { taskName?: string },
+): void {
+  if (state.agents.some((a) => a.id === id)) return;
+  setState("agents", (agents) => [
+    ...agents,
+    {
+      id,
+      name: "Claude Code",
+      taskName: opts?.taskName ?? "Project chat",
+      taskDescription: "",
+      currentStage: "running",
+      stageHistory: [],
+      status: "running",
+      priority: "p2" as Priority,
+      assignedAt: new Date().toISOString(),
+      outputLines: [],
+    },
+  ]);
+}
+
+/** Replace buffered output from the server snapshot (e.g. after navigation or resume). */
+export async function hydrateAgentOutput(agentId: string): Promise<void> {
+  try {
+    const res = await api.getAgentOutput(agentId);
+    const lines = (res.lines ?? []) as Array<{ line?: string; timestamp?: string }>;
+    const mapped: OutputLine[] = lines.map((l) => ({
+      text: String(l.line ?? ""),
+      timestamp: formatOutputTimestamp(l.timestamp),
+    }));
+    setState("agents", (agents) =>
+      agents.map((a) => (a.id === agentId ? { ...a, outputLines: mapped } : a)),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+export function removeAgentFromStore(agentId: string): void {
+  setState("agents", (agents) => agents.filter((a) => a.id !== agentId));
 }
 
 /**

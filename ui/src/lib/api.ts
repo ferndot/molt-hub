@@ -206,10 +206,13 @@ export const api = {
       fields,
     ),
 
+  /** All registered projects (YAML). First project’s `repo_path` is a typical cwd for agents. */
+  listProjects: () => get<{ projects: ProjectSummary[] }>("/projects"),
+
   // Agents
   getAgents: () => get<AgentsListResponse>("/agents"),
   spawnAgent: (req: unknown) =>
-    post<Record<string, unknown>>("/agents/spawn", req),
+    post<{ agentId: string; message?: string }>("/agents/spawn", req),
   terminateAgent: (id: string) =>
     post<Record<string, unknown>>(`/agents/${id}/terminate`),
   getAgentOutput: (id: string) =>
@@ -271,6 +274,13 @@ export const api = {
 export interface BoardSummary {
   id: string;
   name: string;
+}
+
+/** Registered project with a repository root (used for agent working directories). */
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  repo_path: string;
 }
 
 /** Serialized [`HookDefinition`](Rust) — extra keys are hook-specific config. */

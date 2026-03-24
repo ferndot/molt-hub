@@ -6,7 +6,9 @@ import { describe, it, expect } from "vitest";
 
 // Replicate the isActive logic from Sidebar.tsx so it can be tested in isolation
 function isActive(currentPath: string, href: string): boolean {
-  return currentPath === href || (href !== "/" && currentPath.startsWith(href));
+  if (href === "/chat") return currentPath === "/chat";
+  if (href === "/") return currentPath === "/";
+  return currentPath.startsWith(href);
 }
 
 describe("Sidebar nav active state", () => {
@@ -35,5 +37,11 @@ describe("Sidebar nav active state", () => {
 
   it("active route at / matches exactly", () => {
     expect(isActive("/", "/")).toBe(true);
+  });
+
+  it("/chat is active only for exact path", () => {
+    expect(isActive("/chat", "/chat")).toBe(true);
+    expect(isActive("/chats", "/chat")).toBe(false);
+    expect(isActive("/chat/extra", "/chat")).toBe(false);
   });
 });

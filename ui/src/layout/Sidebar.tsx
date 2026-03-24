@@ -5,6 +5,7 @@ import {
   TbOutlineLayoutList,
   TbOutlineRobot,
   TbOutlineSettings,
+  TbOutlineTerminal2,
 } from "solid-icons/tb";
 import { attentionCount } from "./attentionStore";
 import AgentList from "./AgentList";
@@ -23,6 +24,7 @@ import styles from "./Sidebar.module.css";
 
 const NAV_ICONS: Record<string, () => JSX.Element> = {
   "/boards": () => <TbOutlineLayoutList size={16} />,
+  "/chat": () => <TbOutlineTerminal2 size={16} />,
   "/agents": () => <TbOutlineRobot size={16} />,
   "/settings": () => <TbOutlineSettings size={16} />,
 };
@@ -43,7 +45,11 @@ const Sidebar: Component<Props> = (props) => {
   const location = useLocation();
   const [isDragging, setIsDragging] = createSignal(false);
 
-  const isActive = (href: string) => location.pathname.startsWith(href);
+  const isActive = (href: string) => {
+    const path = location.pathname;
+    if (href === "/chat") return path === "/chat";
+    return path.startsWith(href);
+  };
 
   // ---- Drag-to-resize logic ------------------------------------------------
   // Update the DOM directly during drag to avoid the store → effect →
@@ -109,6 +115,13 @@ const Sidebar: Component<Props> = (props) => {
               </Show>
             </A>
             <A
+              href="/chat"
+              class={styles.navItem}
+              classList={{ [styles.active]: isActive("/chat") }}
+            >
+              <span class={styles.navIcon}>{NAV_ICONS["/chat"]?.()}</span>
+            </A>
+            <A
               href="/agents"
               class={styles.navItem}
               classList={{ [styles.active]: isActive("/agents") }}
@@ -124,8 +137,18 @@ const Sidebar: Component<Props> = (props) => {
         </div>
       </Show>
 
-      {/* Settings — pinned to bottom */}
+      {/* Claude Code + settings — pinned to bottom */}
       <div class={styles.bottomNav}>
+        <A
+          href="/chat"
+          class={styles.navItem}
+          classList={{ [styles.active]: isActive("/chat") }}
+        >
+          <span class={styles.navIcon}>{NAV_ICONS["/chat"]?.()}</span>
+          <Show when={!props.collapsed}>
+            <span class={styles.navLabel}>Claude Code</span>
+          </Show>
+        </A>
         <A
           href="/settings"
           class={styles.navItem}
