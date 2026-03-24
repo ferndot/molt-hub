@@ -25,9 +25,10 @@ use thiserror::Error;
 // Baked-in client ID (safe to distribute — PKCE replaces the secret)
 // ---------------------------------------------------------------------------
 
-/// Atlassian OAuth 2.0 client ID, baked in at build time.
+/// Default Atlassian OAuth 2.0 client ID (PKCE public client).
 ///
-/// This is not a secret: PKCE eliminates the need for a client secret.
+/// Override at runtime with **`MOLTHUB_JIRA_CLIENT_ID`** so your own developer-console
+/// app (with your redirect URLs) is used instead of the upstream default.
 pub const JIRA_CLIENT_ID: &str = "3yQWy34WyjCn0wtOfawofBTMmtK3gUgs";
 
 // ---------------------------------------------------------------------------
@@ -129,10 +130,14 @@ pub struct JiraOAuthService {
 }
 
 impl JiraOAuthService {
-    /// Create a new service with the baked-in client ID and the given redirect URI.
+    /// Create a new service with the given redirect URI.
+    ///
+    /// Uses [`JIRA_CLIENT_ID`] unless **`MOLTHUB_JIRA_CLIENT_ID`** is set in the environment.
     pub fn new(redirect_uri: &str) -> Self {
+        let client_id = std::env::var("MOLTHUB_JIRA_CLIENT_ID")
+            .unwrap_or_else(|_| JIRA_CLIENT_ID.to_owned());
         Self {
-            client_id: JIRA_CLIENT_ID.to_owned(),
+            client_id,
             redirect_uri: redirect_uri.to_owned(),
             http: Client::new(),
         }
@@ -420,7 +425,9 @@ mod tests {
 
         assert!(url.starts_with("https://auth.atlassian.com/authorize"));
         assert!(url.contains("audience=api.atlassian.com"));
-        assert!(url.contains(&format!("client_id={JIRA_CLIENT_ID}")));
+        let expected_client = std::env::var("MOLTHUB_JIRA_CLIENT_ID")
+            .unwrap_or_else(|_| JIRA_CLIENT_ID.to_owned());
+        assert!(url.contains(&format!("client_id={expected_client}")));
         assert!(url.contains("response_type=code"));
         assert!(url.contains("prompt=consent"));
         assert!(url.contains("state=csrf-state-token"));

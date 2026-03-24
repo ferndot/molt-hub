@@ -1,35 +1,13 @@
-# OAuth bridge (HTTPS → `molthub://`)
+# OAuth bridge
 
-Providers require **HTTPS** redirect URIs. `jira.html` and `github.html` receive `code` / `state` (or `error`) and redirect into the desktop app via **`molthub://`** (see `crates/tauri/tauri.conf.json` to change the scheme; keep the HTML in sync).
+OAuth redirects hit **`https://…/oauth-bridge/jira.html`** and **`github.html`**, then **`molthub://`** opens the desktop app (scheme in `crates/tauri/tauri.conf.json`). Providers never see a `localhost` callback.
 
-## 1. Deploy these files over HTTPS
+**Setup**
 
-Example paths on a **GitHub Pages project site**:
+1. Host the HTML over HTTPS (e.g. GitHub Pages: [`.github/workflows/deploy-oauth-bridge.yml`](../.github/workflows/deploy-oauth-bridge.yml) — set Pages source to **GitHub Actions**, publish from `main`).
+2. Register **exactly** those URLs in [Atlassian](https://developer.atlassian.com/console/myapps/) and your [GitHub OAuth App](https://github.com/settings/developers). GitHub allows [one callback URL](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps) per app.
+3. Put the same URLs in **`redirect-uris.json`** (`jira` / `github`). They are embedded at build time; empty values panic unless you set **`MOLTHUB_JIRA_REDIRECT_URI`** / **`MOLTHUB_GITHUB_REDIRECT_URI`**.
 
-- `https://<user>.github.io/<repo>/oauth-bridge/jira.html`
-- `https://<user>.github.io/<repo>/oauth-bridge/github.html`
+**“Callback URL is invalid” (Atlassian)** — `redirect_uri` and console must match; client ID must be that app’s (`oauth.rs` default or **`MOLTHUB_JIRA_CLIENT_ID`**).
 
-Register those URLs **exactly** in Atlassian and GitHub.
-
-## 2. Point release builds at the same URLs
-
-Edit **`redirect-uris.json`** in this folder: set `jira` and `github` to the HTTPS URLs above. Release builds embed that file; no env vars on user machines.
-
-**Debug** builds ignore it and use `http://127.0.0.1:<port>/api/integrations/{jira|github}/oauth/callback` for local OAuth apps.
-
-Optional env overrides (no rebuild): `MOLTHUB_JIRA_REDIRECT_URI`, `MOLTHUB_GITHUB_REDIRECT_URI`.
-
-## GitHub Actions (recommended)
-
-Workflow: [`.github/workflows/deploy-oauth-bridge.yml`](../.github/workflows/deploy-oauth-bridge.yml).
-
-1. **Settings → Pages → Build and deployment → Source:** **GitHub Actions**
-2. Push to **`main`** (or run the workflow manually). HTML is published under **`/oauth-bridge/`**.
-
-If your default branch is not `main`, update the workflow `branches` list.
-
-## Other hosting
-
-- **Pages from a branch:** serve this folder (or copy into `/docs`) and match paths when registering OAuth callbacks.
-- **Custom domain:** use that host in provider settings and in `redirect-uris.json`.
-- **Elsewhere:** any static HTTPS host is fine (Netlify, Cloudflare Pages, S3+CDN, etc.).
+Any static HTTPS host works if paths match what you register.

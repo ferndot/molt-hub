@@ -1,4 +1,4 @@
 {
-  "jira": null,
-  "github": null
+  "jira": "https://ferndot.github.io/molt-hub/oauth-bridge/jira.html",
+  "github": "https://ferndot.github.io/molt-hub/oauth-bridge/github.html"
 }
