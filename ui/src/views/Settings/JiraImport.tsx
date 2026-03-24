@@ -108,8 +108,25 @@ const JiraImport: Component<JiraImportProps> = (props) => {
   const [importError, setImportError] = createSignal<string | null>(null);
   const [importedCount, setImportedCount] = createSignal(0);
 
-  // ---- Projects resource ----
-  const [projects] = createResource<JiraProject[]>(fetchProjects);
+  // ---- Projects resource (only while dialog is open; avoids eager fetch + crash on error) ----
+  const [projects] = createResource(
+    () => props.isOpen,
+    async (open) => {
+      if (!open) return [] as JiraProject[];
+      return fetchProjects();
+    },
+  );
+
+  /** Safe list: never call `projects()` when state is `errored` — Solid rethrows. */
+  const projectOptions = (): JiraProject[] => {
+    const st = projects.state;
+    if (st === "errored") return [];
+    if (st !== "ready" && st !== "refreshing") return [];
+    return projects() ?? [];
+  };
+
+  const projectsFetchError = () =>
+    projects.state === "errored" ? (projects.error as Error) : null;
 
   // ---- Search results resource ----
   const [searchResults] = createResource(
@@ -225,26 +242,36 @@ const JiraImport: Component<JiraImportProps> = (props) => {
               {/* Search controls */}
               <div class={styles.searchRow}>
                 <Show
-                  when={!projects.loading}
+                  when={projects.loading}
                   fallback={
-                    <select class={styles.projectSelect} disabled>
-                      <option>Loading projects…</option>
-                    </select>
+                    <Show
+                      when={projectsFetchError()}
+                      fallback={
+                        <select
+                          class={styles.projectSelect}
+                          value={selectedProject()}
+                          onChange={(e) => setSelectedProject(e.currentTarget.value)}
+                        >
+                          <option value="">All projects</option>
+                          <For each={projectOptions()}>
+                            {(p) => (
+                              <option value={p.key}>
+                                {p.key} — {p.name}
+                              </option>
+                            )}
+                          </For>
+                        </select>
+                      }
+                    >
+                      <div class={styles.errorState}>
+                        <TbOutlineAlertCircle size={14} />{" "}
+                        {projectsFetchError()?.message ?? "Could not load Jira projects"}
+                      </div>
+                    </Show>
                   }
                 >
-                  <select
-                    class={styles.projectSelect}
-                    value={selectedProject()}
-                    onChange={(e) => setSelectedProject(e.currentTarget.value)}
-                  >
-                    <option value="">All projects</option>
-                    <For each={projects() ?? []}>
-                      {(p) => (
-                        <option value={p.key}>
-                          {p.key} — {p.name}
-                        </option>
-                      )}
-                    </For>
+                  <select class={styles.projectSelect} disabled>
+                    <option>Loading projects…</option>
                   </select>
                 </Show>
 
