@@ -111,3 +111,30 @@ async fn settings_put_then_get_round_trip() {
     assert_eq!(returned["notifications"]["attentionLevel"], "all");
     assert_eq!(returned["agentDefaults"]["timeoutMinutes"], 60);
 }
+
+#[tokio::test]
+async fn jira_oauth_auth_returns_json_with_authorization_url() {
+    let app = app().await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/integrations/jira/auth")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 1_000_000)
+        .await
+        .unwrap();
+    let v: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let url = v["url"].as_str().expect("expected url string");
+    assert!(
+        url.starts_with("https://"),
+        "expected absolute https authorize URL, got {url:?}"
+    );
+    assert!(v["state"].as_str().is_some(), "expected state string");
+}

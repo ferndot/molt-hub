@@ -1,6 +1,6 @@
 //! Molt Hub desktop application — Tauri v2 shell with embedded Axum server.
 //!
-//! In release mode, spawns the Axum server and opens a webview to localhost:13401.
+//! In release mode, spawns the Axum server and opens a webview to 127.0.0.1:13401.
 //! In debug mode (`cargo run`), skips the embedded server and points the webview
 //! at the Vite dev server (localhost:5173) for hot module reloading.
 //!
@@ -81,7 +81,9 @@ fn webview_url() -> String {
         let port = std::env::var("VITE_PORT").unwrap_or_else(|_| "5173".to_string());
         format!("http://localhost:{port}")
     } else {
-        format!("http://localhost:{}", local_api_port())
+        // Match the embedded listener (127.0.0.1) so we never rely on `localhost` → ::1
+        // resolving while the server is IPv4-only.
+        format!("http://127.0.0.1:{}", local_api_port())
     }
 }
 
@@ -95,6 +97,7 @@ fn main() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {
             tracing::info!("single-instance handoff (e.g. second open or deep link on Windows/Linux)");
         }))
@@ -120,11 +123,11 @@ fn main() {
             // running externally for full HMR support.
             if !cfg!(debug_assertions) {
                 let bind_port = local_api_port();
+                let dist_dir = resolve_embedded_dist_dir(app);
                 std::thread::spawn(move || {
                     let rt =
                         tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
                     rt.block_on(async {
-                        let dist_dir = resolve_dist_dir();
                         let (router, manager, supervisor, _audit) = build_router(dist_dir).await;
                         let _metrics_handle = spawn_health_metrics_task(
                             manager,
@@ -138,6 +141,9 @@ fn main() {
                         axum::serve(listener, router).await.unwrap();
                     });
                 });
+                // Avoid navigating before `bind`: otherwise `/api/*` can fall through to the
+                // SPA static fallback (200 + index.html) and OAuth sees “invalid JSON”.
+                wait_for_local_port(bind_port, Duration::from_secs(30));
             } else {
                 tracing::info!(
                     "dev mode — webview points to Vite dev server. \
@@ -158,17 +164,30 @@ fn main() {
         .expect("error while running Tauri application");
 }
 
-/// Resolve the UI dist directory for the embedded server.
+/// UI `dist/` for the embedded Axum static layer (SPA + fallback).
 ///
-/// Resolution order:
-/// 1. `UI_DIST` environment variable
-/// 2. Walk up from the binary location looking for `ui/dist`
-/// 3. Fall back to `ui/dist` relative to CWD
-fn resolve_dist_dir() -> PathBuf {
+/// Packaged macOS apps place `frontendDist` files at **`Contents/Resources/`** (flat
+/// `index.html`), not `ui/dist` next to the binary — use Tauri’s resource dir first.
+fn resolve_embedded_dist_dir(app: &tauri::App) -> PathBuf {
     if let Ok(p) = std::env::var("UI_DIST") {
         return PathBuf::from(p);
     }
 
+    if let Ok(res) = app.path().resource_dir() {
+        if res.join("index.html").exists() {
+            tracing::info!(path = %res.display(), "using Tauri resource dir for UI dist");
+            return res;
+        }
+    }
+
+    resolve_dist_dir_from_exe_or_cwd()
+}
+
+/// Fallback when not running from a Tauri bundle (e.g. `cargo run --release` from repo).
+///
+/// 1. Walk up from the binary looking for `ui/dist`
+/// 2. `ui/dist` relative to CWD
+fn resolve_dist_dir_from_exe_or_cwd() -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         let mut dir = exe.parent();
         while let Some(d) = dir {
@@ -181,4 +200,22 @@ fn resolve_dist_dir() -> PathBuf {
     }
 
     PathBuf::from("ui/dist")
+}
+
+fn wait_for_local_port(port: u16, timeout: Duration) {
+    let addr = format!("127.0.0.1:{port}");
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if std::net::TcpStream::connect(&addr).is_ok() {
+            return;
+        }
+        if std::time::Instant::now() > deadline {
+            tracing::error!(
+                port,
+                "embedded server did not accept connections in time — UI may be broken until refresh"
+            );
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }

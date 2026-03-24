@@ -22,7 +22,7 @@
   "app": {
     "windows": [
       {
-        "url": "http://localhost:13401",
+        "url": "http://127.0.0.1:13401",
         "title": "Molt Hub",
         "width": 1280,
         "height": 800,
@@ -36,7 +36,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ws://localhost:13401 http://localhost:13401; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; connect-src 'self' ws://127.0.0.1:13401 ws://localhost:13401 http://127.0.0.1:13401 http://localhost:13401; style-src 'self' 'unsafe-inline'"
     }
   },
   "plugins": {
