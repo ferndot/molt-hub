@@ -15,6 +15,19 @@ import { createEffect } from "solid-js";
 import { createSignal } from "solid-js";
 
 // ---------------------------------------------------------------------------
+// Tauri-aware external URL opener
+// ---------------------------------------------------------------------------
+
+async function openExternalUrl(url: string): Promise<void> {
+  if (typeof window !== "undefined" && "__TAURI_INTERNALS__" in window) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("plugin:opener|open_url", { url });
+  } else {
+    window.open(url, "_blank");
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -394,7 +407,7 @@ export async function connectJira(): Promise<void> {
       return;
     }
     const data = (await response.json()) as { url: string };
-    window.open(data.url, "_blank");
+    await openExternalUrl(data.url);
     // Start polling for when the user completes OAuth in the other tab
     startJiraStatusPolling();
   } catch (err) {
@@ -540,7 +553,7 @@ export async function connectGitHub(): Promise<void> {
       return;
     }
     const data = (await response.json()) as { url: string };
-    window.open(data.url, "_blank");
+    await openExternalUrl(data.url);
     // Start polling for when the user completes OAuth in the other tab
     startGithubStatusPolling();
   } catch (err) {
