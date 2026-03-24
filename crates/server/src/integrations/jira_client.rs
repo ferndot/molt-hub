@@ -3,6 +3,9 @@
 //! Wraps the Jira Cloud REST API with a thin async client.  Authentication
 //! uses OAuth 2.0 Bearer tokens — call [`JiraClient::from_oauth`] to construct
 //! a client from an access token and Atlassian cloud ID.
+//!
+//! Issue search uses [`JiraClient::search_issues`] (`/rest/api/3/search/jql`), not
+//! the removed legacy `/rest/api/3/search` endpoint (Atlassian changelog CHANGE-2046).
 
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -72,8 +75,10 @@ pub struct JiraProject {
 // Internal API response shapes (not exported)
 // ---------------------------------------------------------------------------
 
+/// Enhanced `/rest/api/3/search/jql` response (`issues`, `isLast`, optional `nextPageToken`).
 #[derive(Deserialize)]
 struct SearchResponse {
+    #[serde(default)]
     issues: Vec<IssueRaw>,
 }
 
@@ -149,6 +154,18 @@ fn summarize_jira_error_response(body: &str) -> String {
     }
 }
 
+/// Field ids passed to JQL enhanced search (`/search/jql`).
+const SEARCH_ISSUE_FIELDS: &[&str] = &[
+    "summary",
+    "description",
+    "status",
+    "priority",
+    "labels",
+];
+
+/// Use POST `/search/jql` when JQL is longer than this to avoid URL / proxy limits on GET.
+const SEARCH_JQL_GET_MAX_LEN: usize = 1500;
+
 // ---------------------------------------------------------------------------
 // JiraClient
 // ---------------------------------------------------------------------------
@@ -196,25 +213,47 @@ impl JiraClient {
 
     /// Search for issues using JQL.
     ///
-    /// Returns up to `max_results` issues.
+    /// Calls the enhanced search API `GET` or `POST /rest/api/3/search/jql`. Legacy
+    /// `GET /rest/api/3/search` was removed (Atlassian changelog CHANGE-2046).
+    ///
+    /// Returns up to `max_results` issues from the first page only.
     pub async fn search_issues(
         &self,
         jql: &str,
         max_results: u32,
     ) -> Result<Vec<JiraIssue>, JiraError> {
-        let url = format!("{}/search", self.base_url);
-        let response = self
-            .client
-            .get(&url)
-            .bearer_auth(&self.access_token)
-            .header("Accept", "application/json")
-            .query(&[
-                ("jql", jql),
-                ("maxResults", &max_results.to_string()),
-                ("fields", "summary,description,status,priority,labels"),
-            ])
-            .send()
-            .await?;
+        let url = format!("{}/search/jql", self.base_url);
+
+        let response = if jql.len() <= SEARCH_JQL_GET_MAX_LEN {
+            self.client
+                .get(&url)
+                .bearer_auth(&self.access_token)
+                .header("Accept", "application/json")
+                .query(&[
+                    ("jql", jql),
+                    ("maxResults", &max_results.to_string()),
+                    (
+                        "fields",
+                        "summary,description,status,priority,labels",
+                    ),
+                ])
+                .send()
+                .await?
+        } else {
+            let body = serde_json::json!({
+                "jql": jql,
+                "maxResults": max_results,
+                "fields": SEARCH_ISSUE_FIELDS,
+            });
+            self.client
+                .post(&url)
+                .bearer_auth(&self.access_token)
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .await?
+        };
 
         let text = Self::response_text(response).await?;
         let body: SearchResponse = serde_json::from_str(text.trim()).map_err(|e| {
