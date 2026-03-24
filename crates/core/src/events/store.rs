@@ -9,9 +9,9 @@ use tracing::instrument;
 use crate::model::{EventId, SessionId, TaskId};
 
 use super::schema::{
-    CREATE_EVENTS_TABLE, CREATE_IDX_EVENTS_CAUSED_BY, CREATE_IDX_EVENTS_TASK_ID,
-    CREATE_IDX_EVENTS_TIMESTAMP, CREATE_TASK_CURRENT_STATE_TABLE, CREATE_TASK_TIMELINE_TABLE,
-    ENABLE_WAL, SET_SYNCHRONOUS,
+    apply_migrations, CREATE_EVENTS_TABLE, CREATE_IDX_EVENTS_CAUSED_BY,
+    CREATE_IDX_EVENTS_TASK_ID, CREATE_IDX_EVENTS_TIMESTAMP, CREATE_TASK_CURRENT_STATE_TABLE,
+    CREATE_TASK_TIMELINE_TABLE, ENABLE_WAL, SET_SYNCHRONOUS,
 };
 use super::types::EventEnvelope;
 
@@ -164,6 +164,9 @@ impl SqliteEventStore {
         sqlx::query(CREATE_IDX_EVENTS_CAUSED_BY)
             .execute(&mut *conn)
             .await?;
+
+        // Run schema migrations (idempotent, safe on every startup).
+        apply_migrations(&mut *conn).await?;
 
         Ok(())
     }

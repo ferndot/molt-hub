@@ -191,7 +191,7 @@ impl Default for TemplateEngine {
 mod tests {
     use super::*;
     use crate::model::{
-        AgentId, AgentStatus, PipelineId, Priority, SessionId, Task, TaskId, TaskState,
+        AgentId, AgentStatus, PipelineId, Priority, ProjectId, SessionId, Task, TaskId, TaskState,
     };
     use chrono::Utc;
     use ulid::Ulid;
@@ -200,7 +200,7 @@ mod tests {
         Task {
             id: TaskId(Ulid::new()),
             pipeline_id: PipelineId(Ulid::new()),
-            project_id: None,
+            project_id: ProjectId::new(),
             title: "My Task".to_string(),
             description: "A detailed description.".to_string(),
             current_stage: "planning".to_string(),
