@@ -2,7 +2,8 @@
 //!
 //! Set variables in the environment when you run **`cargo build`** / **`cargo tauri build`**, or put
 //! them in a **`.env`** file anywhere from `crates/server/` up to the repository root (see
-//! `build.rs` — earlier `.env` files on the path win per key).
+//! `build.rs` — among `.env` files, the **workspace root** wins on duplicate keys; non-empty
+//! `VAR=value cargo build` still overrides `.env`).
 //!
 //! | Variable | Purpose |
 //! |----------|---------|

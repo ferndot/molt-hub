@@ -1,8 +1,15 @@
 //! Embeds GitHub/Jira OAuth app credentials at compile time.
 //!
-//! Loads `.env` files walking **up** from `crates/server`, **ancestor-first** (workspace root
-//! before `crates/server/`). `dotenvy` does not override existing keys, so the **first** file on
-//! that path wins for each variable.
+//! Loads `.env` files walking **up** from `crates/server`: **`crates/server/.env` first**, then
+//! parents, **workspace root last**. Each step uses [`dotenvy::from_path_override`], so among
+//! `.env` files the **repo root wins** on duplicate keys.
+//!
+//! Non-empty values already in the process environment **before** loading (e.g. `VAR=x cargo build`)
+//! are restored afterward so the CLI still overrides `.env`.
+//!
+//! [`dotenvy::from_path`] is intentionally not used: it **ignores** `.env` entries when the
+//! variable is already set — even to an empty string — which often breaks local builds when CI or
+//! the shell exports `MOLTHUB_*=`.
 
 use std::env;
 use std::fs::File;
@@ -65,12 +72,7 @@ fn main() {
         .unwrap(),
     }
 
-    for key in [
-        "MOLTHUB_GITHUB_CLIENT_ID",
-        "MOLTHUB_GITHUB_CLIENT_SECRET",
-        "MOLTHUB_JIRA_CLIENT_ID",
-        "MOLTHUB_JIRA_CLIENT_SECRET",
-    ] {
+    for key in OAUTH_ENV_KEYS {
         println!("cargo:rerun-if-env-changed={key}");
     }
 
@@ -86,7 +88,24 @@ fn main() {
     }
 }
 
+const OAUTH_ENV_KEYS: &[&str] = &[
+    "MOLTHUB_GITHUB_CLIENT_ID",
+    "MOLTHUB_GITHUB_CLIENT_SECRET",
+    "MOLTHUB_JIRA_CLIENT_ID",
+    "MOLTHUB_JIRA_CLIENT_SECRET",
+];
+
 fn load_dotenv_chain(start: &Path) {
+    let mut preserved: Vec<(String, String)> = Vec::new();
+    for key in OAUTH_ENV_KEYS {
+        if let Ok(v) = env::var(key) {
+            let t = v.trim().to_owned();
+            if !t.is_empty() {
+                preserved.push(((*key).to_string(), t));
+            }
+        }
+    }
+
     let mut dirs: Vec<PathBuf> = Vec::new();
     let mut dir = start.to_path_buf();
     for _ in 0..16 {
@@ -95,12 +114,16 @@ fn load_dotenv_chain(start: &Path) {
             break;
         }
     }
-    dirs.reverse();
+    // Deepest (manifest dir) first, workspace root last → root `.env` wins among files.
     for d in dirs {
         let p = d.join(".env");
         if p.is_file() {
-            let _ = dotenvy::from_path(&p);
+            let _ = dotenvy::from_path_override(&p);
         }
+    }
+
+    for (k, v) in preserved {
+        env::set_var(&k, v);
     }
 }
 
