@@ -1,8 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capabilities for Molt Hub",
+  "description": "Default capabilities for Molt Hub (remote URLs: Vite dev + embedded API origin; extend if you change VITE_PORT / MOLTHUB_LOCAL_API_PORT)",
   "windows": ["main"],
+  "remote": {
+    "urls": [
+      "http://localhost:5173/*",
+      "http://127.0.0.1:5173/*",
+      "http://localhost:13401/*",
+      "http://127.0.0.1:13401/*"
+    ]
+  },
   "permissions": [
     "allow-oauth-auth-start-url",
     "core:event:default",
