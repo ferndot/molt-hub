@@ -28,7 +28,8 @@ export interface JiraIssue {
   key: string;
   summary: string;
   status: string;
-  priority: string;
+  /** Server may omit or null when Jira has no priority. */
+  priority?: string | null;
 }
 
 export interface JiraImportProps {
@@ -48,26 +49,38 @@ async function fetchProjects(): Promise<JiraProject[]> {
   return response.json() as Promise<JiraProject[]>;
 }
 
+/** Server `GET /search` expects `jql` (optional `cloud_id`). */
+function buildJiraSearchJql(projectKey: string, userJql: string): string {
+  const j = userJql.trim();
+  const esc = (k: string) => `"${k.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  if (projectKey) {
+    const proj = `project = ${esc(projectKey)}`;
+    if (j) return `${proj} AND (${j})`;
+    return `${proj} ORDER BY updated DESC`;
+  }
+  if (j) return j;
+  return "created >= -30d ORDER BY updated DESC";
+}
+
 async function searchIssues(
   projectKey: string,
-  jql: string,
+  userJql: string,
 ): Promise<JiraIssue[]> {
-  const params = new URLSearchParams();
-  if (projectKey) params.set("project", projectKey);
-  if (jql) params.set("jql", jql);
+  const jql = buildJiraSearchJql(projectKey, userJql);
+  const params = new URLSearchParams({ jql });
   const response = await fetch(`/api/integrations/jira/search?${params}`);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json() as Promise<JiraIssue[]>;
 }
 
-async function importIssues(keys: string[]): Promise<{ imported: number }> {
+async function importIssues(issueKeys: string[]): Promise<{ imported: string[] }> {
   const response = await fetch("/api/integrations/jira/import", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ keys }),
+    body: JSON.stringify({ issue_keys: issueKeys }),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json() as Promise<{ imported: number }>;
+  return response.json() as Promise<{ imported: string[] }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +154,7 @@ const JiraImport: Component<JiraImportProps> = (props) => {
     setImportError(null);
     try {
       const result = await importIssues(keys);
-      setImportedCount(result.imported);
+      setImportedCount(result.imported.length);
       setImportStatus("success");
       setSelectedKeys(new Set<string>());
     } catch (err) {
@@ -293,7 +306,9 @@ const JiraImport: Component<JiraImportProps> = (props) => {
                               </div>
                               <div class={styles.resultMeta}>
                                 <span class={styles.resultStatus}>{issue.status}</span>
-                                <span class={styles.resultPriority}>{issue.priority}</span>
+                                <span class={styles.resultPriority}>
+                                  {issue.priority ?? "—"}
+                                </span>
                               </div>
                             </div>
                           </li>

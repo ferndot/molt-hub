@@ -56,18 +56,19 @@ async function searchIssues(
   return response.json() as Promise<GitHubIssue[]>;
 }
 
+/** `POST /import` body matches server `ImportRequest`: owner, repo, issues (numbers). */
 async function importIssues(
   owner: string,
   repo: string,
   issueNumbers: number[],
-): Promise<{ imported: number }> {
+): Promise<{ imported: number; message?: string }> {
   const response = await fetch("/api/integrations/github/import", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ owner, repo, issues: issueNumbers }),
   });
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json() as Promise<{ imported: number }>;
+  return response.json() as Promise<{ imported: number; message?: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -75,6 +76,10 @@ async function importIssues(
 // ---------------------------------------------------------------------------
 
 const GitHubImport: Component<GitHubImportProps> = (props) => {
+  const githubOwner = () => settingsState.githubConfig.owner?.trim() ?? "";
+  const canSearch = () =>
+    settingsState.githubConfig.connected && githubOwner().length > 0;
+
   // ---- State ----
   const [repo, setRepo] = createSignal("");
   const [stateFilter, setStateFilter] = createSignal<IssueStateFilter>("open");
@@ -101,9 +106,9 @@ const GitHubImport: Component<GitHubImportProps> = (props) => {
 
   // ---- Handlers ----
   const handleSearch = () => {
-    const owner = settingsState.githubConfig.owner;
+    const owner = githubOwner();
     const repoName = repo().trim();
-    if (!repoName) return;
+    if (!repoName || !owner) return;
     setSelectedNumbers(new Set<number>());
     setImportStatus("idle");
     setImportError(null);
@@ -206,6 +211,17 @@ const GitHubImport: Component<GitHubImportProps> = (props) => {
                 <div class={styles.errorState}><TbOutlineAlertCircle size={14} /> {importError()}</div>
               </Show>
 
+              <Show
+                when={
+                  settingsState.githubConfig.connected && githubOwner().length === 0
+                }
+              >
+                <div class={styles.errorState}>
+                  <TbOutlineAlertCircle size={14} /> GitHub login not loaded yet.
+                  Open Settings → GitHub or wait for connection status to refresh.
+                </div>
+              </Show>
+
               <Show when={importStatus() === "success"}>
                 <div class={styles.successBanner}>
                   <TbOutlineCheck size={14} /> Imported {importedCount()} issue{importedCount() !== 1 ? "s" : ""}
@@ -225,7 +241,7 @@ const GitHubImport: Component<GitHubImportProps> = (props) => {
 
                 <button
                   class={styles.searchBtn}
-                  disabled={isSearching() || !repo().trim()}
+                  disabled={isSearching() || !repo().trim() || !canSearch()}
                   onClick={handleSearch}
                 >
                   {isSearching() ? "Searching…" : "Search"}

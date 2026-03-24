@@ -19,6 +19,7 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, warn};
 
+use super::github_client::GitHubClient;
 use super::github_oauth::{GithubOAuthError, GithubOAuthService};
 use crate::credentials::{CredentialScope, CredentialStore};
 
@@ -30,6 +31,7 @@ const CRED_SCOPE: CredentialScope = CredentialScope::Global;
 const KEY_ACCESS_TOKEN: &str = "github/access_token";
 const KEY_REFRESH_TOKEN: &str = "github/refresh_token";
 const KEY_SCOPE: &str = "github/scope";
+const KEY_LOGIN: &str = "github/login";
 
 // ---------------------------------------------------------------------------
 // Shared OAuth state
@@ -66,6 +68,9 @@ pub struct GithubStoredTokens {
     pub refresh_token: Option<String>,
     pub expires_in: Option<u64>,
     pub scope: String,
+    /// GitHub login (`/user`), for import UI `owner` query param.
+    #[serde(default)]
+    pub login: Option<String>,
 }
 
 impl GithubOAuthState {
@@ -95,11 +100,13 @@ impl GithubOAuthState {
                 .credential_store
                 .retrieve(KEY_SCOPE, &CRED_SCOPE)
                 .unwrap_or_default();
+            let login = self.credential_store.retrieve(KEY_LOGIN, &CRED_SCOPE).ok();
             *stored = Some(GithubStoredTokens {
                 access_token,
                 refresh_token,
                 expires_in: None,
                 scope,
+                login: login.filter(|s| !s.is_empty()),
             });
         }
     }
@@ -138,6 +145,9 @@ pub struct GithubStatusResponse {
     pub connected: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<String>,
+    /// Authenticated user's GitHub login (for `owner` in repo-scoped API calls).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 /// Response from the disconnect endpoint.
@@ -209,14 +219,6 @@ pub async fn github_oauth_callback(
 
     let scope = tokens.scope.clone();
 
-    // Build the token struct once.
-    let new_tokens = GithubStoredTokens {
-        access_token: tokens.access_token.clone(),
-        refresh_token: tokens.refresh_token.clone(),
-        expires_in: tokens.expires_in,
-        scope: tokens.scope.clone(),
-    };
-
     // Persist to credential store (best-effort — log on failure but don't abort).
     if let Err(e) = app_state.credential_store.store(
         KEY_ACCESS_TOKEN,
@@ -234,13 +236,38 @@ pub async fn github_oauth_callback(
         warn!(error = %e, "failed to persist GitHub scope to credential store");
     }
 
+    let login = match GitHubClient::new(tokens.access_token.clone())
+        .get_authenticated_user_login()
+        .await
+    {
+        Ok(l) => Some(l),
+        Err(e) => {
+            warn!(error = %e, "failed to fetch GitHub login after OAuth");
+            None
+        }
+    };
+
+    if let Some(ref lg) = login {
+        if let Err(e) = app_state.credential_store.store(KEY_LOGIN, &CRED_SCOPE, lg) {
+            warn!(error = %e, "failed to persist GitHub login to credential store");
+        }
+    }
+
+    let new_tokens = GithubStoredTokens {
+        access_token: tokens.access_token.clone(),
+        refresh_token: tokens.refresh_token.clone(),
+        expires_in: tokens.expires_in,
+        scope: tokens.scope.clone(),
+        login,
+    };
+
     // Cache in-memory.
     {
         let mut stored = app_state.stored_tokens.lock().await;
         *stored = Some(new_tokens);
     }
 
-    let _ = scope; // already cloned into new_tokens above
+    let _ = scope;
 
     (
         StatusCode::OK,
@@ -263,20 +290,50 @@ pub async fn github_status(
     State(app_state): State<GithubOAuthStateRef>,
 ) -> impl IntoResponse {
     app_state.ensure_tokens_loaded().await;
-    let stored = app_state.stored_tokens.lock().await;
 
-    match stored.as_ref() {
-        Some(tokens) => Json(GithubStatusResponse {
-            connected: true,
-            scope: Some(tokens.scope.clone()),
-        })
-        .into_response(),
-        None => Json(GithubStatusResponse {
-            connected: false,
-            scope: None,
-        })
-        .into_response(),
+    let (connected, scope, mut owner) = {
+        let stored = app_state.stored_tokens.lock().await;
+        match stored.as_ref() {
+            None => (false, None, None),
+            Some(tokens) => (
+                true,
+                Some(tokens.scope.clone()),
+                tokens.login.clone(),
+            ),
+        }
+    };
+
+    if connected && owner.is_none() {
+        let token = {
+            let stored = app_state.stored_tokens.lock().await;
+            stored.as_ref().map(|t| t.access_token.clone())
+        };
+        if let Some(token) = token {
+            match GitHubClient::new(token).get_authenticated_user_login().await {
+                Ok(login) => {
+                    if let Err(e) = app_state
+                        .credential_store
+                        .store(KEY_LOGIN, &CRED_SCOPE, &login)
+                    {
+                        warn!(error = %e, "failed to persist GitHub login to credential store");
+                    }
+                    let mut stored = app_state.stored_tokens.lock().await;
+                    if let Some(t) = stored.as_mut() {
+                        t.login = Some(login.clone());
+                    }
+                    owner = Some(login);
+                }
+                Err(e) => warn!(error = %e, "failed to fetch GitHub login for /status"),
+            }
+        }
     }
+
+    Json(GithubStatusResponse {
+        connected,
+        scope: if connected { scope } else { None },
+        owner: if connected { owner } else { None },
+    })
+    .into_response()
 }
 
 // ---------------------------------------------------------------------------
@@ -289,7 +346,7 @@ pub async fn github_disconnect(
     State(app_state): State<GithubOAuthStateRef>,
 ) -> impl IntoResponse {
     // Clear the credential store (best-effort).
-    for key in [KEY_ACCESS_TOKEN, KEY_REFRESH_TOKEN, KEY_SCOPE] {
+    for key in [KEY_ACCESS_TOKEN, KEY_REFRESH_TOKEN, KEY_SCOPE, KEY_LOGIN] {
         if let Err(e) = app_state.credential_store.delete(key, &CRED_SCOPE) {
             warn!(error = %e, key, "failed to delete GitHub credential from store");
         }
@@ -502,6 +559,7 @@ mod tests {
                 refresh_token: Some("ref".into()),
                 expires_in: Some(28800),
                 scope: "repo".into(),
+                login: None,
             });
         }
 
@@ -530,6 +588,7 @@ mod tests {
                 refresh_token: None,
                 expires_in: Some(28800),
                 scope: "repo,user".into(),
+                login: None,
             });
         }
 
