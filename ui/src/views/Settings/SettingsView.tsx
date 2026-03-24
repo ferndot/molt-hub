@@ -6,8 +6,7 @@
  */
 
 import type { JSX } from "solid-js";
-import { createSignal, onMount, Show, For, type Component } from "solid-js";
-import { open as openNativeDialog } from "@tauri-apps/plugin-dialog";
+import { createSignal, Show, For, type Component } from "solid-js";
 import {
   TbOutlinePalette,
   TbOutlinePlug,
@@ -17,7 +16,6 @@ import {
   TbOutlineBell,
   TbOutlineRobot,
   TbOutlineClipboardList,
-  TbOutlineFolders,
 } from "solid-icons/tb";
 import {
   settingsState,
@@ -34,12 +32,6 @@ import {
   setAgentAdapter,
 } from "./settingsStore";
 import type { Theme, AttentionLevel, AgentAdapter } from "./settingsStore";
-import {
-  projectState,
-  loadProjects,
-  createProject,
-  switchProject,
-} from "../../stores/projectStore";
 import GitHubImport from "./GitHubImport";
 import AuditLog from "./AuditLog";
 import PriorityBadge from "../../components/PriorityBadge/PriorityBadge";
@@ -53,15 +45,10 @@ type SectionId =
   | "appearance"
   | "notifications"
   | "agent-defaults"
-  | "projects"
   | "integrations"
   | "jira"
   | "github"
   | "audit-log";
-
-function isTauriShell(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
 
 // ---------------------------------------------------------------------------
 // Section: Appearance
@@ -198,159 +185,6 @@ const AgentDefaultsPanel: Component = () => {
           </For>
         </select>
       </div>
-    </div>
-  );
-};
-
-// ---------------------------------------------------------------------------
-// Section: Projects
-// ---------------------------------------------------------------------------
-
-const ProjectsPanel: Component = () => {
-  const [name, setName] = createSignal("");
-  const [repoPath, setRepoPath] = createSignal("");
-  const [submitting, setSubmitting] = createSignal(false);
-  const [formError, setFormError] = createSignal<string | null>(null);
-
-  onMount(() => {
-    void loadProjects();
-  });
-
-  const pickFolderViaServer = async (): Promise<boolean> => {
-    const res = await fetch("/api/system/pick-repo-folder", { method: "POST" });
-    const data = (await res.json().catch(() => ({}))) as {
-      path?: string | null;
-      error?: string | null;
-    };
-    if (!res.ok) {
-      if (res.status === 405 || res.status === 404) {
-        setFormError("Folder picker unavailable — restart Molt Hub.");
-      } else {
-        setFormError(data.error ?? "Folder picker failed.");
-      }
-      return false;
-    }
-    if (data.path) {
-      setRepoPath(data.path);
-      return true;
-    }
-    return true;
-  };
-
-  const pickFolder = async () => {
-    setFormError(null);
-    try {
-      if (isTauriShell()) {
-        try {
-          const chosen = await openNativeDialog({
-            directory: true,
-            multiple: false,
-            title: "Choose Git repository folder",
-          });
-          if (typeof chosen === "string") {
-            setRepoPath(chosen);
-          }
-          return;
-        } catch (err) {
-          console.warn("tauri folder dialog failed, trying server", err);
-          await pickFolderViaServer();
-          return;
-        }
-      }
-
-      await pickFolderViaServer();
-    } catch (err) {
-      console.error("folder dialog failed", err);
-      setFormError("Folder picker failed.");
-    }
-  };
-
-  const onSubmit = async (e: Event) => {
-    e.preventDefault();
-    setFormError(null);
-    setSubmitting(true);
-    const result = await createProject(name(), repoPath());
-    setSubmitting(false);
-    if (result.ok) {
-      setName("");
-      setRepoPath("");
-      await loadProjects();
-    } else {
-      setFormError(result.error);
-    }
-  };
-
-  return (
-    <div>
-      <h3 class={styles.sectionTitle}>Projects</h3>
-
-      <form class={styles.formGroup} onSubmit={onSubmit}>
-        <label class={styles.label} for="project-name">Name</label>
-        <input
-          id="project-name"
-          class={styles.input}
-          type="text"
-          placeholder="My app"
-          value={name()}
-          onInput={(e) => setName(e.currentTarget.value)}
-          autocomplete="off"
-        />
-        <label class={styles.label} for="project-repo-path">Repository path</label>
-        <div style={{ display: "flex", gap: "8px", "flex-wrap": "wrap", "align-items": "center" }}>
-          <input
-            id="project-repo-path"
-            class={styles.input}
-            type="text"
-            placeholder="/path/to/repo"
-            value={repoPath()}
-            onInput={(e) => setRepoPath(e.currentTarget.value)}
-            autocomplete="off"
-            style={{ flex: "1", "min-width": "200px" }}
-          />
-          <button type="button" class={styles.btnPrimary} onClick={() => void pickFolder()}>
-            Choose folder…
-          </button>
-        </div>
-        <div class={styles.buttonRow} style={{ "margin-top": "12px" }}>
-          <button type="submit" class={styles.btnPrimary} disabled={submitting()}>
-            {submitting() ? "Adding…" : "Add project"}
-          </button>
-        </div>
-        <Show when={formError()}>
-          <p class={styles.errorMsg}>{formError()}</p>
-        </Show>
-      </form>
-
-      <h3 class={styles.sectionTitle} style={{ "margin-top": "24px" }}>Existing projects</h3>
-      <Show
-        when={projectState.loaded && projectState.projects.length > 0}
-        fallback={
-          <p class={styles.oauthDescription}>
-            {projectState.loaded ? "No projects yet." : "Loading projects…"}
-          </p>
-        }
-      >
-        <ul class={styles.integrationsList} style={{ "flex-direction": "column", gap: "6px" }}>
-          <For each={projectState.projects}>
-            {(p) => (
-              <li>
-                <button
-                  type="button"
-                  class={styles.integrationCard}
-                  style={{ width: "100%", "text-align": "left" }}
-                  onClick={() => switchProject(p.id)}
-                >
-                  <span class={styles.integrationName}>{p.name}</span>
-                  <span class={styles.integrationStatus}>{p.repo_path}</span>
-                  <Show when={projectState.activeProjectId === p.id}>
-                    <span class={styles.statusBadge} style={{ "margin-left": "8px" }}>Active</span>
-                  </Show>
-                </button>
-              </li>
-            )}
-          </For>
-        </ul>
-      </Show>
     </div>
   );
 };
@@ -542,7 +376,6 @@ const NAV_ITEMS: { id: SectionId; label: string; icon: () => JSX.Element }[] = [
   { id: "appearance", label: "Appearance", icon: () => <TbOutlinePalette size={16} /> },
   { id: "notifications", label: "Notifications", icon: () => <TbOutlineBell size={16} /> },
   { id: "agent-defaults", label: "Agent Defaults", icon: () => <TbOutlineRobot size={16} /> },
-  { id: "projects", label: "Projects", icon: () => <TbOutlineFolders size={16} /> },
   { id: "integrations", label: "Integrations", icon: () => <TbOutlinePlug size={16} /> },
   { id: "audit-log", label: "Audit Log", icon: () => <TbOutlineClipboardList size={16} /> },
 ];
@@ -590,9 +423,6 @@ const SettingsView: Component = () => {
           </Show>
           <Show when={activeSection() === "agent-defaults"}>
             <AgentDefaultsPanel />
-          </Show>
-          <Show when={activeSection() === "projects"}>
-            <ProjectsPanel />
           </Show>
           <Show when={activeSection() === "integrations"}>
             <IntegrationsPanel onSelect={setActiveSection} />

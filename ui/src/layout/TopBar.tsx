@@ -12,7 +12,6 @@ import {
   TbOutlineBellOff,
 } from "solid-icons/tb";
 import styles from "./TopBar.module.css";
-import { projectState } from "../stores/projectStore";
 
 // ---------------------------------------------------------------------------
 // Props
@@ -47,15 +46,6 @@ const TopBar: Component<TopBarProps> = (props) => {
           }
         </button>
       </div>
-
-      {/* Center: active project name (only shown when multiple projects exist) */}
-      <Show when={projectState.projects.length > 1}>
-        <span class={styles.projectBreadcrumb}>
-          {projectState.projects.find(
-            (p) => p.id === projectState.activeProjectId,
-          )?.name ?? ""}
-        </span>
-      </Show>
 
       {/* Right: inbox toggle */}
       <div class={styles.right}>

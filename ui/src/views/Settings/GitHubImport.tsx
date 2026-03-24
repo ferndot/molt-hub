@@ -14,14 +14,8 @@ import {
 } from "solid-js";
 import { Dialog } from "@kobalte/core/dialog";
 import { TbOutlineX, TbOutlineCheck, TbOutlineAlertCircle } from "solid-icons/tb";
-import { projectState } from "../../stores/projectStore";
 import { settingsState } from "./settingsStore";
 import styles from "./GitHubImport.module.css";
-
-function appendActiveProjectId(params: URLSearchParams): void {
-  const id = projectState.activeProjectId?.trim();
-  if (id && id !== "default") params.set("projectId", id);
-}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -74,7 +68,6 @@ async function searchIssues(
   params.set("repo", repo);
   params.set("state", state);
   if (labels) params.set("labels", labels);
-  appendActiveProjectId(params);
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -101,8 +94,6 @@ async function importIssues(
   targetStageId?: string,
 ): Promise<{ imported: number; message?: string }> {
   const body: Record<string, unknown> = { owner, repo, issues: issueNumbers };
-  const id = projectState.activeProjectId?.trim();
-  if (id && id !== "default") body.projectId = id;
   const stage = targetStageId?.trim();
   if (stage) body.initialStage = stage;
   const controller = new AbortController();

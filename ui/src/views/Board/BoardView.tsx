@@ -1,5 +1,5 @@
 /**
- * Workboard — unified kanban: multiple boards per project, triage-aware columns,
+ * Workboard — unified kanban: multiple boards, triage-aware columns,
  * focus filter, issue import, and column configuration.
  */
 
@@ -17,7 +17,6 @@ import MissionColumn from "../MissionControl/MissionColumn";
 import GitHubImport from "../Settings/GitHubImport";
 import JiraImport from "../Settings/JiraImport";
 import { settingsState } from "../Settings/settingsStore";
-import { projectState } from "../../stores/projectStore";
 import { api } from "../../lib/api";
 import {
   boardState,
@@ -47,12 +46,10 @@ const BoardView: Component = () => {
     if (!stageId) return;
     const title = window.prompt("Issue title:");
     if (!title?.trim()) return;
-    const pid = projectState.activeProjectId?.trim();
     try {
       await api.createTask({
         title: title.trim(),
         initialStage: stageId,
-        ...(pid && pid !== "default" ? { projectId: pid } : {}),
       });
     } catch (e) {
       window.alert(e instanceof Error ? e.message : "Could not create issue");
@@ -152,14 +149,6 @@ const BoardView: Component = () => {
             : <><TbOutlineFocus size={14} /> Focus</>}
         </button>
       </div>
-
-      <Show when={projectState.loaded && projectState.projects.length === 0}>
-        <div class={mcStyles.onboarding} data-testid="mc-onboarding">
-          <strong>No project yet.</strong> Add one under{" "}
-          <a href="/settings">Settings → Projects</a> with a name and the path to a Git repo on
-          disk. Integrations (Jira, GitHub) and repo-scoped features use the active project.
-        </div>
-      </Show>
 
       <ColumnEditor open={editorOpen()} onOpenChange={setEditorOpen} />
 

@@ -22,8 +22,7 @@ function getViewContext(pathname: string): ViewContext {
   if (
     pathname === "/" ||
     pathname === "/mission-control" ||
-    pathname === "/board" ||
-    /\/projects\/[^/]+\/board$/.test(pathname)
+    pathname === "/board"
   ) {
     return "mission-control";
   }

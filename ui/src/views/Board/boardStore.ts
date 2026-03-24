@@ -1,6 +1,6 @@
 /**
  * Board store — stages and tasks per named board. Fetches
- * GET /api/projects/:id/boards and .../boards/:bid/stages.
+ * GET /api/projects/default/boards and .../boards/:bid/stages.
  * WebSocket `board:*` updates apply to the shared task list; the active board
  * filters columns by its stage ids (see missionControlStore).
  */
@@ -8,7 +8,7 @@
 import { createStore } from "solid-js/store";
 import type { ServerMessage } from "../../types";
 import { api, type BoardSummary, type PipelineStage } from "../../lib/api";
-import { projectState } from "../../stores/projectStore";
+import { WORKSPACE_PROJECT_ID } from "../../stores/projectStore";
 import type { Priority } from "../../types/domain";
 
 // ---------------------------------------------------------------------------
@@ -40,7 +40,7 @@ export interface BoardState {
   pipelineStages: PipelineStage[];
   stagesLoaded: boolean;
   tasks: BoardTask[];
-  /** Boards for the active project (from API). */
+  /** Boards from API (workspace scope). */
   boards: BoardSummary[];
   /** Selected pipeline / kanban board id. */
   activeBoardId: string;
@@ -122,11 +122,11 @@ async function applyStagesFromFetch(fetched: PipelineStage[] | null): Promise<vo
 }
 
 /**
- * Load board list + stages for the active board. Clears tasks on project switch.
- * Call when the workboard mounts and when `activeProjectId` changes.
+ * Load board list + stages for the active board.
+ * Call when the app mounts (and after external board changes if needed).
  */
 export async function initBoardStages(): Promise<void> {
-  const projectId = projectState.activeProjectId;
+  const projectId = WORKSPACE_PROJECT_ID;
   setBoardState("tasks", []);
   setBoardState("stagesLoaded", false);
 
@@ -160,7 +160,7 @@ export async function initBoardStages(): Promise<void> {
  * Use on the boards index page so navigation does not reset the workboard.
  */
 export async function refreshProjectBoards(): Promise<void> {
-  const projectId = projectState.activeProjectId;
+  const projectId = WORKSPACE_PROJECT_ID;
   let boards: BoardSummary[] = [];
   try {
     const res = await api.listProjectBoards(projectId);
@@ -178,7 +178,7 @@ export async function refreshProjectBoards(): Promise<void> {
  * Switch the visible board; persists per project. Does not clear tasks.
  */
 export async function setActiveBoard(boardId: string): Promise<void> {
-  const projectId = projectState.activeProjectId;
+  const projectId = WORKSPACE_PROJECT_ID;
   if (!boardState.boards.some((b) => b.id === boardId)) return;
   setBoardState("activeBoardId", boardId);
   localStorage.setItem(boardStorageKey(projectId), boardId);
@@ -190,7 +190,7 @@ export async function setActiveBoard(boardId: string): Promise<void> {
 
 /** Create a new board (empty default stages on the server). */
 export async function createBoard(id: string, name?: string): Promise<void> {
-  const projectId = projectState.activeProjectId;
+  const projectId = WORKSPACE_PROJECT_ID;
   const res = await api.createProjectBoard(projectId, {
     id: id.trim(),
     ...(name?.trim() ? { name: name.trim() } : {}),
@@ -202,7 +202,7 @@ export async function createBoard(id: string, name?: string): Promise<void> {
 /** Delete a board (not `default`). */
 export async function deleteBoard(boardId: string): Promise<void> {
   if (boardId === "default") return;
-  const projectId = projectState.activeProjectId;
+  const projectId = WORKSPACE_PROJECT_ID;
   const wasActive = boardState.activeBoardId === boardId;
   const res = await api.deleteProjectBoard(projectId, boardId);
   const list = res.boards ?? [];
@@ -219,7 +219,7 @@ export async function deleteBoard(boardId: string): Promise<void> {
 export async function pushStagesToApi(): Promise<void> {
   try {
     await api.updateProjectBoardStages(
-      projectState.activeProjectId,
+      WORKSPACE_PROJECT_ID,
       boardState.activeBoardId,
       { stages: boardState.pipelineStages },
     );
@@ -300,7 +300,7 @@ export async function patchStage(
   );
   try {
     await api.patchProjectBoardStage(
-      projectState.activeProjectId,
+      WORKSPACE_PROJECT_ID,
       boardState.activeBoardId,
       id,
       fields,

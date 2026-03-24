@@ -8,7 +8,6 @@ import {
   TbOutlineSettings,
 } from "solid-icons/tb";
 import { attentionCount } from "./attentionStore";
-import { ProjectSwitcher } from "../components/ProjectSwitcher";
 import AgentList from "./AgentList";
 import BoardList from "./BoardList";
 import {
@@ -51,8 +50,7 @@ const Sidebar: Component<Props> = (props) => {
       return (
         location.pathname === "/" ||
         location.pathname === "/mission-control" ||
-        location.pathname === "/board" ||
-        /\/projects\/[^/]+\/board$/.test(location.pathname)
+        location.pathname === "/board"
       );
     }
     return location.pathname.startsWith(href);
@@ -102,9 +100,6 @@ const Sidebar: Component<Props> = (props) => {
     >
       {/* Traffic light area — pure drag region */}
       <div class={styles.trafficLightSpacer} />
-
-      {/* Project switcher — only shown when multiple projects exist */}
-      <ProjectSwitcher />
 
       {/* Nav links */}
       <nav class={styles.nav}>

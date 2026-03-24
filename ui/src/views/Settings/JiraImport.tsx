@@ -13,13 +13,7 @@ import {
 } from "solid-js";
 import { Dialog } from "@kobalte/core/dialog";
 import { TbOutlineX, TbOutlineCheck, TbOutlineAlertCircle } from "solid-icons/tb";
-import { projectState } from "../../stores/projectStore";
 import styles from "./JiraImport.module.css";
-
-function appendActiveProjectId(params: URLSearchParams): void {
-  const id = projectState.activeProjectId?.trim();
-  if (id && id !== "default") params.set("projectId", id);
-}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,14 +46,7 @@ type ImportStatus = "idle" | "importing" | "success" | "error";
 // ---------------------------------------------------------------------------
 
 async function fetchProjects(): Promise<JiraProject[]> {
-  const params = new URLSearchParams();
-  appendActiveProjectId(params);
-  const q = params.toString();
-  const response = await fetch(
-    q
-      ? `/api/integrations/jira/projects?${q}`
-      : "/api/integrations/jira/projects",
-  );
+  const response = await fetch("/api/integrations/jira/projects");
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json() as Promise<JiraProject[]>;
 }
@@ -83,7 +70,6 @@ async function searchIssues(
 ): Promise<JiraIssue[]> {
   const jql = buildJiraSearchJql(projectKey, userJql);
   const params = new URLSearchParams({ jql });
-  appendActiveProjectId(params);
   const response = await fetch(`/api/integrations/jira/search?${params}`);
   if (!response.ok) throw new Error(`HTTP ${response.status}`);
   return response.json() as Promise<JiraIssue[]>;
@@ -94,8 +80,6 @@ async function importIssues(
   targetStageId?: string,
 ): Promise<{ imported: string[] }> {
   const body: Record<string, unknown> = { issue_keys: issueKeys };
-  const id = projectState.activeProjectId?.trim();
-  if (id && id !== "default") body.projectId = id;
   const stage = targetStageId?.trim();
   if (stage) body.initialStage = stage;
   const response = await fetch("/api/integrations/jira/import", {

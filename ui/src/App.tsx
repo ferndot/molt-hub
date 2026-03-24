@@ -1,7 +1,7 @@
 import type { Component } from "solid-js";
 import { createEffect, onCleanup, onMount } from "solid-js";
 import { Router, Route } from "@solidjs/router";
-import { loadProjects, projectState } from "./stores/projectStore";
+import { WORKSPACE_PROJECT_ID } from "./stores/projectStore";
 import { initBoardStages, handleBoardWsMessage } from "./views/Board/boardStore";
 import { subscribe, projectTopic } from "./lib/ws";
 import AppLayout from "./layout/AppLayout";
@@ -33,16 +33,11 @@ const SettingsPage: Component = () => <SettingsView />;
 
 const App: Component = () => {
   onMount(() => {
-    void loadProjects();
-  });
-
-  createEffect(() => {
-    projectState.activeProjectId;
     void initBoardStages();
   });
 
   createEffect(() => {
-    const topic = projectTopic(projectState.activeProjectId, "board:*");
+    const topic = projectTopic(WORKSPACE_PROJECT_ID, "board:*");
     const unsub = subscribe(topic, handleBoardWsMessage);
     onCleanup(unsub);
   });
@@ -58,10 +53,6 @@ const App: Component = () => {
       <Route path="/agents/:id" component={AgentDetailView} />
       <Route path="/tasks/:id" component={TaskDetailView} />
       <Route path="/settings" component={SettingsPage} />
-      {/* Project-scoped routes */}
-      <Route path="/projects/:pid/board" component={WorkboardPage} />
-      <Route path="/projects/:pid/triage" component={TriagePage} />
-      <Route path="/projects/:pid/settings" component={SettingsPage} />
     </Router>
   );
 };
