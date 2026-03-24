@@ -11,6 +11,7 @@
     "e2e": "playwright test --config e2e/playwright.config.ts"
   },
   "dependencies": {
+    "@kobalte/core": "^0.13.11",
     "@solidjs/router": "^0.15.0",
     "@tanstack/solid-virtual": "^3.10.0",
     "@tauri-apps/api": "^2.10.1",

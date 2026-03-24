@@ -5,6 +5,7 @@
 
 import { Component, For, Show, createSignal } from "solid-js";
 import { TbOutlineFocus, TbOutlineEye } from "solid-icons/tb";
+import ImportIssuesMenu from "../../components/ImportIssuesMenu/ImportIssuesMenu";
 import { useMissionControl } from "./missionControlStore";
 import MissionColumn from "./MissionColumn";
 import GitHubImport from "../Settings/GitHubImport";
@@ -77,50 +78,14 @@ const MissionControlView: Component = () => {
                 onToggle={(taskId) => mc.toggleCard(taskId)}
                 footer={
                   stage === "backlog" && hasIssueIntegration()
-                    ? () => {
-                        let detailsEl: HTMLDetailsElement | undefined;
-                        const closeMenu = () => {
-                          if (detailsEl) detailsEl.open = false;
-                        };
-                        return (
-                          <details
-                            class={styles.importDropdown}
-                            ref={(el) => {
-                              detailsEl = el;
-                            }}
-                          >
-                            <summary class={styles.importSummary}>Import issues</summary>
-                            <div class={styles.importMenu} role="menu">
-                              <Show when={settingsState.jiraConfig.connected}>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  class={styles.importMenuItem}
-                                  onClick={() => {
-                                    closeMenu();
-                                    setJiraImportOpen(true);
-                                  }}
-                                >
-                                  Jira
-                                </button>
-                              </Show>
-                              <Show when={settingsState.githubConfig.connected}>
-                                <button
-                                  type="button"
-                                  role="menuitem"
-                                  class={styles.importMenuItem}
-                                  onClick={() => {
-                                    closeMenu();
-                                    setGitHubImportOpen(true);
-                                  }}
-                                >
-                                  GitHub
-                                </button>
-                              </Show>
-                            </div>
-                          </details>
-                        );
-                      }
+                    ? () => (
+                        <ImportIssuesMenu
+                          jiraConnected={settingsState.jiraConfig.connected}
+                          githubConnected={settingsState.githubConfig.connected}
+                          onSelectJira={() => setJiraImportOpen(true)}
+                          onSelectGitHub={() => setGitHubImportOpen(true)}
+                        />
+                      )
                     : undefined
                 }
               />
