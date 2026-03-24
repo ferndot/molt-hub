@@ -1,6 +1,6 @@
 //! Claude SDK adapter — AgentAdapter implementation backed by the Claude CLI.
 //!
-//! Spawns `claude --print --output-format stream-json` as a subprocess, passes
+//! Spawns `claude --print --output-format stream-json --verbose` as a subprocess, passes
 //! the initial query as a positional argument (print-mode prompt), and parses
 //! the structured JSON event stream from stdout. Follow-up input uses stdin.
 
@@ -125,8 +125,9 @@ impl ClaudeInternalState {
 ///
 /// The adapter invokes:
 /// ```text
-/// claude --print --output-format stream-json [--model <model>] [<initial query>]
+/// claude --print --output-format stream-json --verbose [--model <model>] [<initial query>]
 /// ```
+/// `--verbose` is required by Claude Code when combining `--print` with `stream-json`.
 /// Non-empty `SpawnConfig::instructions` are passed as the trailing positional
 /// query (see Claude Code CLI print mode). Follow-up input uses stdin.
 #[derive(Debug, Clone)]
@@ -184,6 +185,8 @@ impl ClaudeAdapter {
         cmd.arg("--print")
             .arg("--output-format")
             .arg("stream-json")
+            // Claude Code: print mode + stream-json requires verbose (full event stream).
+            .arg("--verbose")
             .arg("--model")
             .arg(&model);
 
@@ -731,6 +734,7 @@ mod tests {
         let dbg = format!("{:?}", cmd);
         assert!(dbg.contains("--print"), "expected --print flag");
         assert!(dbg.contains("stream-json"), "expected stream-json flag");
+        assert!(dbg.contains("--verbose"), "expected --verbose (required with print + stream-json)");
         assert!(dbg.contains("--model"), "expected --model flag");
         assert!(dbg.contains("sonnet"), "expected default model");
     }
