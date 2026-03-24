@@ -20,9 +20,9 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use tracing::{instrument, warn};
 
-use super::github_oauth_handlers::oauth_success_html;
 use super::integration_params::ProjectIdQuery;
 use super::oauth::{JiraOAuthService, OAuthError, DEFAULT_SCOPES};
+use super::oauth_common::{oauth_success_html, random_oauth_state};
 use crate::credentials::{CredentialScope, CredentialStore};
 
 // ---------------------------------------------------------------------------
@@ -180,7 +180,7 @@ pub async fn jira_auth(
     State(state): State<JiraOAuthStateRef>,
     Query(project): Query<ProjectIdQuery>,
 ) -> impl IntoResponse {
-    let csrf_state = generate_state_token();
+    let csrf_state = random_oauth_state();
     let cred_scope = project.credential_scope();
 
     let (url, verifier) = state.service.authorization_url(&csrf_state, DEFAULT_SCOPES);
@@ -390,17 +390,6 @@ pub async fn jira_disconnect(
 }
 
 // ---------------------------------------------------------------------------
-// Helper: generate CSRF state token
-// ---------------------------------------------------------------------------
-
-fn generate_state_token() -> String {
-    use rand::RngCore;
-    let mut bytes = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut bytes);
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-// ---------------------------------------------------------------------------
 // Helper: map Jira OAuth errors to HTTP status codes
 // ---------------------------------------------------------------------------
 
@@ -409,6 +398,7 @@ fn jira_oauth_error_to_http(e: &OAuthError) -> (StatusCode, String) {
         OAuthError::HttpError(_) => (StatusCode::BAD_GATEWAY, e.to_string()),
         OAuthError::AuthServerError { .. } => (StatusCode::UNAUTHORIZED, e.to_string()),
         OAuthError::ParseError(_) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        OAuthError::MissingClientSecret => (StatusCode::PRECONDITION_REQUIRED, e.to_string()),
     }
 }
 
@@ -445,21 +435,22 @@ mod tests {
     use crate::credentials::{CredentialScope, MemoryStore};
 
     fn make_state() -> Arc<JiraOAuthState> {
-        let svc = JiraOAuthService::new("https://example.com/cb");
+        let svc =
+            JiraOAuthService::with_client_secret("https://example.com/cb", "test_secret".into());
         let store = Arc::new(MemoryStore::new());
         Arc::new(JiraOAuthState::new(svc, store))
     }
 
     #[test]
-    fn generate_state_token_is_nonempty() {
-        let token = generate_state_token();
+    fn random_oauth_state_is_nonempty() {
+        let token = random_oauth_state();
         assert!(!token.is_empty());
         assert_eq!(token.len(), 32); // 16 bytes -> 32 hex chars
     }
 
     #[test]
-    fn generate_state_token_is_hex() {
-        let token = generate_state_token();
+    fn random_oauth_state_is_hex() {
+        let token = random_oauth_state();
         assert!(
             token.chars().all(|c| c.is_ascii_hexdigit()),
             "state token is not valid hex: {token}"
@@ -467,9 +458,9 @@ mod tests {
     }
 
     #[test]
-    fn generate_state_token_differs_across_calls() {
-        let t1 = generate_state_token();
-        let t2 = generate_state_token();
+    fn random_oauth_state_differs_across_calls() {
+        let t1 = random_oauth_state();
+        let t2 = random_oauth_state();
         assert_ne!(t1, t2, "two CSRF tokens must not be identical");
     }
 
@@ -489,6 +480,13 @@ mod tests {
         };
         let (status, _) = jira_oauth_error_to_http(&err);
         assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn jira_oauth_error_to_http_maps_missing_secret() {
+        let err = OAuthError::MissingClientSecret;
+        let (status, _) = jira_oauth_error_to_http(&err);
+        assert_eq!(status, StatusCode::PRECONDITION_REQUIRED);
     }
 
     #[tokio::test]

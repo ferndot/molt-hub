@@ -24,6 +24,7 @@ use super::github_app::{github_app_slug_from_env, GithubAppCredentials};
 use super::github_client::GitHubClient;
 use super::github_oauth::{GithubOAuthError, GithubOAuthService};
 use super::integration_params::ProjectIdQuery;
+use super::oauth_common::{oauth_success_html, random_oauth_state};
 use crate::credentials::{CredentialScope, CredentialStore};
 
 // ---------------------------------------------------------------------------
@@ -186,7 +187,7 @@ pub async fn github_auth(
     State(state): State<GithubOAuthStateRef>,
     Query(project): Query<ProjectIdQuery>,
 ) -> impl IntoResponse {
-    let csrf_state = generate_state_token();
+    let csrf_state = random_oauth_state();
     let cred_scope = project.credential_scope();
 
     let service = state.service.read().await;
@@ -399,62 +400,6 @@ pub async fn github_disconnect(
 }
 
 // ---------------------------------------------------------------------------
-// Helper: generate CSRF state token
-// ---------------------------------------------------------------------------
-
-fn generate_state_token() -> String {
-    use rand::RngCore;
-    let mut bytes = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut bytes);
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-// ---------------------------------------------------------------------------
-// Helper: OAuth success HTML page (auto-closes the tab)
-// ---------------------------------------------------------------------------
-
-pub fn oauth_success_html(provider: &str) -> String {
-    format!(
-        r#"<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <title>{provider} Connected</title>
-  <style>
-    *{{margin:0;padding:0;box-sizing:border-box}}
-    body{{display:flex;align-items:center;justify-content:center;min-height:100vh;
-         background:#0d0d14;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#e2e2ea}}
-    .card{{text-align:center;padding:48px 40px;background:#16161f;border:1px solid #2a2a3a;border-radius:12px;max-width:420px}}
-    .icon{{font-size:48px;margin-bottom:16px}}
-    h1{{font-size:20px;font-weight:600;margin-bottom:8px}}
-    p{{font-size:14px;color:#888;margin-bottom:16px;line-height:1.5}}
-    a{{color:#7c9cff;text-decoration:none}}
-    a:hover{{text-decoration:underline}}
-    .links{{font-size:13px;color:#888;margin-bottom:20px}}
-    .links a{{display:inline-block;margin:6px 8px}}
-    .closing{{font-size:12px;color:#555}}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <div class="icon">✓</div>
-    <h1>{provider} connected</h1>
-    <p>Return to the UI to use this integration. If this tab does not close, use a link below.</p>
-    <p class="links">
-      <a href="/settings">Open Settings (this origin)</a><br/>
-      <a href="http://127.0.0.1:5173/settings">Vite dev UI (port 5173)</a>
-    </p>
-    <div class="closing">This tab will try to close automatically…</div>
-  </div>
-  <script>
-    setTimeout(function(){{window.close()}}, 2000);
-  </script>
-</body>
-</html>"#
-    )
-}
-
-// ---------------------------------------------------------------------------
 // Helper: map GitHub OAuth errors to HTTP status codes
 // ---------------------------------------------------------------------------
 
@@ -496,26 +441,31 @@ pub fn github_oauth_router(state: Arc<GithubOAuthState>) -> Router {
 
 #[cfg(test)]
 mod tests {
-    use super::super::github_oauth::GITHUB_CALLBACK_URL;
     use super::*;
     use crate::credentials::{CredentialScope, MemoryStore};
 
+    const TEST_CB: &str = "https://example.com/github-cb";
+
     fn make_state() -> Arc<GithubOAuthState> {
-        let svc = GithubOAuthService::with_secret(GITHUB_CALLBACK_URL, "test_secret".into());
+        let svc = GithubOAuthService::with_credentials(
+            TEST_CB,
+            "test_client".into(),
+            Some("test_secret".into()),
+        );
         let store = Arc::new(MemoryStore::new());
         Arc::new(GithubOAuthState::new(svc, store))
     }
 
     #[test]
-    fn generate_state_token_is_nonempty() {
-        let token = generate_state_token();
+    fn random_oauth_state_is_nonempty() {
+        let token = random_oauth_state();
         assert!(!token.is_empty());
         assert_eq!(token.len(), 32); // 16 bytes -> 32 hex chars
     }
 
     #[test]
-    fn generate_state_token_is_hex() {
-        let token = generate_state_token();
+    fn random_oauth_state_is_hex() {
+        let token = random_oauth_state();
         assert!(
             token.chars().all(|c| c.is_ascii_hexdigit()),
             "state token is not valid hex: {token}"
@@ -523,9 +473,9 @@ mod tests {
     }
 
     #[test]
-    fn generate_state_token_differs_across_calls() {
-        let t1 = generate_state_token();
-        let t2 = generate_state_token();
+    fn random_oauth_state_differs_across_calls() {
+        let t1 = random_oauth_state();
+        let t2 = random_oauth_state();
         assert_ne!(t1, t2, "two CSRF tokens must not be identical");
     }
 

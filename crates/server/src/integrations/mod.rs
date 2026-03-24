@@ -12,5 +12,5 @@ pub mod integration_params;
 pub mod jira_client;
 pub mod jira_oauth_handlers;
 pub mod oauth;
-pub mod oauth_handlers;
+pub mod oauth_common;
 pub mod oauth_redirect;

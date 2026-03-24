@@ -396,9 +396,12 @@ mod tests {
     async fn build_client_returns_error_when_no_token() {
         use crate::credentials::MemoryStore;
         use crate::integrations::github_oauth::GithubOAuthService;
-        use crate::integrations::github_oauth::GITHUB_CALLBACK_URL;
 
-        let svc = GithubOAuthService::with_secret(GITHUB_CALLBACK_URL, "sec".into());
+        let svc = GithubOAuthService::with_credentials(
+            "https://example.com/gh-cb",
+            "cid".into(),
+            Some("sec".into()),
+        );
         let store = Arc::new(MemoryStore::new());
         let oauth = GithubOAuthState::new(svc, store);
 
@@ -410,10 +413,13 @@ mod tests {
     async fn build_client_succeeds_with_token() {
         use crate::credentials::{CredentialScope, MemoryStore};
         use crate::integrations::github_oauth::GithubOAuthService;
-        use crate::integrations::github_oauth::GITHUB_CALLBACK_URL;
         use crate::integrations::github_oauth_handlers::GithubStoredTokens;
 
-        let svc = GithubOAuthService::with_secret(GITHUB_CALLBACK_URL, "sec".into());
+        let svc = GithubOAuthService::with_credentials(
+            "https://example.com/gh-cb",
+            "cid".into(),
+            Some("sec".into()),
+        );
         let store = Arc::new(MemoryStore::new());
         let oauth = GithubOAuthState::new(svc, store);
 

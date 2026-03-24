@@ -1,6 +1,35 @@
 //! Atlassian OAuth 2.0 (3LO) with PKCE via [`oauth2`].
+//!
+//! Configuration matches [`super::github_oauth`] so dev and release builds share one mental model:
+//! - **Client ID**: `MOLTHUB_JIRA_CLIENT_ID`, `JIRA_CLIENT_ID`, `option_env!("JIRA_CLIENT_ID")`, then default.
+//! - **Client secret**: `MOLTHUB_JIRA_CLIENT_SECRET`, `JIRA_CLIENT_SECRET`, `option_env!("JIRA_CLIENT_SECRET")`.
 
 use oauth2::basic::{BasicClient, BasicErrorResponse, BasicTokenResponse};
+use oauth2::TokenResponse as _;
+use oauth2::{
+    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, HttpClientError,
+    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, RequestTokenError, Scope,
+    TokenUrl,
+};
+use reqwest::Client;
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+
+use super::oauth_common::{resolve_client_id, resolve_oauth_secret};
+
+const ATLASSIAN_AUTH_URL: &str = "https://auth.atlassian.com/authorize";
+const ATLASSIAN_TOKEN_URL: &str = "https://auth.atlassian.com/oauth/token";
+
+/// Upstream Atlassian OAuth client ID when no env / compile-time override is set.
+pub const DEFAULT_JIRA_CLIENT_ID: &str = "3yQWy34WyjCn0wtOfawofBTMmtK3gUgs";
+
+fn auth_url() -> AuthUrl {
+    AuthUrl::new(ATLASSIAN_AUTH_URL.to_string()).expect("static URL")
+}
+
+fn token_url() -> TokenUrl {
+    TokenUrl::new(ATLASSIAN_TOKEN_URL.to_string()).expect("static URL")
+}
 
 macro_rules! jira_oauth_client {
     ($svc:expr) => {{
@@ -14,25 +43,6 @@ macro_rules! jira_oauth_client {
         c
     }};
 }
-use oauth2::TokenResponse as _;
-use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, HttpClientError,
-    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, RequestTokenError, Scope,
-    TokenUrl,
-};
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-
-pub const JIRA_CLIENT_ID: &str = "3yQWy34WyjCn0wtOfawofBTMmtK3gUgs";
-
-fn auth_url() -> AuthUrl {
-    AuthUrl::new("https://auth.atlassian.com/authorize".to_string()).expect("static URL")
-}
-
-fn token_url() -> TokenUrl {
-    TokenUrl::new("https://auth.atlassian.com/oauth/token".to_string()).expect("static URL")
-}
 
 #[derive(Debug, Error)]
 pub enum OAuthError {
@@ -42,6 +52,8 @@ pub enum OAuthError {
     AuthServerError { error: String, description: String },
     #[error("parse error: {0}")]
     ParseError(String),
+    #[error("client secret not configured — set MOLTHUB_JIRA_CLIENT_SECRET or JIRA_CLIENT_SECRET")]
+    MissingClientSecret,
 }
 
 fn token_err(
@@ -87,36 +99,52 @@ pub const DEFAULT_SCOPES: &[&str] = &[
 
 pub struct JiraOAuthService {
     client_id: String,
-    /// Atlassian requires this for the code and refresh_token exchanges (see 3LO docs).
     client_secret: Option<String>,
     redirect_url: RedirectUrl,
     http: Client,
 }
 
-fn resolve_jira_client_secret() -> Option<String> {
-    for key in ["MOLTHUB_JIRA_CLIENT_SECRET", "JIRA_CLIENT_SECRET"] {
-        if let Ok(v) = std::env::var(key) {
-            let t = v.trim().to_owned();
-            if !t.is_empty() {
-                return Some(t);
-            }
-        }
-    }
-    None
-}
-
 impl JiraOAuthService {
-    pub fn new(redirect_uri: &str) -> Self {
-        let client_id =
-            std::env::var("MOLTHUB_JIRA_CLIENT_ID").unwrap_or_else(|_| JIRA_CLIENT_ID.to_owned());
-        let client_secret = resolve_jira_client_secret();
+    /// Build from the registered OAuth callback URL (HTTPS bridge) and current process environment.
+    pub fn from_redirect_uri(redirect_uri: &str) -> Self {
+        let client_id = resolve_client_id(
+            &["MOLTHUB_JIRA_CLIENT_ID", "JIRA_CLIENT_ID"],
+            option_env!("JIRA_CLIENT_ID"),
+            DEFAULT_JIRA_CLIENT_ID,
+        );
+        let client_secret = resolve_oauth_secret(
+            &["MOLTHUB_JIRA_CLIENT_SECRET", "JIRA_CLIENT_SECRET"],
+            option_env!("JIRA_CLIENT_SECRET"),
+        );
         if client_secret.is_none() {
             tracing::warn!(
-                "Jira OAuth: no client secret (set MOLTHUB_JIRA_CLIENT_SECRET or JIRA_CLIENT_SECRET). \
-                 Atlassian's token endpoint requires it for 3LO; without it you typically get \
-                 access_denied / Unauthorized on callback."
+                "Jira OAuth: no client secret. Atlassian 3LO requires it for code exchange; set \
+                 MOLTHUB_JIRA_CLIENT_SECRET or JIRA_CLIENT_SECRET (or compile with JIRA_CLIENT_SECRET)."
             );
         }
+        Self::with_credentials(redirect_uri, client_id, client_secret)
+    }
+
+    /// Explicit credentials (tests).
+    pub fn with_client_secret(redirect_uri: &str, client_secret: String) -> Self {
+        let secret = client_secret.trim().to_owned();
+        let client_id = resolve_client_id(
+            &["MOLTHUB_JIRA_CLIENT_ID", "JIRA_CLIENT_ID"],
+            option_env!("JIRA_CLIENT_ID"),
+            DEFAULT_JIRA_CLIENT_ID,
+        );
+        Self::with_credentials(
+            redirect_uri,
+            client_id,
+            (!secret.is_empty()).then_some(secret),
+        )
+    }
+
+    fn with_credentials(
+        redirect_uri: &str,
+        client_id: String,
+        client_secret: Option<String>,
+    ) -> Self {
         let redirect_url = RedirectUrl::new(redirect_uri.to_owned())
             .unwrap_or_else(|e| panic!("invalid Jira OAuth redirect URI: {e}"));
         let http = Client::builder()
@@ -131,23 +159,9 @@ impl JiraOAuthService {
         }
     }
 
-    /// Construct with an explicit secret (tests); does not log the missing-secret warning.
-    pub fn with_client_secret(redirect_uri: &str, client_secret: String) -> Self {
-        let client_id =
-            std::env::var("MOLTHUB_JIRA_CLIENT_ID").unwrap_or_else(|_| JIRA_CLIENT_ID.to_owned());
-        let redirect_url = RedirectUrl::new(redirect_uri.to_owned())
-            .unwrap_or_else(|e| panic!("invalid Jira OAuth redirect URI: {e}"));
-        let http = Client::builder()
-            .redirect(reqwest::redirect::Policy::none())
-            .build()
-            .expect("reqwest client");
-        let secret = client_secret.trim().to_owned();
-        Self {
-            client_id,
-            client_secret: (!secret.is_empty()).then_some(secret),
-            redirect_url,
-            http,
-        }
+    /// Same as [`Self::from_redirect_uri`] — kept for call sites that used `new`.
+    pub fn new(redirect_uri: &str) -> Self {
+        Self::from_redirect_uri(redirect_uri)
     }
 
     pub fn authorization_url(&self, state: &str, scopes: &[&str]) -> (String, String) {
@@ -176,6 +190,9 @@ impl JiraOAuthService {
         code: &str,
         code_verifier: &str,
     ) -> Result<JiraTokenResponse, OAuthError> {
+        if self.client_secret.is_none() {
+            return Err(OAuthError::MissingClientSecret);
+        }
         let t = jira_oauth_client!(self)
             .exchange_code(AuthorizationCode::new(code.to_owned()))
             .set_pkce_verifier(PkceCodeVerifier::new(code_verifier.to_owned()))
@@ -186,6 +203,9 @@ impl JiraOAuthService {
     }
 
     pub async fn refresh_token(&self, rt: &str) -> Result<JiraTokenResponse, OAuthError> {
+        if self.client_secret.is_none() {
+            return Err(OAuthError::MissingClientSecret);
+        }
         let t = jira_oauth_client!(self)
             .exchange_refresh_token(&RefreshToken::new(rt.to_owned()))
             .request_async(&self.http)
@@ -264,7 +284,11 @@ mod tests {
 
     #[test]
     fn authorize_url_has_atlassian_fields_and_pkce() {
-        let svc = JiraOAuthService::new("https://app.example.com/oauth/callback");
+        let svc = JiraOAuthService::with_credentials(
+            "https://app.example.com/oauth/callback",
+            "cid".into(),
+            Some("sec".into()),
+        );
         let (url, verifier) = svc.authorization_url("csrf", &[]);
         assert!(url.starts_with("https://auth.atlassian.com/authorize"));
         assert!(url.contains("audience=api.atlassian.com"));
@@ -272,6 +296,15 @@ mod tests {
         assert!(url.contains("code_challenge_method=S256"));
         let ch = PkceCodeChallenge::from_code_verifier_sha256(&PkceCodeVerifier::new(verifier));
         assert!(url.contains(&format!("code_challenge={}", ch.as_str())));
+    }
+
+    #[tokio::test]
+    async fn exchange_requires_secret() {
+        let svc = JiraOAuthService::with_credentials("https://example.com/c", "id".into(), None);
+        assert!(matches!(
+            svc.exchange_code("c", "v").await.unwrap_err(),
+            OAuthError::MissingClientSecret
+        ));
     }
 
     #[test]

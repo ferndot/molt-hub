@@ -1,7 +1,38 @@
-//! GitHub App user OAuth with PKCE via [`oauth2`].
+//! GitHub OAuth App user flow with PKCE via [`oauth2`].
+//!
+//! Configuration is resolved from environment (and optional compile-time defaults) so the same
+//! binary works in local dev and shipped desktop/server builds:
+//! - **Client ID**: `MOLTHUB_GITHUB_CLIENT_ID`, `GITHUB_CLIENT_ID`, then `option_env!("GITHUB_CLIENT_ID")`, then upstream fallback.
+//! - **Client secret**: `MOLTHUB_GITHUB_CLIENT_SECRET`, `GITHUB_CLIENT_SECRET`, then `option_env!("GITHUB_CLIENT_SECRET")`.
 
 use oauth2::basic::{BasicClient, BasicErrorResponse, BasicTokenResponse};
+use oauth2::TokenResponse as _;
+use oauth2::{
+    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, HttpClientError,
+    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, RequestTokenError, TokenUrl,
+};
+use reqwest::Client;
+use serde::Deserialize;
+use thiserror::Error;
 
+use super::oauth_common::{resolve_client_id, resolve_oauth_secret};
+
+const GITHUB_AUTH_URL: &str = "https://github.com/login/oauth/authorize";
+const GITHUB_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
+
+/// Upstream OAuth app client ID when no env / compile-time override is set.
+pub const DEFAULT_GITHUB_CLIENT_ID: &str = "Iv23lip4ZuqkEmT9Z2U0";
+
+fn auth_url() -> AuthUrl {
+    AuthUrl::new(GITHUB_AUTH_URL.to_string()).expect("static URL")
+}
+
+fn token_url() -> TokenUrl {
+    TokenUrl::new(GITHUB_TOKEN_URL.to_string()).expect("static URL")
+}
+
+/// oauth2 5.x uses type-state; conditional `set_client_secret` changes the concrete `Client` type,
+/// so this must expand at each call site (cannot return a single `BasicClient` type).
 macro_rules! github_oauth_client {
     ($svc:expr) => {{
         let mut c = BasicClient::new(ClientId::new($svc.client_id.clone()))
@@ -14,27 +45,6 @@ macro_rules! github_oauth_client {
         c
     }};
 }
-use oauth2::TokenResponse as _;
-use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, HttpClientError,
-    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, RequestTokenError, TokenUrl,
-};
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use thiserror::Error;
-
-pub const GITHUB_CLIENT_ID: &str = "Iv23lip4ZuqkEmT9Z2U0";
-pub const GITHUB_CLIENT_SECRET: Option<&str> = option_env!("GITHUB_CLIENT_SECRET");
-pub const GITHUB_CALLBACK_URL: &str =
-    "http://localhost:13401/api/integrations/github/oauth/callback";
-
-fn auth_url() -> AuthUrl {
-    AuthUrl::new("https://github.com/login/oauth/authorize".to_string()).expect("static URL")
-}
-
-fn token_url() -> TokenUrl {
-    TokenUrl::new("https://github.com/login/oauth/access_token".to_string()).expect("static URL")
-}
 
 #[derive(Debug, Error)]
 pub enum GithubOAuthError {
@@ -44,7 +54,7 @@ pub enum GithubOAuthError {
     AuthServerError { error: String, description: String },
     #[error("parse error: {0}")]
     ParseError(String),
-    #[error("client secret not configured — set it via settings")]
+    #[error("client secret not configured — set MOLTHUB_GITHUB_CLIENT_SECRET or GITHUB_CLIENT_SECRET")]
     MissingClientSecret,
 }
 
@@ -82,7 +92,8 @@ fn token_err(
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Token payload after authorize-code or refresh-token exchange.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct GithubTokenResponse {
     pub access_token: String,
     pub token_type: String,
@@ -103,7 +114,32 @@ pub struct GithubOAuthService {
 }
 
 impl GithubOAuthService {
-    pub fn new(redirect_uri: &str) -> Self {
+    /// Build from the registered OAuth callback URL (HTTPS bridge) and current process environment.
+    pub fn from_redirect_uri(redirect_uri: &str) -> Self {
+        let client_id = resolve_client_id(
+            &["MOLTHUB_GITHUB_CLIENT_ID", "GITHUB_CLIENT_ID"],
+            option_env!("GITHUB_CLIENT_ID"),
+            DEFAULT_GITHUB_CLIENT_ID,
+        );
+        let client_secret = resolve_oauth_secret(
+            &["MOLTHUB_GITHUB_CLIENT_SECRET", "GITHUB_CLIENT_SECRET"],
+            option_env!("GITHUB_CLIENT_SECRET"),
+        );
+        if client_secret.is_none() {
+            tracing::warn!(
+                "GitHub OAuth: no client secret. Set MOLTHUB_GITHUB_CLIENT_SECRET or GITHUB_CLIENT_SECRET \
+                 (or compile with GITHUB_CLIENT_SECRET) so token exchange succeeds."
+            );
+        }
+        Self::with_credentials(redirect_uri, client_id, client_secret)
+    }
+
+    /// Explicit credentials (tests and custom wiring).
+    pub fn with_credentials(
+        redirect_uri: &str,
+        client_id: String,
+        client_secret: Option<String>,
+    ) -> Self {
         let redirect_url = RedirectUrl::new(redirect_uri.to_owned())
             .unwrap_or_else(|e| panic!("invalid GitHub OAuth redirect URI: {e}"));
         let http = Client::builder()
@@ -111,21 +147,11 @@ impl GithubOAuthService {
             .build()
             .expect("reqwest client");
         Self {
-            client_id: GITHUB_CLIENT_ID.to_owned(),
+            client_id,
             redirect_url,
             http,
-            client_secret: None,
+            client_secret,
         }
-    }
-
-    pub fn with_secret(redirect_uri: &str, client_secret: String) -> Self {
-        let mut s = Self::new(redirect_uri);
-        s.client_secret = Some(client_secret);
-        s
-    }
-
-    pub fn set_client_secret(&mut self, secret: String) {
-        self.client_secret = Some(secret);
     }
 
     pub fn authorization_url(&self, state: &str) -> (String, String) {
@@ -193,9 +219,15 @@ mod tests {
     use super::*;
     use oauth2::PkceCodeVerifier;
 
+    const TEST_REDIRECT: &str = "https://example.com/oauth/github.html";
+
     #[test]
     fn authorize_url_github_pkce() {
-        let svc = GithubOAuthService::new(GITHUB_CALLBACK_URL);
+        let svc = GithubOAuthService::with_credentials(
+            TEST_REDIRECT,
+            "test_client".into(),
+            None,
+        );
         let (url, verifier) = svc.authorization_url("st");
         assert!(url.contains("github.com/login/oauth/authorize"));
         let ch = PkceCodeChallenge::from_code_verifier_sha256(&PkceCodeVerifier::new(verifier));
@@ -204,7 +236,11 @@ mod tests {
 
     #[tokio::test]
     async fn exchange_requires_secret() {
-        let svc = GithubOAuthService::new(GITHUB_CALLBACK_URL);
+        let svc = GithubOAuthService::with_credentials(
+            TEST_REDIRECT,
+            "id".into(),
+            None,
+        );
         assert!(matches!(
             svc.exchange_code("c", "v").await.unwrap_err(),
             GithubOAuthError::MissingClientSecret
