@@ -7,9 +7,7 @@ import { For, Show, createSignal, type Component } from "solid-js";
 import {
   TbOutlineFocus,
   TbOutlineEye,
-  TbOutlinePlus,
   TbOutlineSettings,
-  TbOutlineTrash,
 } from "solid-icons/tb";
 import ImportIssuesMenu from "../../components/ImportIssuesMenu/ImportIssuesMenu";
 import { useMissionControl } from "../MissionControl/missionControlStore";
@@ -18,13 +16,7 @@ import GitHubImport from "../Settings/GitHubImport";
 import JiraImport from "../Settings/JiraImport";
 import { settingsState } from "../Settings/settingsStore";
 import { api } from "../../lib/api";
-import {
-  boardState,
-  createBoard,
-  deleteBoard,
-  getSortedStages,
-  setActiveBoard,
-} from "./boardStore";
+import { getSortedStages } from "./boardStore";
 import ColumnEditor from "./ColumnEditor";
 import mcStyles from "../MissionControl/MissionControlView.module.css";
 import styles from "./BoardView.module.css";
@@ -56,72 +48,11 @@ const BoardView: Component = () => {
     }
   };
 
-  const onAddBoard = async () => {
-    const raw = window.prompt(
-      "New board id (letters, numbers, dashes, underscores):",
-    );
-    if (!raw?.trim()) return;
-    try {
-      await createBoard(raw.trim());
-    } catch (e) {
-      window.alert(e instanceof Error ? e.message : "Could not create board");
-    }
-  };
-
-  const onDeleteBoard = async () => {
-    const id = boardState.activeBoardId;
-    if (id === "default") {
-      window.alert("The default board cannot be deleted.");
-      return;
-    }
-    if (!window.confirm(`Delete board "${id}"? This cannot be undone.`)) return;
-    try {
-      await deleteBoard(id);
-    } catch (e) {
-      window.alert(e instanceof Error ? e.message : "Could not delete board");
-    }
-  };
-
   return (
     <div class={mcStyles.container}>
       <div class={mcStyles.header}>
         <h2 class={mcStyles.title}>Boards</h2>
         <div class={styles.boardToolbar}>
-          <label class={styles.boardSelectWrap}>
-            <span class={styles.srOnly}>Active board</span>
-            <select
-              class={styles.boardSelect}
-              value={boardState.activeBoardId}
-              onChange={(e) => void setActiveBoard(e.currentTarget.value)}
-              disabled={!boardState.stagesLoaded}
-            >
-              <For each={boardState.boards}>
-                {(b) => (
-                  <option value={b.id}>{b.name || b.id}</option>
-                )}
-              </For>
-            </select>
-          </label>
-          <button
-            type="button"
-            class={styles.iconBtn}
-            onClick={() => void onAddBoard()}
-            title="Add board"
-            aria-label="Add board"
-          >
-            <TbOutlinePlus size={16} />
-          </button>
-          <Show when={boardState.activeBoardId !== "default"}>
-            <button
-              type="button"
-              class={styles.iconBtn}
-              onClick={() => void onDeleteBoard()}
-              title="Delete current board"
-              aria-label="Delete current board"
-            >
-              <TbOutlineTrash size={16} />
-            </button>
-          </Show>
           <button
             type="button"
             class={`${styles.iconBtn}${editorOpen() ? ` ${styles.iconBtnActive}` : ""}`}

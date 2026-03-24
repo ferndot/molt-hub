@@ -87,22 +87,6 @@
   margin-right: 0.5rem;
 }
 
-.boardSelectWrap {
-  display: flex;
-  align-items: center;
-}
-
-.boardSelect {
-  min-width: 8rem;
-  max-width: 14rem;
-  padding: 0.25rem 0.5rem;
-  font-size: 0.8125rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-}
-
 .iconBtn {
   display: inline-flex;
   align-items: center;
@@ -127,18 +111,6 @@
   color: var(--accent, #3b82f6);
   border-color: var(--accent, #3b82f6);
   background: rgba(59, 130, 246, 0.08);
-}
-
-.srOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
 }
 
 .columnFooter {
