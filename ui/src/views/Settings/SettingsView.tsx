@@ -32,7 +32,6 @@ import {
   setAgentAdapter,
 } from "./settingsStore";
 import type { Theme, AttentionLevel, AgentAdapter } from "./settingsStore";
-import JiraImport from "./JiraImport";
 import AuditLog from "./AuditLog";
 import PriorityBadge from "../../components/PriorityBadge/PriorityBadge";
 import styles from "./Settings.module.css";
@@ -196,7 +195,9 @@ const AgentDefaultsPanel: Component = () => {
 const IntegrationsPanel: Component<{ onSelect: (id: SectionId) => void }> = (props) => (
   <div>
     <h3 class={styles.sectionTitle}>Integrations</h3>
-    <p class={styles.oauthDescription}>Import issues from Jira or GitHub.</p>
+    <p class={styles.oauthDescription}>
+      Connect Jira and GitHub. Import from the board when Jira or GitHub is connected.
+    </p>
     <div class={styles.integrationsList}>
       <button class={styles.integrationCard} onClick={() => props.onSelect("jira")}>
         <span class={styles.integrationIcon}><TbOutlineSquareRotated size={16} /></span>
@@ -227,7 +228,6 @@ const IntegrationsPanel: Component<{ onSelect: (id: SectionId) => void }> = (pro
 const JiraPanel: Component<{ onBack: () => void }> = (props) => {
   const isConnected = () => settingsState.jiraConfig.connected;
   const [connecting, setConnecting] = createSignal(false);
-  const [importOpen, setImportOpen] = createSignal(false);
 
   const handleConnect = async () => {
     setConnecting(true);
@@ -243,7 +243,7 @@ const JiraPanel: Component<{ onBack: () => void }> = (props) => {
       <Show when={!isConnected()}>
         <div class={styles.oauthSection}>
           <p class={styles.oauthDescription}>
-            Sign in with Atlassian to import Jira issues.
+            Sign in with Atlassian to connect your Jira site.
           </p>
           <div class={styles.connectedRow}>
             <span class={`${styles.statusBadge} ${styles.statusIdle}`}>
@@ -281,15 +281,11 @@ const JiraPanel: Component<{ onBack: () => void }> = (props) => {
             <p class={styles.siteUrl}>{settingsState.jiraConfig.baseUrl}</p>
           </Show>
           <div class={styles.buttonRow}>
-            <button class={styles.btnPrimary} onClick={() => setImportOpen(true)}>
-              Import issues
-            </button>
             <button class={styles.btnDanger} onClick={() => disconnectJira()}>
               Disconnect
             </button>
           </div>
         </div>
-        <JiraImport isOpen={importOpen()} onClose={() => setImportOpen(false)} />
       </Show>
     </div>
   );
