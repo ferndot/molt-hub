@@ -14,6 +14,7 @@ import {
 import { Dialog } from "@kobalte/core/dialog";
 import { TbOutlineX, TbOutlineCheck, TbOutlineAlertCircle } from "solid-icons/tb";
 import styles from "./JiraImport.module.css";
+import { fetchJiraStatus } from "./settingsStore";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -137,6 +138,9 @@ const JiraImport: Component<JiraImportProps> = (props) => {
     () => props.isOpen,
     async (open) => {
       if (!open) return [] as JiraProject[];
+      // After a server restart, localStorage may still say "connected" while the in-memory
+      // token cache is empty until /status runs — refresh before listing projects.
+      await fetchJiraStatus();
       return fetchProjects();
     },
   );

@@ -16,6 +16,10 @@ import AgentsView from "./views/Agents/AgentsView";
 import BoardsView from "./views/Boards/BoardsView";
 import BoardPage from "./views/Board/BoardPage";
 import SettingsView from "./views/Settings/SettingsView";
+import {
+  fetchGithubStatus,
+  fetchJiraStatus,
+} from "./views/Settings/settingsStore";
 import CodeChatView from "./views/CodeChat/CodeChatView";
 
 // ---------------------------------------------------------------------------
@@ -43,6 +47,9 @@ const CodeChatPage: Component = () => <CodeChatView />;
 const App: Component = () => {
   onMount(() => {
     void initBoardStages();
+    // Reconcile integration flags with the server (tokens live in the OS keychain, not localStorage).
+    void fetchJiraStatus();
+    void fetchGithubStatus();
   });
 
   createEffect(() => {

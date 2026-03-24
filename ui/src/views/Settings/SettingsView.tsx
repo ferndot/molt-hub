@@ -24,6 +24,7 @@ import {
   connectGitHub,
   disconnectGitHub,
   fetchGithubStatus,
+  fetchJiraStatus,
   setTheme,
   setColorblindMode,
   setAttentionLevel,
@@ -227,6 +228,9 @@ const IntegrationsPanel: Component<{ onSelect: (id: SectionId) => void }> = (pro
 const JiraPanel: Component<{ onBack: () => void }> = (props) => {
   const isConnected = () => settingsState.jiraConfig.connected;
   const [connecting, setConnecting] = createSignal(false);
+
+  // Match GitHub: verify keychain-backed session when this panel is shown.
+  fetchJiraStatus();
 
   const handleConnect = async () => {
     setConnecting(true);

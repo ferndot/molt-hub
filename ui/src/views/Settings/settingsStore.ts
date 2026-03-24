@@ -576,9 +576,16 @@ export async function fetchJiraStatus(): Promise<boolean> {
     setSettingsState(
       produce((s) => {
         s.jiraConfig.connected = data.connected;
-        if (data.site_name) s.jiraConfig.siteName = data.site_name;
-        if (data.site_url) s.jiraConfig.baseUrl = data.site_url;
-        if (data.connected) s.jiraConfig.lastError = null;
+        if (data.connected) {
+          if (data.site_name) s.jiraConfig.siteName = data.site_name;
+          if (data.site_url) s.jiraConfig.baseUrl = data.site_url;
+          s.jiraConfig.lastError = null;
+        } else {
+          // Tokens missing or revoked — clear stale labels from localStorage/cache.
+          s.jiraConfig.siteName = "";
+          s.jiraConfig.baseUrl = "";
+          s.jiraConfig.cloudId = "";
+        }
       }),
     );
     return data.connected;
