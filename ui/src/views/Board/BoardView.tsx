@@ -28,7 +28,6 @@ const BoardView: Component = () => {
   const [addIssueBody, setAddIssueBody] = createSignal("");
   const [addIssueError, setAddIssueError] = createSignal<string | null>(null);
   const [addIssueBusy, setAddIssueBusy] = createSignal(false);
-  const [suggestTitleBusy, setSuggestTitleBusy] = createSignal(false);
   const [jiraImportOpen, setJiraImportOpen] = createSignal(false);
   const [githubImportOpen, setGitHubImportOpen] = createSignal(false);
 
@@ -71,47 +70,6 @@ const BoardView: Component = () => {
     setAddIssueExpanded(true);
   };
 
-  /** First line → title; following lines → description (optional). */
-  const parseIssueBody = (raw: string): { title: string; description?: string } => {
-    const t = raw.trim();
-    const nl = t.indexOf("\n");
-    if (nl === -1) {
-      return { title: t };
-    }
-    const title = t.slice(0, nl).trim();
-    const rest = t.slice(nl + 1).trim();
-    return {
-      title,
-      ...(rest ? { description: rest } : {}),
-    };
-  };
-
-  const suggestTitleFromHarness = async () => {
-    const raw = addIssueBody().trim();
-    if (!raw) {
-      setAddIssueError("Write a draft first, then suggest a title.");
-      return;
-    }
-    setSuggestTitleBusy(true);
-    setAddIssueError(null);
-    try {
-      const { title } = await api.suggestTaskTitle({ text: raw });
-      const current = addIssueBody();
-      const nl = current.indexOf("\n");
-      if (nl === -1) {
-        const t = current.trim();
-        setAddIssueBody(t ? `${title}\n\n${t}` : title);
-      } else {
-        const rest = current.slice(nl);
-        setAddIssueBody(`${title}${rest}`);
-      }
-    } catch (e) {
-      setAddIssueError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSuggestTitleBusy(false);
-    }
-  };
-
   const submitAddIssue = async () => {
     const stageId = firstStageId();
     if (!stageId) {
@@ -120,17 +78,18 @@ const BoardView: Component = () => {
       );
       return;
     }
-    const { title, description } = parseIssueBody(addIssueBody());
-    if (!title) {
-      setAddIssueError("Write a title on the first line (or a single line of text).");
+    const description = addIssueBody().trim();
+    if (!description) {
+      setAddIssueError("Describe the issue first.");
       return;
     }
     setAddIssueBusy(true);
     setAddIssueError(null);
     try {
+      const { title } = await api.suggestTaskTitle({ text: description });
       await api.createTask({
         title,
-        ...(description ? { description } : {}),
+        description,
         initialStage: stageId,
       });
       collapseAddIssue();
@@ -229,13 +188,13 @@ const BoardView: Component = () => {
                           >
                             <div class={styles.addIssuePanel}>
                               <label class={styles.addIssueFieldLabel} for="add-issue-body">
-                                Issue
+                                Description
                               </label>
                               <textarea
                                 id="add-issue-body"
                                 class={styles.addIssueTextarea}
                                 rows={6}
-                                placeholder="Title on first line; more detail below. ⌘/Ctrl+Enter to create."
+                                placeholder="What needs to be done? A short title is generated when you create the task. ⌘/Ctrl+Enter to create."
                                 value={addIssueBody()}
                                 onInput={(e) => setAddIssueBody(e.currentTarget.value)}
                                 disabled={addIssueBusy()}
@@ -256,22 +215,6 @@ const BoardView: Component = () => {
                                   </p>
                                 )}
                               </Show>
-                              <div class={styles.addIssueSuggestRow}>
-                                <button
-                                  type="button"
-                                  class={styles.addIssueSuggest}
-                                  onClick={() => void suggestTitleFromHarness()}
-                                  disabled={
-                                    addIssueBusy() ||
-                                    suggestTitleBusy() ||
-                                    !addIssueBody().trim()
-                                  }
-                                >
-                                  {suggestTitleBusy()
-                                    ? "Suggesting title…"
-                                    : "Suggest title (AI)"}
-                                </button>
-                              </div>
                               <div class={styles.addIssueActions}>
                                 <button
                                   type="button"
@@ -285,7 +228,11 @@ const BoardView: Component = () => {
                                   type="button"
                                   class={styles.addIssueSubmit}
                                   onClick={() => void submitAddIssue()}
-                                  disabled={addIssueBusy() || !firstStageId()}
+                                  disabled={
+                                    addIssueBusy() ||
+                                    !firstStageId() ||
+                                    !addIssueBody().trim()
+                                  }
                                 >
                                   {addIssueBusy() ? "Creating…" : "Create"}
                                 </button>

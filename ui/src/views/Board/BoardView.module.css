@@ -216,32 +216,6 @@
   margin: 0 0 0.75rem;
 }
 
-.addIssueSuggestRow {
-  margin-bottom: 0.5rem;
-}
-
-.addIssueSuggest {
-  padding: 0.35rem 0.65rem;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--bg-primary);
-  color: var(--text-secondary);
-  font-size: 0.75rem;
-  font-family: inherit;
-  cursor: pointer;
-  transition: border-color 0.15s, color 0.15s;
-}
-
-.addIssueSuggest:hover:not(:disabled) {
-  border-color: var(--accent);
-  color: var(--accent);
-}
-
-.addIssueSuggest:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
 .addIssueActions {
   display: flex;
   justify-content: flex-end;
