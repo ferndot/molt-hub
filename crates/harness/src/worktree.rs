@@ -350,6 +350,26 @@ impl WorktreeManager {
 }
 
 // ---------------------------------------------------------------------------
+// Standalone validation
+// ---------------------------------------------------------------------------
+
+/// Check whether `path` is a valid git repository.
+///
+/// A path is considered valid when it contains a `.git` entry (either a
+/// directory for regular repos or a file for worktrees / submodules).
+///
+/// Returns `Ok(())` on success, or [`WorktreeError::NotAGitRepo`] when the
+/// check fails.
+pub fn validate_repo(path: &std::path::Path) -> Result<(), WorktreeError> {
+    let git_path = path.join(".git");
+    if git_path.exists() {
+        Ok(())
+    } else {
+        Err(WorktreeError::NotAGitRepo)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Git helper
 // ---------------------------------------------------------------------------
 

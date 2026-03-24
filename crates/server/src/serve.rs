@@ -29,6 +29,7 @@ use crate::integrations::jira_oauth_handlers::{jira_oauth_router, JiraOAuthState
 use crate::integrations::oauth::JiraOAuthService;
 use crate::pipeline::handlers::{pipeline_router, PipelineState};
 use crate::projects::handlers::{project_router, ProjectConfigStore};
+use crate::projects::runtime::ProjectRuntimeRegistry;
 use crate::settings::{typed_settings_router, SettingsFileStore, TypedSettingsState};
 use crate::ws::{ws_handler, ConnectionManager};
 use crate::ws_broadcast::{broadcast_metrics, MetricsPayload};
@@ -97,6 +98,10 @@ pub async fn build_router(
     // Project store (YAML-backed)
     let project_state = Arc::new(ProjectConfigStore::load_default());
 
+    // Project runtime registry — holds per-project supervisor + pipeline state.
+    // Injected via axum::Extension into project-scoped handlers.
+    let project_registry = Arc::new(ProjectRuntimeRegistry::new());
+
     // Pipeline sub-router has its own state, so we build it independently
     // and nest it as a service to avoid state type mismatches.
     let pipeline = pipeline_router(pipeline_state);
@@ -122,6 +127,7 @@ pub async fn build_router(
     let jira_oauth_state = Arc::new(JiraOAuthState::new(jira_oauth_svc, Arc::clone(&credential_store)));
     let jira_oauth = jira_oauth_router(jira_oauth_state);
 
+
     let mut router = Router::new()
         .route("/ws", get(ws_handler))
         .nest_service("/api/pipeline", pipeline)
@@ -130,7 +136,12 @@ pub async fn build_router(
         .nest_service("/api/settings", typed_settings)
         .nest_service("/api/integrations/github", github_oauth)
         .nest_service("/api/integrations/jira", jira_oauth)
-        .nest_service("/api/projects", projects);
+        // Projects CRUD + project-scoped agent/pipeline routes.
+        // The project-scoped routes are part of project_router (same nest_service)
+        // so there is no wildcard conflict.
+        .nest_service("/api/projects", projects)
+        // Inject the registry as an Extension for all project-scoped handlers.
+        .layer(axum::Extension(Arc::clone(&project_registry)));
 
     // Wire event/task routes if the store initialised successfully.
     if let Some(es_state) = event_store_state {

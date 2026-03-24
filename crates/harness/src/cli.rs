@@ -530,6 +530,7 @@ mod tests {
             env: HashMap::new(),
             timeout: None,
             adapter_config,
+            project_id: None,
         }
     }
 

@@ -26,6 +26,8 @@ pub struct SpawnConfig {
     pub env: HashMap<String, String>,
     pub timeout: Option<Duration>,
     pub adapter_config: serde_json::Value,
+    /// Optional project this agent belongs to. `None` means the global / default context.
+    pub project_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
