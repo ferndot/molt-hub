@@ -8,12 +8,13 @@
  */
 
 import type { Component } from "solid-js";
-import { Show, onCleanup } from "solid-js";
+import { Show, onCleanup, createSignal } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { TbOutlineArrowLeft } from "solid-icons/tb";
 import { getAgent, setupAgentSubscription } from "./agentStore";
 import OutputStream from "./OutputStream";
 import AgentMeta from "./AgentMeta";
+import SteerChat from "./SteerChat";
 import styles from "./AgentDetailView.module.css";
 
 // ---------------------------------------------------------------------------
@@ -34,10 +35,13 @@ function duration(isoString: string): string {
 // Component
 // ---------------------------------------------------------------------------
 
+type LeftTab = "output" | "chat";
+
 const AgentDetailView: Component = () => {
   const params = useParams<{ id: string }>();
 
   const agent = () => getAgent(params.id);
+  const [leftTab, setLeftTab] = createSignal<LeftTab>("output");
 
   // Wire up WebSocket subscription for real-time output
   const unsub = setupAgentSubscription(params.id);
@@ -69,12 +73,33 @@ const AgentDetailView: Component = () => {
 
           {/* Split-pane body */}
           <div class={styles.body}>
-            {/* Left — output stream */}
+            {/* Left — output stream / steering chat */}
             <div class={styles.leftPane}>
-              <OutputStream
-                lines={a().outputLines}
-                status={a().status}
-              />
+              <div class={styles.tabBar}>
+                <button
+                  class={`${styles.tab} ${leftTab() === "output" ? styles.tabActive : ""}`}
+                  onClick={() => setLeftTab("output")}
+                  type="button"
+                >
+                  Output
+                </button>
+                <button
+                  class={`${styles.tab} ${leftTab() === "chat" ? styles.tabActive : ""}`}
+                  onClick={() => setLeftTab("chat")}
+                  type="button"
+                >
+                  Chat
+                </button>
+              </div>
+              <Show when={leftTab() === "output"}>
+                <OutputStream
+                  lines={a().outputLines}
+                  status={a().status}
+                />
+              </Show>
+              <Show when={leftTab() === "chat"}>
+                <SteerChat agentId={a().id} />
+              </Show>
             </div>
 
             <div class={styles.divider} />

@@ -1,8 +1,8 @@
 //! GitHub REST API v3 client.
 //!
 //! Wraps the GitHub REST API with a thin async client.  Authentication
-//! uses a personal access token or GitHub App installation token passed
-//! as a Bearer header.
+//! uses an OAuth access token (from the GitHub App OAuth flow) or a
+//! personal access token, passed as a Bearer header.
 
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
@@ -81,7 +81,8 @@ pub struct GitHubClient {
 }
 
 impl GitHubClient {
-    /// Create a client from a personal access token or installation token.
+    /// Create a client from an OAuth access token, personal access token,
+    /// or GitHub App installation token.
     pub fn new(token: String) -> Self {
         Self {
             http: Client::new(),

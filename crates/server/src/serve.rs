@@ -8,17 +8,27 @@ use std::time::Duration;
 
 use axum::routing::get;
 use axum::Router;
+use sqlx::sqlite::SqlitePoolOptions;
 use tokio::task::JoinHandle;
 use tower_http::services::{ServeDir, ServeFile};
-use tracing::debug;
+use tracing::{debug, info, warn};
 
+use molt_hub_core::events::SqliteEventStore;
 use molt_hub_harness::adapter::AgentEvent;
 use molt_hub_harness::supervisor::{Supervisor, SupervisorConfig};
 
 use crate::agents::handlers::{agent_router, AgentState};
 use crate::agents::output_buffer::shared_output_buffer;
 use crate::audit::{audit_router, start_audit_writer, AuditHandle, AuditState};
+use crate::events::handlers::{events_router, tasks_router, EventStoreState};
+use crate::credentials::KeyringStore;
+use crate::integrations::github_oauth::{GITHUB_CALLBACK_URL, GITHUB_CLIENT_SECRET};
+use crate::integrations::github_oauth::GithubOAuthService;
+use crate::integrations::github_oauth_handlers::{github_oauth_router, GithubOAuthState};
+use crate::integrations::jira_oauth_handlers::{jira_oauth_router, JiraOAuthState};
+use crate::integrations::oauth::JiraOAuthService;
 use crate::pipeline::handlers::{pipeline_router, PipelineState};
+use crate::projects::handlers::{project_router, ProjectConfigStore};
 use crate::settings::{typed_settings_router, SettingsFileStore, TypedSettingsState};
 use crate::ws::{ws_handler, ConnectionManager};
 use crate::ws_broadcast::{broadcast_metrics, MetricsPayload};
@@ -27,6 +37,14 @@ use crate::ws_broadcast::{broadcast_metrics, MetricsPayload};
 // Router
 // ---------------------------------------------------------------------------
 
+/// Resolve the default event store database path: `~/.config/molt-hub/events.db`.
+fn default_events_db_path() -> PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("molt-hub")
+        .join("events.db")
+}
+
 /// Build the Molt Hub Axum router with WebSocket and static file serving.
 ///
 /// Returns both the router and a shared `ConnectionManager` that callers can
@@ -34,8 +52,12 @@ use crate::ws_broadcast::{broadcast_metrics, MetricsPayload};
 ///
 /// The returned router provides:
 /// - `GET /ws` — WebSocket upgrade for real-time UI updates
+/// - `GET /api/events` — query events (by task_id or since timestamp)
+/// - `GET /api/events/:id` — get a single event
+/// - `POST /api/events` — append an event
+/// - `GET /api/tasks` — list tasks derived from events
 /// - `/*`      — Static files from `dist_dir` with `index.html` fallback (SPA routing)
-pub fn build_router(
+pub async fn build_router(
     dist_dir: PathBuf,
 ) -> (Router, Arc<ConnectionManager>, Arc<Supervisor>, AuditHandle) {
     let manager = Arc::new(ConnectionManager::new());
@@ -69,23 +91,104 @@ pub fn build_router(
         store: settings_store,
     });
 
+    // ---- SQLite event store ------------------------------------------------
+    let event_store_state = init_event_store().await;
+
+    // Project store (YAML-backed)
+    let project_state = Arc::new(ProjectConfigStore::load_default());
+
     // Pipeline sub-router has its own state, so we build it independently
     // and nest it as a service to avoid state type mismatches.
     let pipeline = pipeline_router(pipeline_state);
     let agents = agent_router(agent_state);
     let audit = audit_router(audit_state);
     let typed_settings = typed_settings_router(typed_settings_state);
+    let projects = project_router(project_state);
 
-    let router = Router::new()
+    // Shared credential store backed by the OS keychain.
+    let credential_store: Arc<dyn crate::credentials::CredentialStore> =
+        Arc::new(KeyringStore::new());
+
+    // GitHub OAuth — secret embedded at compile time via GITHUB_CLIENT_SECRET env var
+    let github_oauth_svc = match GITHUB_CLIENT_SECRET {
+        Some(secret) => GithubOAuthService::with_secret(GITHUB_CALLBACK_URL, secret.to_owned()),
+        None => GithubOAuthService::new(GITHUB_CALLBACK_URL),
+    };
+    let github_oauth_state = Arc::new(GithubOAuthState::new(github_oauth_svc, Arc::clone(&credential_store)));
+    let github_oauth = github_oauth_router(github_oauth_state);
+
+    // Jira OAuth — PKCE only, no client secret required
+    let jira_oauth_svc = JiraOAuthService::new("http://localhost:13401/api/integrations/jira/oauth/callback");
+    let jira_oauth_state = Arc::new(JiraOAuthState::new(jira_oauth_svc, Arc::clone(&credential_store)));
+    let jira_oauth = jira_oauth_router(jira_oauth_state);
+
+    let mut router = Router::new()
         .route("/ws", get(ws_handler))
         .nest_service("/api/pipeline", pipeline)
         .nest_service("/api/agents", agents)
         .nest_service("/api/audit", audit)
         .nest_service("/api/settings", typed_settings)
+        .nest_service("/api/integrations/github", github_oauth)
+        .nest_service("/api/integrations/jira", jira_oauth)
+        .nest_service("/api/projects", projects);
+
+    // Wire event/task routes if the store initialised successfully.
+    if let Some(es_state) = event_store_state {
+        let es = Arc::new(es_state);
+        let events = events_router(Arc::clone(&es));
+        let tasks = tasks_router(es);
+        router = router
+            .nest_service("/api/events", events)
+            .nest_service("/api/tasks", tasks);
+    }
+
+    let router = router
         .fallback_service(ServeDir::new(dist_dir).fallback(ServeFile::new(index_html)))
         .with_state(Arc::clone(&manager));
 
     (router, manager, supervisor, audit_handle)
+}
+
+/// Initialise the SQLite event store, returning `None` if it fails so the
+/// server can still start without event persistence.
+async fn init_event_store() -> Option<EventStoreState> {
+    let db_path = default_events_db_path();
+
+    // Ensure parent directory exists.
+    if let Some(parent) = db_path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            warn!(path = %parent.display(), error = %e, "failed to create event store directory");
+            return None;
+        }
+    }
+
+    let db_url = format!("sqlite:{}?mode=rwc", db_path.display());
+    info!(path = %db_path.display(), "opening event store");
+
+    let pool = match SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+    {
+        Ok(p) => p,
+        Err(e) => {
+            warn!(error = %e, "failed to open SQLite event store — events API disabled");
+            return None;
+        }
+    };
+
+    match SqliteEventStore::new(pool).await {
+        Ok(store) => {
+            info!("event store initialised");
+            Some(EventStoreState {
+                store: Arc::new(store),
+            })
+        }
+        Err(e) => {
+            warn!(error = %e, "failed to initialise event store schema — events API disabled");
+            None
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -98,12 +201,12 @@ pub fn build_router(
 /// Metrics include:
 /// - CPU usage (approximated from system load average)
 /// - Memory usage (from process RSS via libc)
-/// - Active connection count (as a proxy for active agents until the real
-///   agent registry is wired)
+/// - Active agent count (from the Supervisor's real agent registry)
 ///
 /// Returns a `JoinHandle` that can be used to abort the task on shutdown.
 pub fn spawn_health_metrics_task(
     manager: Arc<ConnectionManager>,
+    supervisor: Arc<Supervisor>,
     interval: Duration,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
@@ -112,10 +215,10 @@ pub fn spawn_health_metrics_task(
             ticker.tick().await;
 
             let (cpu_usage, memory_bytes) = collect_system_metrics();
-            let active_connections = manager.connection_count() as u32;
+            let active_agents = supervisor.agent_count() as u32;
 
             let payload = MetricsPayload {
-                active_agent_count: Some(active_connections),
+                active_agent_count: Some(active_agents),
                 cpu_usage: Some(cpu_usage),
                 memory_bytes: Some(memory_bytes),
             };
@@ -123,7 +226,7 @@ pub fn spawn_health_metrics_task(
             debug!(
                 cpu = cpu_usage,
                 mem_bytes = memory_bytes,
-                connections = active_connections,
+                active_agents = active_agents,
                 "broadcasting health metrics"
             );
 
@@ -217,20 +320,20 @@ mod tests {
     #[tokio::test]
     async fn build_router_does_not_panic() {
         let (_router, _manager, _supervisor, _audit) =
-            build_router(PathBuf::from("/tmp/nonexistent-dist"));
+            build_router(PathBuf::from("/tmp/nonexistent-dist")).await;
     }
 
     #[tokio::test]
     async fn build_router_returns_shared_manager() {
         let (_router, manager, _supervisor, _audit) =
-            build_router(PathBuf::from("/tmp/nonexistent-dist"));
+            build_router(PathBuf::from("/tmp/nonexistent-dist")).await;
         assert_eq!(manager.connection_count(), 0);
     }
 
     #[tokio::test]
     async fn build_router_returns_supervisor() {
         let (_router, _manager, supervisor, _audit) =
-            build_router(PathBuf::from("/tmp/nonexistent-dist"));
+            build_router(PathBuf::from("/tmp/nonexistent-dist")).await;
         assert_eq!(supervisor.agent_count(), 0);
     }
 

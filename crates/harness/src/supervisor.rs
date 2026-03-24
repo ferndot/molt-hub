@@ -5,13 +5,39 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::sync::broadcast;
 use tracing::{debug, error, info, warn};
 
 use molt_hub_core::model::{AgentId, AgentStatus, TaskId};
 
-use crate::adapter::{AdapterError, AgentAdapter, AgentEvent, AgentHandle, SpawnConfig};
+use crate::adapter::{AdapterError, AgentAdapter, AgentEvent, AgentHandle, AgentMessage, SpawnConfig};
+
+// ---------------------------------------------------------------------------
+// SteerMessage / SteerPriority
+// ---------------------------------------------------------------------------
+
+/// Priority level for a steering message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SteerPriority {
+    Normal,
+    Urgent,
+}
+
+impl Default for SteerPriority {
+    fn default() -> Self {
+        Self::Normal
+    }
+}
+
+/// A message sent to steer a running agent.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SteerMessage {
+    pub message: String,
+    pub priority: SteerPriority,
+}
 
 // ---------------------------------------------------------------------------
 // SupervisorConfig
@@ -50,6 +76,9 @@ pub enum SupervisorError {
 
     #[error("agent not found: {0}")]
     AgentNotFound(AgentId),
+
+    #[error("agent not running: {0}")]
+    AgentNotRunning(AgentId),
 
     #[error("adapter error: {0}")]
     AdapterError(#[from] AdapterError),
@@ -219,6 +248,38 @@ impl Supervisor {
         managed
             .adapter
             .send(&managed.handle, crate::adapter::AgentMessage::Resume)
+            .await?;
+
+        Ok(())
+    }
+
+    /// Send a steering message to a running agent.
+    ///
+    /// The message is delivered as an [`AgentMessage::Instruction`] via the
+    /// adapter's `send` method. Returns [`SupervisorError::AgentNotRunning`] if
+    /// the agent exists but is not in a running state.
+    pub async fn steer(
+        &self,
+        agent_id: &AgentId,
+        steer_msg: SteerMessage,
+    ) -> Result<(), SupervisorError> {
+        let managed = self
+            .agents
+            .get(agent_id)
+            .ok_or_else(|| SupervisorError::AgentNotFound(agent_id.clone()))?;
+
+        // Check the agent is actually running.
+        let status = managed.adapter.status(&managed.handle).await?;
+        match status {
+            AgentStatus::Running => {}
+            _ => return Err(SupervisorError::AgentNotRunning(agent_id.clone())),
+        }
+
+        info!(agent_id = %agent_id, priority = ?steer_msg.priority, "steering agent");
+
+        managed
+            .adapter
+            .send(&managed.handle, AgentMessage::Instruction(steer_msg.message))
             .await?;
 
         Ok(())
@@ -662,5 +723,79 @@ mod tests {
         let (sup, _rx) = make_supervisor(4);
         let unknown = AgentId::new();
         assert!(sup.get_status(&unknown).await.is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // Steer tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_steer_running_agent_succeeds() {
+        let (sup, _rx) = make_supervisor(4);
+        let adapter: Arc<dyn AgentAdapter> = Arc::new(MockAdapter::new(AgentStatus::Running));
+
+        let id = sup
+            .spawn_agent(Arc::clone(&adapter), make_spawn_config())
+            .await
+            .unwrap();
+
+        let msg = SteerMessage {
+            message: "focus on tests".into(),
+            priority: SteerPriority::Normal,
+        };
+        sup.steer(&id, msg).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_steer_unknown_agent_returns_not_found() {
+        let (sup, _rx) = make_supervisor(4);
+        let unknown = AgentId::new();
+        let msg = SteerMessage {
+            message: "hello".into(),
+            priority: SteerPriority::Normal,
+        };
+        let err = sup.steer(&unknown, msg).await.unwrap_err();
+        assert!(matches!(err, SupervisorError::AgentNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn test_steer_non_running_agent_returns_not_running() {
+        let (sup, _rx) = make_supervisor(4);
+        let adapter: Arc<dyn AgentAdapter> = Arc::new(MockAdapter::new(AgentStatus::Paused));
+
+        let id = sup
+            .spawn_agent(Arc::clone(&adapter), make_spawn_config())
+            .await
+            .unwrap();
+
+        let msg = SteerMessage {
+            message: "hello".into(),
+            priority: SteerPriority::Urgent,
+        };
+        let err = sup.steer(&id, msg).await.unwrap_err();
+        assert!(
+            matches!(err, SupervisorError::AgentNotRunning(_)),
+            "expected AgentNotRunning, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn test_steer_message_serialization() {
+        let msg = SteerMessage {
+            message: "do the thing".into(),
+            priority: SteerPriority::Urgent,
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("\"message\":\"do the thing\""));
+        assert!(json.contains("\"priority\":\"urgent\""));
+
+        let roundtrip: SteerMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(roundtrip.message, "do the thing");
+        assert_eq!(roundtrip.priority, SteerPriority::Urgent);
+    }
+
+    #[test]
+    fn test_steer_priority_default() {
+        assert_eq!(SteerPriority::default(), SteerPriority::Normal);
     }
 }

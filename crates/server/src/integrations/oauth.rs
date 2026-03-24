@@ -97,9 +97,21 @@ struct TokenErrorResponse {
 // ---------------------------------------------------------------------------
 
 /// Default scopes requested during OAuth authorization.
+///
+/// Classic scopes cover Jira core (issues, projects, users).
+/// Granular Jira Software scopes are required for sprint and board data
+/// (classic scopes do not cover Jira Software endpoints).
+/// `write:jira-work` is included now so agents can transition issues and post
+/// comments without requiring a re-auth flow later.
 pub const DEFAULT_SCOPES: &[&str] = &[
+    // Jira core — classic scopes
     "read:jira-work",
     "read:jira-user",
+    "write:jira-work",
+    // Jira Software — granular scopes (required; no classic equivalent)
+    "read:sprint:jira-software",
+    "read:board-scope:jira-software",
+    // Refresh tokens
     "offline_access",
 ];
 
