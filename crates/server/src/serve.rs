@@ -15,10 +15,12 @@ use tracing::{debug, info, warn};
 
 use molt_hub_core::events::SqliteEventStore;
 use molt_hub_harness::adapter::AgentEvent;
+use molt_hub_harness::adapter::AgentAdapter;
 use molt_hub_harness::claude::ClaudeAdapter;
 use molt_hub_harness::supervisor::{Supervisor, SupervisorConfig};
 
 use crate::agents::handlers::{agent_router, AgentState};
+use crate::hooks::HookExecutor;
 use crate::agents::output_buffer::{shared_output_buffer, spawn_agent_output_buffer_task};
 use crate::agents::worktree_registry::{WorktreeManagerCache, WorktreeRegistry};
 use crate::audit::{audit_router, start_audit_writer, AuditHandle, AuditState};
@@ -91,11 +93,16 @@ pub async fn build_router(
 
     let supervisor = Arc::new(Supervisor::new(SupervisorConfig::default(), event_tx));
 
+    let claude_adapter = Arc::new(ClaudeAdapter::new());
+    let hook_executor = Arc::new(HookExecutor::with_adapter(
+        Arc::clone(&claude_adapter) as Arc<dyn AgentAdapter>,
+    ));
+
     // Agent API state
     let agent_state = Arc::new(AgentState {
         supervisor: Arc::clone(&supervisor),
         output_buffer,
-        claude_adapter: Arc::new(ClaudeAdapter::new()),
+        claude_adapter: Arc::clone(&claude_adapter),
         test_spawn_adapter: None,
         worktree_managers: Arc::new(WorktreeManagerCache::new()),
         worktree_registry: Arc::new(WorktreeRegistry::new()),
@@ -209,6 +216,7 @@ pub async fn build_router(
         .fallback_service(ServeDir::new(dist_dir).fallback(ServeFile::new(index_html)))
         .layer(axum::Extension(Arc::clone(&registry)))
         .layer(axum::Extension(Arc::clone(&supervisor)))
+        .layer(axum::Extension(Arc::clone(&hook_executor)))
         .layer(axum::Extension(Arc::clone(&pipeline_state)))
         .layer(axum::Extension(Arc::clone(&manager)))
         .layer(axum::Extension(Arc::clone(&typed_settings_state)))

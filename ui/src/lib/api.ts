@@ -191,6 +191,16 @@ export const api = {
     initialStage?: string;
   }) => post<{ taskId: string }>("/tasks/create", body),
 
+  /** Persisted kanban move + pipeline enter/exit hooks (requires active board id). */
+  moveTask: (
+    taskId: string,
+    body: { toStage: string; boardId: string },
+  ) =>
+    post<{ taskId: string; stage: string; status: string }>(
+      `/tasks/${encodeURIComponent(taskId)}/move`,
+      body,
+    ),
+
   /** Uses the same harness as agents (Claude CLI by default; CLI adapter if set in settings). */
   suggestTaskTitle: (body: { text: string; adapterConfig?: unknown }) =>
     post<{ title: string; source: string }>("/agents/suggest-task-title", body),
@@ -217,6 +227,12 @@ export interface BoardSummary {
   name: string;
 }
 
+/** Serialized [`HookDefinition`](Rust) — extra keys are hook-specific config. */
+export type HookDefinitionJson = Record<string, unknown> & {
+  kind: string;
+  on: string;
+};
+
 export interface PipelineStage {
   id: string;
   label: string;
@@ -226,6 +242,7 @@ export interface PipelineStage {
   terminal: boolean;
   color: string | null;
   order: number;
+  hooks?: HookDefinitionJson[];
 }
 
 export interface AuditEntry {

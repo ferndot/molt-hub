@@ -60,11 +60,11 @@ const DEFAULT_STAGES: string[] = [
 ];
 
 const DEFAULT_PIPELINE_STAGES: PipelineStage[] = [
-  { id: "backlog", label: "Backlog", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false, color: "#6b7280", order: 0 },
-  { id: "in-progress", label: "In Progress", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false, color: "#3b82f6", order: 1 },
-  { id: "code-review", label: "Code Review", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false, color: "#f59e0b", order: 2 },
-  { id: "testing", label: "Testing", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false, color: "#8b5cf6", order: 3 },
-  { id: "deployed", label: "Deployed", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: true, color: "#10b981", order: 4 },
+  { id: "backlog", label: "Backlog", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false, color: "#6b7280", order: 0, hooks: [] },
+  { id: "in-progress", label: "In Progress", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false, color: "#3b82f6", order: 1, hooks: [] },
+  { id: "code-review", label: "Code Review", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false, color: "#f59e0b", order: 2, hooks: [] },
+  { id: "testing", label: "Testing", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false, color: "#8b5cf6", order: 3, hooks: [] },
+  { id: "deployed", label: "Deployed", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: true, color: "#10b981", order: 4, hooks: [] },
 ];
 
 const BOARD_STORAGE_KEY = "molt:active-board";
@@ -297,9 +297,19 @@ export function moveTask(
   _fromStage: string,
   toStage: string,
 ): void {
+  const prev = boardState.tasks.map((t) => ({ ...t }));
   setBoardState("tasks", (tasks) =>
     tasks.map((t) => (t.id === taskId ? { ...t, stage: toStage } : t)),
   );
+  const boardId = boardState.activeBoardId;
+  if (!boardId) return;
+  void (async () => {
+    try {
+      await api.moveTask(taskId, { toStage, boardId });
+    } catch {
+      setBoardState("tasks", prev);
+    }
+  })();
 }
 
 export function expandCard(taskId: string): void {
@@ -360,9 +370,16 @@ export async function patchStage(
   );
   if (!boardState.activeBoardId) return;
   try {
-    await api.patchBoardStage(boardState.activeBoardId, id, fields);
+    const updated = await api.patchBoardStage(
+      boardState.activeBoardId,
+      id,
+      fields,
+    );
+    setBoardState("pipelineStages", (stages) =>
+      stages.map((s) => (s.id === id ? { ...s, ...updated } : s)),
+    );
   } catch {
-    // Silently ignore — the board still works with local state
+    // Keep optimistic state — the board still works locally
   }
 }
 

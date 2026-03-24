@@ -132,6 +132,8 @@ pub struct StagePatch {
     #[serde(default, deserialize_with = "deserialize_double_option")]
     pub color: Option<Option<String>>,
     pub order: Option<u32>,
+    /// When set, replaces the stage hook list (including `[]` to clear).
+    pub hooks: Option<Vec<HookDefinition>>,
 }
 
 /// Deserialize a double-option: absent key → `None`, explicit `null` → `Some(None)`,
@@ -402,6 +404,9 @@ impl PipelineConfigStore {
         }
         if let Some(order) = patch.order {
             stage.order = order;
+        }
+        if let Some(hooks) = patch.hooks {
+            stage.hooks = hooks;
         }
 
         let updated = stage_to_response(stage);

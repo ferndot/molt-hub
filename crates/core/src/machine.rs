@@ -3,7 +3,8 @@
 use chrono::Utc;
 use thiserror::Error;
 
-use crate::events::{DomainEvent, HumanDecisionKind};
+use crate::config::PipelineConfig;
+use crate::events::{DomainEvent, EventEnvelope, HumanDecisionKind};
 use crate::model::{TaskOutcome, TaskState};
 
 // ---------------------------------------------------------------------------
@@ -39,6 +40,7 @@ pub enum TransitionError {
 /// `TaskMachine` owns the current `TaskState` and the name of the stage the
 /// task occupies. It validates and applies `DomainEvent`s, returning the new
 /// state on success or a `TransitionError` on failure.
+#[derive(Clone)]
 pub struct TaskMachine {
     pub state: TaskState,
     pub current_stage: String,
@@ -76,6 +78,7 @@ impl TaskMachine {
 
             // State-specific events
             (TaskState::Pending, DomainEvent::AgentAssigned { .. }) => true,
+            (TaskState::Pending, DomainEvent::TaskStageChanged { .. }) => true,
             (TaskState::InProgress, DomainEvent::TaskBlocked { .. }) => true,
             (TaskState::InProgress, DomainEvent::AgentCompleted { .. }) => true,
             (TaskState::InProgress, DomainEvent::TaskStageChanged { .. }) => true,
@@ -122,6 +125,14 @@ impl TaskMachine {
             // Pending → InProgress
             // ------------------------------------------------------------------
             (TaskState::Pending, DomainEvent::AgentAssigned { .. }) => TaskState::InProgress,
+
+            // ------------------------------------------------------------------
+            // Pending → Pending (kanban column change before an agent is assigned)
+            // ------------------------------------------------------------------
+            (TaskState::Pending, DomainEvent::TaskStageChanged { to_stage, .. }) => {
+                self.current_stage = to_stage.clone();
+                TaskState::Pending
+            },
 
             // ------------------------------------------------------------------
             // InProgress → Blocked
@@ -190,6 +201,37 @@ impl TaskMachine {
         self.state = new_state.clone();
         Ok(new_state)
     }
+}
+
+/// Rebuild a [`TaskMachine`] by applying stored envelopes for a single task in timestamp order.
+pub fn replay_task_machine_from_events(
+    events: &[EventEnvelope],
+    pipeline: &PipelineConfig,
+) -> Result<TaskMachine, String> {
+    let mut machine: Option<TaskMachine> = None;
+
+    for envelope in events {
+        match &envelope.payload {
+            DomainEvent::TaskCreated { initial_stage, .. } => {
+                machine = Some(TaskMachine::new(initial_stage.clone()));
+            }
+            payload => {
+                let m = machine
+                    .as_mut()
+                    .ok_or_else(|| "event before TaskCreated".to_string())?;
+                let requires = pipeline
+                    .stages
+                    .iter()
+                    .find(|s| s.name == m.current_stage)
+                    .map(|s| s.requires_approval)
+                    .unwrap_or(false);
+                m.apply_with_approval_flag(payload, requires)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+    }
+
+    machine.ok_or_else(|| "no TaskCreated in history".to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -424,6 +466,19 @@ mod tests {
         let result = m.apply(&event).unwrap();
         assert_eq!(result, TaskState::InProgress);
         assert_eq!(m.current_stage, "implementation");
+    }
+
+    #[test]
+    fn pending_stage_changed_updates_current_stage() {
+        let mut m = TaskMachine::new("backlog".into());
+        let event = DomainEvent::TaskStageChanged {
+            from_stage: "backlog".into(),
+            to_stage: "in-progress".into(),
+            new_state: TaskState::Pending,
+        };
+        let result = m.apply(&event).unwrap();
+        assert_eq!(result, TaskState::Pending);
+        assert_eq!(m.current_stage, "in-progress");
     }
 
     // --- Priority changed passthrough ---

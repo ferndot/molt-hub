@@ -78,7 +78,7 @@ async fn run_hooks_for_named_stage(
     Ok(())
 }
 
-async fn run_lifecycle_hooks_for_event(
+pub(crate) async fn run_lifecycle_hooks_for_event(
     executor: &HookExecutor,
     pipeline: &PipelineConfig,
     task_id: &TaskId,

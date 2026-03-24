@@ -5,10 +5,10 @@
  * PATCH /api/projects/…/boards/:boardId/stages/:stageId.
  */
 
-import { For, type Component } from "solid-js";
+import { For, createEffect, createSignal, type Component } from "solid-js";
 import { Dialog } from "@kobalte/core/dialog";
 import { getSortedStages, patchStage } from "./boardStore";
-import type { PipelineStage } from "../../lib/api";
+import type { HookDefinitionJson, PipelineStage } from "../../lib/api";
 import styles from "./ColumnEditor.module.css";
 
 // ---------------------------------------------------------------------------
@@ -21,6 +21,12 @@ interface StageRowProps {
 
 const StageRow: Component<StageRowProps> = (props) => {
   const stage = () => props.stage;
+  const [hooksText, setHooksText] = createSignal("[]");
+
+  createEffect(() => {
+    const h = stage().hooks;
+    setHooksText(JSON.stringify(h ?? [], null, 2));
+  });
 
   return (
     <div class={styles.columnCard}>
@@ -89,6 +95,33 @@ const StageRow: Component<StageRowProps> = (props) => {
           />
           Terminal
         </label>
+      </div>
+
+      <div class={styles.hooksBlock}>
+        <label class={styles.hooksBlockLabel} for={`hooks-${stage().id}`}>
+          Hooks (JSON array)
+        </label>
+        <textarea
+          id={`hooks-${stage().id}`}
+          class={styles.hooksTextarea}
+          rows={5}
+          spellcheck={false}
+          value={hooksText()}
+          onInput={(e) => setHooksText(e.currentTarget.value)}
+          onBlur={() => {
+            try {
+              const parsed = JSON.parse(hooksText()) as unknown;
+              if (!Array.isArray(parsed)) {
+                throw new Error("hooks must be a JSON array");
+              }
+              void patchStage(stage().id, {
+                hooks: parsed as HookDefinitionJson[],
+              });
+            } catch {
+              setHooksText(JSON.stringify(stage().hooks ?? [], null, 2));
+            }
+          }}
+        />
       </div>
     </div>
   );

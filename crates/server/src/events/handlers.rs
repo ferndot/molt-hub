@@ -25,8 +25,13 @@ use ulid::Ulid;
 
 use molt_hub_core::events::types::{DomainEvent, EventEnvelope};
 use molt_hub_core::events::{EventStore, EventStoreError, SqliteEventStore};
-use molt_hub_core::model::{EventId, Priority, SessionId, TaskId};
+use molt_hub_core::machine::replay_task_machine_from_events;
+use molt_hub_core::model::{EventId, Priority, SessionId, TaskId, TaskState};
+use molt_hub_harness::supervisor::Supervisor;
 
+use crate::actors::run_lifecycle_hooks_for_event;
+use crate::hooks::HookExecutor;
+use crate::projects::runtime::{ensure_project_runtime, ProjectRuntimeRegistry};
 use crate::ws::ConnectionManager;
 use crate::ws_broadcast::{broadcast_board_update_full, BoardUpdate};
 
@@ -77,6 +82,25 @@ pub struct CreateTaskRequest {
     pub initial_stage: Option<String>,
     #[serde(default, rename = "projectId")]
     pub project_id: Option<String>,
+}
+
+/// Body for `POST /api/tasks/:id/move` — persisted stage change + pipeline hooks.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MoveTaskBody {
+    pub to_stage: String,
+    pub board_id: String,
+}
+
+fn board_status_for_state(s: &TaskState) -> &'static str {
+    match s {
+        TaskState::Pending => "waiting",
+        TaskState::InProgress => "running",
+        TaskState::Blocked { .. } => "blocked",
+        TaskState::AwaitingApproval { .. } => "waiting",
+        TaskState::Completed { .. } => "complete",
+        TaskState::Failed { .. } => "blocked",
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -321,6 +345,205 @@ pub async fn create_task(
     }
 }
 
+/// POST /api/tasks/:id/move — validate transition, run enter/exit hooks, persist `TaskStageChanged`.
+#[instrument(skip_all)]
+pub async fn move_task_stage(
+    State(state): State<Arc<EventStoreState>>,
+    Extension(manager): Extension<Arc<ConnectionManager>>,
+    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
+    Extension(hook_executor): Extension<Arc<HookExecutor>>,
+    Path(task_id_str): Path<String>,
+    Json(body): Json<MoveTaskBody>,
+) -> impl IntoResponse {
+    let task_id_ulid = match Ulid::from_str(task_id_str.trim()) {
+        Ok(u) => u,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("invalid task id: {e}") })),
+            )
+                .into_response();
+        }
+    };
+    let task_id = TaskId(task_id_ulid);
+
+    let to_stage = body.to_stage.trim().to_owned();
+    let board_id = body.board_id.trim();
+    if to_stage.is_empty() || board_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "toStage and boardId are required" })),
+        )
+            .into_response();
+    }
+
+    let rt = ensure_project_runtime("default", &registry, &supervisor).await;
+    let board_store = match rt.boards.get_store(board_id).await {
+        Some(s) => s,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": format!("board '{board_id}' not found") })),
+            )
+                .into_response();
+        }
+    };
+
+    let pipeline = board_store.snapshot_config().await;
+    if !pipeline.stages.iter().any(|s| s.name == to_stage) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": format!("unknown stage '{}'", to_stage) })),
+        )
+            .into_response();
+    }
+
+    let events = match state.store.get_events_for_task(&task_id).await {
+        Ok(e) => e,
+        Err(e) => return error_response(e),
+    };
+
+    let machine = match replay_task_machine_from_events(&events, &pipeline) {
+        Ok(m) => m,
+        Err(msg) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": msg })),
+            )
+                .into_response();
+        }
+    };
+
+    if machine.is_terminal() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "task is in a terminal state" })),
+        )
+            .into_response();
+    }
+
+    let from_stage = machine.current_stage.clone();
+    if from_stage == to_stage {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "task is already in this stage" })),
+        )
+            .into_response();
+    }
+
+    let requires_approval = pipeline
+        .stages
+        .iter()
+        .find(|s| s.name == from_stage)
+        .map(|s| s.requires_approval)
+        .unwrap_or(false);
+
+    let mut probe = machine.clone();
+    let new_state = match probe.apply_with_approval_flag(
+        &DomainEvent::TaskStageChanged {
+            from_stage: from_stage.clone(),
+            to_stage: to_stage.clone(),
+            new_state: TaskState::Pending,
+        },
+        requires_approval,
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    let payload = DomainEvent::TaskStageChanged {
+        from_stage: from_stage.clone(),
+        to_stage: to_stage.clone(),
+        new_state: new_state.clone(),
+    };
+
+    let session_id = events
+        .last()
+        .map(|e| e.session_id.clone())
+        .unwrap_or_else(SessionId::new);
+    let project_id = events
+        .last()
+        .map(|e| e.project_id.clone())
+        .unwrap_or_else(|| "default".to_owned());
+
+    let envelope = EventEnvelope {
+        id: EventId::new(),
+        task_id: Some(task_id.clone()),
+        project_id: project_id.clone(),
+        session_id: session_id.clone(),
+        timestamp: Utc::now(),
+        caused_by: None,
+        payload: payload.clone(),
+    };
+
+    if let Err(source) = run_lifecycle_hooks_for_event(
+        hook_executor.as_ref(),
+        &pipeline,
+        &task_id,
+        &session_id,
+        &envelope,
+        &from_stage,
+        &to_stage,
+        &new_state,
+    )
+    .await
+    {
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": source.to_string() })),
+        )
+            .into_response();
+    }
+
+    if let Err(e) = state.store.append(envelope).await {
+        return error_response(e);
+    }
+
+    let task_title = events.iter().rev().find_map(|e| {
+        if let DomainEvent::TaskCreated { title, .. } = &e.payload {
+            Some(title.clone())
+        } else {
+            None
+        }
+    });
+
+    let ws_project = events
+        .last()
+        .map(|e| e.project_id.as_str())
+        .unwrap_or("default");
+
+    broadcast_board_update_full(
+        manager.as_ref(),
+        ws_project,
+        &BoardUpdate {
+            task_id: task_id.to_string(),
+            stage: to_stage.clone(),
+            status: board_status_for_state(&new_state).to_owned(),
+            priority: None,
+            name: task_title,
+            agent_name: None,
+            summary: None,
+        },
+    );
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "taskId": task_id.to_string(),
+            "stage": to_stage,
+            "status": board_status_for_state(&new_state),
+        })),
+    )
+        .into_response()
+}
+
 // ---------------------------------------------------------------------------
 // Error helpers
 // ---------------------------------------------------------------------------
@@ -351,6 +574,7 @@ pub fn tasks_router(state: Arc<EventStoreState>) -> Router {
     Router::new()
         .route("/", get(list_tasks))
         .route("/create", post(create_task))
+        .route("/:id/move", post(move_task_stage))
         .with_state(state)
 }
 
