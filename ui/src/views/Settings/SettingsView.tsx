@@ -32,6 +32,7 @@ import {
   setAgentAdapter,
 } from "./settingsStore";
 import type { Theme, AttentionLevel, AgentAdapter } from "./settingsStore";
+import GitHubImport from "./GitHubImport";
 import AuditLog from "./AuditLog";
 import PriorityBadge from "../../components/PriorityBadge/PriorityBadge";
 import styles from "./Settings.module.css";
@@ -295,6 +296,7 @@ const JiraPanel: Component<{ onBack: () => void }> = (props) => {
 
 const GitHubPanel: Component<{ onBack: () => void }> = (props) => {
   const isConnected = () => settingsState.githubConfig.connected;
+  const [importOpen, setImportOpen] = createSignal(false);
   const [connecting, setConnecting] = createSignal(false);
 
   // Check current status when the panel mounts
@@ -352,11 +354,15 @@ const GitHubPanel: Component<{ onBack: () => void }> = (props) => {
             </Show>
           </div>
           <div class={styles.buttonRow}>
+            <button class={styles.btnPrimary} onClick={() => setImportOpen(true)}>
+              Import Issues
+            </button>
             <button class={styles.btnDanger} onClick={() => disconnectGitHub()}>
               Disconnect
             </button>
           </div>
         </div>
+        <GitHubImport isOpen={importOpen()} onClose={() => setImportOpen(false)} />
       </Show>
     </div>
   );
