@@ -15,6 +15,7 @@ use tracing::{debug, info, warn};
 
 use molt_hub_core::events::SqliteEventStore;
 use molt_hub_harness::adapter::AgentEvent;
+use molt_hub_harness::claude::ClaudeAdapter;
 use molt_hub_harness::supervisor::{Supervisor, SupervisorConfig};
 
 use crate::agents::handlers::{agent_router, AgentState};
@@ -79,6 +80,8 @@ pub async fn build_router(
     let agent_state = Arc::new(AgentState {
         supervisor: Arc::clone(&supervisor),
         output_buffer,
+        claude_adapter: Arc::new(ClaudeAdapter::new()),
+        test_spawn_adapter: None,
     });
 
     // Audit log writer

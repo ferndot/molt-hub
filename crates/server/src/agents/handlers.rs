@@ -17,10 +17,15 @@ use axum::{
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::instrument;
 
-use molt_hub_core::model::AgentId;
+use molt_hub_core::model::{AgentId, SessionId, TaskId};
+use molt_hub_harness::adapter::SpawnConfig;
+use molt_hub_harness::claude::ClaudeAdapter;
+use molt_hub_harness::cli::CliAdapter;
 use molt_hub_harness::supervisor::{SteerMessage, SteerPriority, Supervisor, SupervisorError};
 
 use crate::projects::runtime::ProjectRuntimeRegistry;
@@ -35,6 +40,10 @@ use super::output_buffer::AgentOutputBuffer;
 pub struct AgentState {
     pub supervisor: Arc<Supervisor>,
     pub output_buffer: Arc<AgentOutputBuffer>,
+    /// Default Claude CLI adapter used when `adapter_type` is `claude` / `claude-cli`.
+    pub claude_adapter: Arc<ClaudeAdapter>,
+    /// When set, [`spawn_agent`] uses this adapter for any `adapter_type` (unit tests only).
+    pub test_spawn_adapter: Option<Arc<dyn molt_hub_harness::adapter::AgentAdapter>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -58,6 +67,7 @@ pub struct AgentsListResponse {
 
 /// Response for POST /api/agents/spawn.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SpawnResponse {
     pub agent_id: String,
     pub message: String,
@@ -65,13 +75,22 @@ pub struct SpawnResponse {
 
 /// Request body for POST /api/agents/spawn.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SpawnRequest {
-    /// Adapter type to use (e.g. "claude-cli", "cli").
-    pub adapter_type: String,
     /// Task instructions for the agent.
-    pub instructions: Option<String>,
-    /// Additional adapter configuration.
+    pub instructions: String,
+    /// Working directory for the agent process.
+    pub working_dir: String,
+    /// Adapter type: `claude`, `claude-cli`, or `cli`.
+    #[serde(default = "default_spawn_adapter_type")]
+    pub adapter_type: String,
+    /// Opaque JSON forwarded to the adapter (`model`, `command`, etc.).
+    #[serde(default)]
     pub adapter_config: Option<serde_json::Value>,
+}
+
+fn default_spawn_adapter_type() -> String {
+    "claude".to_string()
 }
 
 /// Generic message response.
@@ -115,6 +134,97 @@ pub struct SteerResponse {
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
+
+fn resolve_spawn_adapter(
+    state: &AgentState,
+    adapter_type: &str,
+) -> Result<Arc<dyn molt_hub_harness::adapter::AgentAdapter>, (StatusCode, String)> {
+    if let Some(adapter) = &state.test_spawn_adapter {
+        return Ok(Arc::clone(adapter));
+    }
+
+    match adapter_type {
+        "claude" | "claude-cli" => {
+            let a: Arc<dyn molt_hub_harness::adapter::AgentAdapter> = state.claude_adapter.clone();
+            Ok(a)
+        }
+        "cli" => Ok(Arc::new(CliAdapter::new())),
+        other => Err((
+            StatusCode::BAD_REQUEST,
+            format!("unknown adapter_type: {other} (expected claude, claude-cli, or cli)"),
+        )),
+    }
+}
+
+/// POST /api/agents/spawn — start a new agent process.
+#[instrument(skip(state, body))]
+async fn spawn_agent(
+    State(state): State<Arc<AgentState>>,
+    Json(body): Json<SpawnRequest>,
+) -> impl IntoResponse {
+    let adapter = match resolve_spawn_adapter(&state, body.adapter_type.trim()) {
+        Ok(a) => a,
+        Err((code, msg)) => {
+            return (code, Json(MessageResponse { message: msg })).into_response();
+        }
+    };
+
+    let working_dir = PathBuf::from(body.working_dir.trim());
+    if working_dir.as_os_str().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(MessageResponse {
+                message: "working_dir must not be empty".into(),
+            }),
+        )
+            .into_response();
+    }
+
+    let agent_id = AgentId::new();
+    let spawn_cfg = SpawnConfig {
+        agent_id: agent_id.clone(),
+        task_id: TaskId::new(),
+        session_id: SessionId::new(),
+        working_dir,
+        instructions: body.instructions,
+        env: HashMap::new(),
+        timeout: None,
+        adapter_config: body.adapter_config.unwrap_or(serde_json::Value::Null),
+        project_id: None,
+    };
+
+    match state.supervisor.spawn_agent(adapter, spawn_cfg).await {
+        Ok(id) => {
+            let id_str = id.to_string();
+            Json(SpawnResponse {
+                agent_id: id_str.clone(),
+                message: format!("agent {id_str} spawned"),
+            })
+            .into_response()
+        }
+        Err(SupervisorError::MaxAgentsReached(n)) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(MessageResponse {
+                message: format!("maximum concurrent agents reached ({n})"),
+            }),
+        )
+            .into_response(),
+        Err(SupervisorError::AdapterError(e)) => (
+            StatusCode::BAD_GATEWAY,
+            Json(MessageResponse {
+                message: format!("adapter error: {e}"),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(MessageResponse {
+                message: format!("spawn failed: {e}"),
+            }),
+        )
+            .into_response(),
+    }
+}
 
 /// GET /api/agents — list all agents with status.
 #[instrument(skip(state))]
@@ -339,6 +449,7 @@ async fn get_agent_output(
 ///
 /// Mounts:
 ///   GET  /                  — list all agents
+///   POST /spawn             — spawn a new agent
 ///   POST /:id/terminate     — terminate an agent
 ///   POST /:id/pause         — pause an agent
 ///   POST /:id/resume        — resume an agent
@@ -347,6 +458,7 @@ async fn get_agent_output(
 pub fn agent_router(state: Arc<AgentState>) -> Router {
     Router::new()
         .route("/", get(list_agents))
+        .route("/spawn", post(spawn_agent))
         .route("/:id/terminate", post(terminate_agent))
         .route("/:id/pause", post(pause_agent))
         .route("/:id/resume", post(resume_agent))
@@ -504,13 +616,63 @@ pub async fn get_project_agent(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use molt_hub_harness::adapter::AgentEvent;
+    use molt_hub_harness::adapter::{AdapterError, AgentAdapter, AgentEvent, AgentHandle, AgentMessage};
+    use molt_hub_harness::claude::ClaudeAdapter;
     use molt_hub_harness::supervisor::SupervisorConfig;
+    use molt_hub_core::model::AgentStatus;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
     use tokio::sync::broadcast;
     use tower::ServiceExt;
+
+    struct MockAdapter {
+        spawn_count: Arc<AtomicUsize>,
+        status: AgentStatus,
+    }
+
+    impl MockAdapter {
+        fn new(status: AgentStatus) -> Self {
+            Self {
+                spawn_count: Arc::new(AtomicUsize::new(0)),
+                status,
+            }
+        }
+
+        fn spawn_count(&self) -> usize {
+            self.spawn_count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl AgentAdapter for MockAdapter {
+        async fn spawn(&self, config: SpawnConfig) -> Result<AgentHandle, AdapterError> {
+            self.spawn_count.fetch_add(1, Ordering::SeqCst);
+            Ok(AgentHandle::new(config.agent_id, None, Box::new(())))
+        }
+
+        async fn send(&self, _handle: &AgentHandle, _message: AgentMessage) -> Result<(), AdapterError> {
+            Ok(())
+        }
+
+        async fn status(&self, _handle: &AgentHandle) -> Result<AgentStatus, AdapterError> {
+            Ok(self.status.clone())
+        }
+
+        async fn terminate(&self, _handle: &AgentHandle) -> Result<(), AdapterError> {
+            Ok(())
+        }
+
+        async fn abort(&self, _handle: &AgentHandle) -> Result<(), AdapterError> {
+            Ok(())
+        }
+
+        fn adapter_type(&self) -> &str {
+            "mock"
+        }
+    }
 
     fn make_supervisor() -> Arc<Supervisor> {
         let (tx, _rx) = broadcast::channel::<AgentEvent>(64);
@@ -526,6 +688,8 @@ mod tests {
         Arc::new(AgentState {
             supervisor: make_supervisor(),
             output_buffer: Arc::new(AgentOutputBuffer::new()),
+            claude_adapter: Arc::new(ClaudeAdapter::new()),
+            test_spawn_adapter: None,
         })
     }
 
@@ -650,6 +814,8 @@ mod tests {
         let state = Arc::new(AgentState {
             supervisor: make_supervisor(),
             output_buffer,
+            claude_adapter: Arc::new(ClaudeAdapter::new()),
+            test_spawn_adapter: None,
         });
         let app = agent_router(state);
 
@@ -727,5 +893,63 @@ mod tests {
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains("\"delivered\":true"));
         assert!(json.contains("\"agent_id\":\"abc123\""));
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agent_with_test_adapter() {
+        let mock = Arc::new(MockAdapter::new(AgentStatus::Running));
+        let adapter: Arc<dyn AgentAdapter> = mock.clone();
+        let state = Arc::new(AgentState {
+            supervisor: make_supervisor(),
+            output_buffer: Arc::new(AgentOutputBuffer::new()),
+            claude_adapter: Arc::new(ClaudeAdapter::new()),
+            test_spawn_adapter: Some(adapter),
+        });
+        let app = agent_router(state);
+
+        let req = Request::builder()
+            .uri("/spawn")
+            .method("POST")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "instructions": "do the thing",
+                    "workingDir": "/tmp",
+                    "adapterType": "claude"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert_eq!(mock.spawn_count(), 1);
+
+        let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+        let parsed: SpawnResponse = serde_json::from_slice(&body).unwrap();
+        assert!(!parsed.agent_id.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agent_unknown_adapter_type() {
+        let state = make_state();
+        let app = agent_router(state);
+
+        let req = Request::builder()
+            .uri("/spawn")
+            .method("POST")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({
+                    "instructions": "x",
+                    "workingDir": "/tmp",
+                    "adapterType": "not-real"
+                })
+                .to_string(),
+            ))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 }

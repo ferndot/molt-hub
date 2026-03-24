@@ -13,6 +13,7 @@ molt-hub-server = { path = "../server" }
 serde_json = { workspace = true }
 tauri = { version = "2", features = [] }
 tauri-plugin-deep-link = "2"
+tauri-plugin-dialog = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 axum = { workspace = true }

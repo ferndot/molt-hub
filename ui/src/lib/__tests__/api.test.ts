@@ -83,8 +83,12 @@ describe("api client", () => {
   });
 
   it("spawnAgent sends POST /api/agents/spawn with body", async () => {
-    const req = { task: "test" };
-    mockJsonResponse({ id: "agent-1" });
+    const req = {
+      instructions: "test",
+      workingDir: "/tmp",
+      adapterType: "claude",
+    };
+    mockJsonResponse({ agentId: "agent-1", message: "ok" });
     await api.spawnAgent(req);
     expect(mockFetch).toHaveBeenCalledWith("/api/agents/spawn", {
       method: "POST",
