@@ -193,6 +193,18 @@ pub trait AgentAdapter: Send + Sync + 'static {
 // One-shot output collection (print / stdin-once flows)
 // ---------------------------------------------------------------------------
 
+fn tail_for_error_message(acc: &str, max_chars: usize) -> String {
+    let t = acc.trim();
+    if t.is_empty() {
+        return String::new();
+    }
+    if t.chars().count() <= max_chars {
+        return t.to_string();
+    }
+    let skip = t.chars().count().saturating_sub(max_chars);
+    format!("…{}", t.chars().skip(skip).collect::<String>())
+}
+
 /// Drain [`AgentEvent`]s from a broadcast receiver until this `agent_id` completes or errors.
 ///
 /// Used by adapters that spawn a subprocess once, subscribe before the reader task runs,
@@ -219,8 +231,15 @@ pub async fn collect_agent_print_output(
                 if exit_code == Some(0) {
                     return Ok(acc);
                 }
+                // Claude often reports failures on stdout (stream-json); stderr may be empty.
+                let tail = tail_for_error_message(&acc, 3500);
+                let detail = if tail.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — captured output: {tail}")
+                };
                 return Err(AdapterError::SpawnFailed(format!(
-                    "process exited with code {:?}",
+                    "process exited with code {:?}{detail}",
                     exit_code
                 )));
             }

@@ -130,6 +130,8 @@ impl ClaudeInternalState {
 /// `--verbose` is required by Claude Code when combining `--print` with `stream-json`.
 /// Non-empty `SpawnConfig::instructions` are passed as the trailing positional
 /// query (see Claude Code CLI print mode). Follow-up input uses stdin.
+///
+/// `adapter_config` booleans (default false unless set): `bare`, `dangerously_skip_permissions`.
 #[derive(Debug, Clone)]
 pub struct ClaudeAdapter {
     /// Path to the `claude` binary (defaults to `"claude"` on `$PATH`).
@@ -148,6 +150,10 @@ impl Default for ClaudeAdapter {
             default_timeout: None,
         }
     }
+}
+
+fn adapter_config_bool(cfg: &serde_json::Value, key: &str) -> bool {
+    cfg.get(key).and_then(|v| v.as_bool()) == Some(true)
 }
 
 impl ClaudeAdapter {
@@ -189,6 +195,13 @@ impl ClaudeAdapter {
             .arg("--verbose")
             .arg("--model")
             .arg(&model);
+
+        if adapter_config_bool(&config.adapter_config, "bare") {
+            cmd.arg("--bare");
+        }
+        if adapter_config_bool(&config.adapter_config, "dangerously_skip_permissions") {
+            cmd.arg("--dangerously-skip-permissions");
+        }
 
         // Print mode: the user message is a positional argument, not `--prompt`
         // (that flag does not exist on Claude Code CLI; `-p` is `--print`).
@@ -467,6 +480,22 @@ pub fn parse_claude_line(line: &str) -> String {
 
     // Fall back to generic JSON field extraction for unknown schemas.
     if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
+        // Newer stream-json: assistant text under message.content[].text.
+        if val.get("type").and_then(|t| t.as_str()) == Some("assistant") {
+            if let Some(arr) = val.pointer("/message/content").and_then(|c| c.as_array()) {
+                let mut parts: Vec<&str> = Vec::new();
+                for item in arr {
+                    if let Some(t) = item.get("text").and_then(|x| x.as_str()) {
+                        if !t.is_empty() {
+                            parts.push(t);
+                        }
+                    }
+                }
+                if !parts.is_empty() {
+                    return parts.join(" ");
+                }
+            }
+        }
         // Try common content field paths
         if let Some(text) = val.get("content").and_then(|v| v.as_str()) {
             return text.to_string();
@@ -779,6 +808,20 @@ mod tests {
     }
 
     #[test]
+    fn test_build_command_bare_and_skip_permissions() {
+        let adapter = ClaudeAdapter::new();
+        let mut config = make_spawn_config();
+        config.adapter_config = serde_json::json!({
+            "bare": true,
+            "dangerously_skip_permissions": true
+        });
+        let cmd = adapter.build_command(&config);
+        let dbg = format!("{:?}", cmd);
+        assert!(dbg.contains("--bare"));
+        assert!(dbg.contains("--dangerously-skip-permissions"));
+    }
+
+    #[test]
     fn test_build_command_env_forwarding() {
         let adapter = ClaudeAdapter::new();
         let mut config = make_spawn_config();
@@ -851,6 +894,12 @@ mod tests {
     fn test_parse_assistant_message() {
         let line = r#"{"type":"assistant","message":"Hello from Claude"}"#;
         assert_eq!(parse_claude_line(line), "Hello from Claude");
+    }
+
+    #[test]
+    fn test_parse_assistant_nested_message_content() {
+        let line = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Fix login bug"}]}}"#;
+        assert_eq!(parse_claude_line(line), "Fix login bug");
     }
 
     #[test]

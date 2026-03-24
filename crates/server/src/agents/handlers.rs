@@ -224,6 +224,24 @@ fn heuristic_title_from_draft(draft: &str) -> String {
     sanitize_suggested_title(line)
 }
 
+/// Defaults for one-shot Claude title suggestions in a headless server: skip project hooks
+/// (`--bare`) and permission prompts (`--dangerously-skip-permissions`). Callers can override
+/// by passing `adapterConfig` with `bare` / `dangerously_skip_permissions` set to `false`.
+fn merge_title_suggestion_claude_adapter_config(
+    adapter_config: Option<serde_json::Value>,
+) -> serde_json::Value {
+    let mut v = adapter_config.unwrap_or_else(|| serde_json::json!({}));
+    if !v.is_object() {
+        v = serde_json::json!({});
+    }
+    if let Some(map) = v.as_object_mut() {
+        map.entry("bare").or_insert(serde_json::json!(true));
+        map.entry("dangerously_skip_permissions")
+            .or_insert(serde_json::json!(true));
+    }
+    v
+}
+
 fn spawn_config_for_title_suggestion(
     instructions: String,
     adapter_config: serde_json::Value,
@@ -275,10 +293,11 @@ async fn suggest_task_title(
     let kind = settings_adapter_kind(&settings.agent_defaults.adapter);
     let timeout = title_suggestion_timeout(settings.agent_defaults.timeout_minutes.max(1));
     let instructions = task_title_prompt(draft);
-    let adapter_config = body.adapter_config.unwrap_or_else(|| serde_json::json!({}));
+    let adapter_config_cli = body.adapter_config.clone();
 
     match kind {
         "cli" => {
+            let adapter_config = adapter_config_cli.unwrap_or_else(|| serde_json::json!({}));
             if adapter_config
                 .get("command")
                 .and_then(|v| v.as_str())
@@ -320,6 +339,8 @@ async fn suggest_task_title(
             }
         }
         _ => {
+            let adapter_config =
+                merge_title_suggestion_claude_adapter_config(adapter_config_cli);
             let cfg = spawn_config_for_title_suggestion(instructions, adapter_config, timeout);
             match state.claude_adapter.run_print_collect(cfg).await {
                 Ok(raw) => {
