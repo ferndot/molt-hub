@@ -180,6 +180,7 @@ impl ProjectConfigStore {
             id: ProjectId::new(),
             name: name.clone(),
             repo_path,
+            description: None,
             status: ProjectStatus::Active,
             created_at: now,
             updated_at: now,

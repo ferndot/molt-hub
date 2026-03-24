@@ -182,20 +182,6 @@ pub struct StageConfig {
 }
 
 // ---------------------------------------------------------------------------
-// Project
-// ---------------------------------------------------------------------------
-
-/// Top-level entity grouping pipelines and tasks for a repository or project.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Project {
-    pub id: ProjectId,
-    pub name: String,
-    pub description: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-// ---------------------------------------------------------------------------
 // Pipeline
 // ---------------------------------------------------------------------------
 

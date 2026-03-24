@@ -39,6 +39,8 @@ pub struct Project {
     pub id: ProjectId,
     pub name: String,
     pub repo_path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub status: ProjectStatus,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -91,6 +93,7 @@ mod tests {
             id: ProjectId::new(),
             name: "my-app".into(),
             repo_path: PathBuf::from("/tmp"),
+            description: None,
             status: ProjectStatus::Active,
             created_at: Utc::now(),
             updated_at: Utc::now(),
