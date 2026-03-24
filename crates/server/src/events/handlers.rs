@@ -5,16 +5,17 @@
 //!   GET    /api/events/:id        — get a single event by ID
 //!   POST   /api/events            — append a new event
 //!   GET    /api/tasks             — list tasks derived from events
+//!   POST   /api/tasks/create      — create a manual task (`TaskCreated`)
 
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, Query, State},
+    extract::{Extension, Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
 use chrono::{DateTime, Utc};
@@ -24,7 +25,10 @@ use ulid::Ulid;
 
 use molt_hub_core::events::types::{DomainEvent, EventEnvelope};
 use molt_hub_core::events::{EventStore, EventStoreError, SqliteEventStore};
-use molt_hub_core::model::{EventId, TaskId};
+use molt_hub_core::model::{EventId, Priority, SessionId, TaskId};
+
+use crate::ws::ConnectionManager;
+use crate::ws_broadcast::{broadcast_board_update_full, BoardUpdate};
 
 // ---------------------------------------------------------------------------
 // Shared state
@@ -61,6 +65,18 @@ pub struct TaskSummary {
 #[derive(Debug, Clone, Serialize)]
 pub struct ErrorResponse {
     pub error: String,
+}
+
+/// Body for `POST /api/tasks/create`.
+#[derive(Debug, Deserialize)]
+pub struct CreateTaskRequest {
+    pub title: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default, rename = "initialStage")]
+    pub initial_stage: Option<String>,
+    #[serde(default, rename = "projectId")]
+    pub project_id: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -225,6 +241,86 @@ pub async fn list_tasks(State(state): State<Arc<EventStoreState>>) -> impl IntoR
     }
 }
 
+/// POST /api/tasks/create — append `TaskCreated` and broadcast board update.
+#[instrument(skip_all)]
+pub async fn create_task(
+    State(state): State<Arc<EventStoreState>>,
+    Extension(manager): Extension<Arc<ConnectionManager>>,
+    Json(body): Json<CreateTaskRequest>,
+) -> impl IntoResponse {
+    let title = body.title.trim();
+    if title.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "title is required" })),
+        )
+            .into_response();
+    }
+
+    let stage = body
+        .initial_stage
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("backlog");
+    let stage_owned = stage.to_owned();
+
+    let description = body
+        .description
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("")
+        .to_owned();
+
+    let project_topic = body
+        .project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("default");
+
+    let task_id = TaskId::new();
+    let envelope = EventEnvelope {
+        id: EventId::new(),
+        task_id: Some(task_id.clone()),
+        project_id: "default".to_owned(),
+        session_id: SessionId::new(),
+        timestamp: Utc::now(),
+        caused_by: None,
+        payload: DomainEvent::TaskCreated {
+            title: title.to_owned(),
+            description,
+            initial_stage: stage_owned.clone(),
+            priority: Priority::P2,
+        },
+    };
+
+    match state.store.append(envelope).await {
+        Ok(()) => {
+            broadcast_board_update_full(
+                manager.as_ref(),
+                project_topic,
+                &BoardUpdate {
+                    task_id: task_id.to_string(),
+                    stage: stage_owned,
+                    status: "waiting".to_owned(),
+                    priority: None,
+                    name: Some(title.to_owned()),
+                    agent_name: None,
+                    summary: None,
+                },
+            );
+            (
+                StatusCode::CREATED,
+                Json(serde_json::json!({ "taskId": task_id.to_string() })),
+            )
+                .into_response()
+        }
+        Err(e) => error_response(e),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Error helpers
 // ---------------------------------------------------------------------------
@@ -252,7 +348,10 @@ pub fn events_router(state: Arc<EventStoreState>) -> Router {
 
 /// Build the `/api/tasks` sub-router.
 pub fn tasks_router(state: Arc<EventStoreState>) -> Router {
-    Router::new().route("/", get(list_tasks)).with_state(state)
+    Router::new()
+        .route("/", get(list_tasks))
+        .route("/create", post(create_task))
+        .with_state(state)
 }
 
 // ---------------------------------------------------------------------------
@@ -266,6 +365,8 @@ mod tests {
         body::Body,
         http::{Method, Request, Response},
     };
+    use crate::ws::ConnectionManager;
+
     use molt_hub_core::events::SqliteEventStore;
     use molt_hub_core::model::{Priority, SessionId};
     use sqlx::sqlite::SqlitePoolOptions;
@@ -297,9 +398,11 @@ mod tests {
         Error = std::convert::Infallible,
         Future: Send,
     > + Clone {
+        let mgr = Arc::new(ConnectionManager::new());
         Router::new()
             .nest("/api/events", events_router(Arc::clone(&state)))
             .nest("/api/tasks", tasks_router(state))
+            .layer(axum::Extension(mgr))
             .into_service::<Body>()
     }
 

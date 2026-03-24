@@ -37,6 +37,8 @@ export interface GitHubIssue {
 export interface GitHubImportProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Active board column id for `TaskCreated.initial_stage` (first column). Omit for default `backlog`. */
+  targetStageId?: string;
 }
 
 type IssueStateFilter = "open" | "closed" | "all";
@@ -96,10 +98,13 @@ async function importIssues(
   owner: string,
   repo: string,
   issueNumbers: number[],
+  targetStageId?: string,
 ): Promise<{ imported: number; message?: string }> {
   const body: Record<string, unknown> = { owner, repo, issues: issueNumbers };
   const id = projectState.activeProjectId?.trim();
   if (id && id !== "default") body.projectId = id;
+  const stage = targetStageId?.trim();
+  if (stage) body.initialStage = stage;
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -210,7 +215,12 @@ const GitHubImport: Component<GitHubImportProps> = (props) => {
     setImportStatus("importing");
     setImportError(null);
     try {
-      const result = await importIssues(trigger.owner, trigger.repo, nums);
+      const result = await importIssues(
+        trigger.owner,
+        trigger.repo,
+        nums,
+        props.targetStageId,
+      );
       setImportedCount(result.imported);
       setImportStatus("success");
       setSelectedNumbers(new Set<number>());

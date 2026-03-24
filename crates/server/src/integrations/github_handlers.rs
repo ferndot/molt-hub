@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{FromRef, Query, State},
+    extract::{Extension, FromRef, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -25,6 +25,7 @@ use molt_hub_core::events::SqliteEventStore;
 use molt_hub_core::model::SessionId;
 
 use crate::credentials::CredentialScope;
+use crate::ws::ConnectionManager;
 
 use super::github_client::{GitHubClient, GitHubError, GitHubIssue};
 use super::github_import_service::GithubImportService;
@@ -109,6 +110,9 @@ pub struct ImportRequest {
     pub issues: Vec<i64>,
     #[serde(default, rename = "projectId")]
     pub project_id: Option<String>,
+    /// Pipeline stage id on the active board (e.g. first column). Defaults to `backlog`.
+    #[serde(default, rename = "initialStage")]
+    pub initial_stage: Option<String>,
 }
 
 /// Response body for a successful import.
@@ -198,6 +202,7 @@ pub async fn list_issues_ui(
 #[instrument(skip_all, fields(count = body.issues.len()))]
 pub async fn import_issues(
     State(state): State<GithubAppState>,
+    Extension(manager): Extension<Arc<ConnectionManager>>,
     Json(body): Json<ImportRequest>,
 ) -> impl IntoResponse {
     let scope = crate::credentials::credential_scope_for_integration(body.project_id.as_deref());
@@ -230,8 +235,22 @@ pub async fn import_issues(
     let session_id = SessionId::new();
     let svc = GithubImportService::new(client, store, session_id);
 
+    let stage = body
+        .initial_stage
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("backlog");
+    let project_id = body
+        .project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("default");
+    let broadcast = Some((manager.as_ref(), project_id));
+
     match svc
-        .import_issues(&body.owner, &body.repo, &body.issues)
+        .import_issues(&body.owner, &body.repo, &body.issues, stage, broadcast)
         .await
     {
         Ok((new_count, skipped)) => {

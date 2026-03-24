@@ -140,3 +140,31 @@
   white-space: nowrap;
   border: 0;
 }
+
+.columnFooter {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0 0.5rem 0.5rem;
+}
+
+.addIssueBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.5rem;
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.addIssueBtn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}

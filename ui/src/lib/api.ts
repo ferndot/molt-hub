@@ -217,6 +217,12 @@ export const api = {
     get<TaskDetail>(`/tasks/${id}`),
   getTaskEvents: (id: string) =>
     get<{ events: TaskEvent[] }>(`/tasks/${id}/events`),
+  createTask: (body: {
+    title: string;
+    description?: string;
+    initialStage?: string;
+    projectId?: string;
+  }) => post<{ taskId: string }>("/tasks/create", body),
 
   // Audit — server returns a JSON array; normalize to `{ entries }` for the UI.
   getAuditLog: async (limit = 100) => {

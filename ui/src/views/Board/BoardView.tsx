@@ -18,6 +18,7 @@ import GitHubImport from "../Settings/GitHubImport";
 import JiraImport from "../Settings/JiraImport";
 import { settingsState } from "../Settings/settingsStore";
 import { projectState } from "../../stores/projectStore";
+import { api } from "../../lib/api";
 import {
   boardState,
   createBoard,
@@ -39,6 +40,24 @@ const BoardView: Component = () => {
     settingsState.jiraConfig.connected || settingsState.githubConfig.connected;
 
   const sortedStages = () => getSortedStages();
+  const firstStageId = () => sortedStages()[0]?.id;
+
+  const onAddManualIssue = async () => {
+    const stageId = firstStageId();
+    if (!stageId) return;
+    const title = window.prompt("Issue title:");
+    if (!title?.trim()) return;
+    const pid = projectState.activeProjectId?.trim();
+    try {
+      await api.createTask({
+        title: title.trim(),
+        initialStage: stageId,
+        ...(pid && pid !== "default" ? { projectId: pid } : {}),
+      });
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "Could not create issue");
+    }
+  };
 
   const onAddBoard = async () => {
     const raw = window.prompt(
@@ -164,14 +183,25 @@ const BoardView: Component = () => {
                 onDrop={(taskId, from, to) => mc.moveTask(taskId, from, to)}
                 onToggle={(taskId) => mc.toggleCard(taskId)}
                 footer={
-                  stageDef.id === "backlog" && hasIssueIntegration()
+                  stageDef.id === firstStageId()
                     ? () => (
-                        <ImportIssuesMenu
-                          jiraConnected={settingsState.jiraConfig.connected}
-                          githubConnected={settingsState.githubConfig.connected}
-                          onSelectJira={() => setJiraImportOpen(true)}
-                          onSelectGitHub={() => setGitHubImportOpen(true)}
-                        />
+                        <div class={styles.columnFooter}>
+                          <Show when={hasIssueIntegration()}>
+                            <ImportIssuesMenu
+                              jiraConnected={settingsState.jiraConfig.connected}
+                              githubConnected={settingsState.githubConfig.connected}
+                              onSelectJira={() => setJiraImportOpen(true)}
+                              onSelectGitHub={() => setGitHubImportOpen(true)}
+                            />
+                          </Show>
+                          <button
+                            type="button"
+                            class={styles.addIssueBtn}
+                            onClick={() => void onAddManualIssue()}
+                          >
+                            Add issue
+                          </button>
+                        </div>
                       )
                     : undefined
                 }
@@ -184,10 +214,12 @@ const BoardView: Component = () => {
       <JiraImport
         isOpen={jiraImportOpen()}
         onClose={() => setJiraImportOpen(false)}
+        targetStageId={firstStageId()}
       />
       <GitHubImport
         isOpen={githubImportOpen()}
         onClose={() => setGitHubImportOpen(false)}
+        targetStageId={firstStageId()}
       />
     </div>
   );

@@ -6,6 +6,9 @@ use chrono::Utc;
 use thiserror::Error;
 use tracing::{info, instrument};
 
+use crate::ws::ConnectionManager;
+use crate::ws_broadcast::{broadcast_board_update_full, BoardUpdate};
+
 use molt_hub_core::events::store::{EventStore, EventStoreError};
 use molt_hub_core::events::types::{DomainEvent, EventEnvelope};
 use molt_hub_core::model::{EventId, Priority, SessionId, TaskId};
@@ -60,10 +63,15 @@ impl<S: EventStore + 'static> ImportService<S> {
     /// `TaskCreated` + `TaskImported` events into the event store.
     ///
     /// Returns the generated [`TaskId`].
-    #[instrument(skip(self), fields(issue_key = %issue_key))]
-    pub async fn import_issue(&self, issue_key: &str) -> Result<TaskId, ImportError> {
+    #[instrument(skip_all, fields(issue_key = %issue_key))]
+    pub async fn import_issue(
+        &self,
+        issue_key: &str,
+        initial_stage: &str,
+        broadcast: Option<(&ConnectionManager, &str)>,
+    ) -> Result<TaskId, ImportError> {
         let issue = self.client.get_issue(issue_key).await?;
-        self.import_one(issue).await
+        self.import_one(issue, initial_stage, broadcast).await
     }
 
     /// Search using JQL and import all matching issues.
@@ -78,7 +86,7 @@ impl<S: EventStore + 'static> ImportService<S> {
 
         let mut ids = Vec::with_capacity(issues.len());
         for issue in issues {
-            let id = self.import_one(issue).await?;
+            let id = self.import_one(issue, "backlog", None).await?;
             ids.push(id);
         }
 
@@ -99,8 +107,19 @@ impl<S: EventStore + 'static> ImportService<S> {
     // Internal helpers
     // -----------------------------------------------------------------------
 
-    async fn import_one(&self, issue: JiraIssue) -> Result<TaskId, ImportError> {
+    async fn import_one(
+        &self,
+        issue: JiraIssue,
+        initial_stage: &str,
+        broadcast: Option<(&ConnectionManager, &str)>,
+    ) -> Result<TaskId, ImportError> {
         let task_id = TaskId::new();
+        let stage = initial_stage.trim();
+        let stage_owned = if stage.is_empty() {
+            "backlog".to_owned()
+        } else {
+            stage.to_owned()
+        };
 
         let created = EventEnvelope {
             id: EventId::new(),
@@ -112,7 +131,7 @@ impl<S: EventStore + 'static> ImportService<S> {
             payload: DomainEvent::TaskCreated {
                 title: issue.summary.clone(),
                 description: issue.description.clone().unwrap_or_default(),
-                initial_stage: "triage".to_owned(),
+                initial_stage: stage_owned.clone(),
                 priority: map_priority(issue.priority.as_deref()),
             },
         };
@@ -144,6 +163,22 @@ impl<S: EventStore + 'static> ImportService<S> {
         };
 
         self.store.append_batch(vec![created, imported]).await?;
+
+        if let Some((mgr, project_id)) = broadcast {
+            broadcast_board_update_full(
+                mgr,
+                project_id,
+                &BoardUpdate {
+                    task_id: task_id.to_string(),
+                    stage: stage_owned,
+                    status: "waiting".to_owned(),
+                    priority: None,
+                    name: Some(issue.summary.clone()),
+                    agent_name: Some("Jira".to_owned()),
+                    summary: None,
+                },
+            );
+        }
 
         info!(task_id = %task_id, jira_key = %issue.key, "issue imported");
         Ok(task_id)
@@ -300,7 +335,7 @@ mod tests {
         let client = JiraClient::from_oauth("test-cloud-id", "test-access-token");
         let svc = ImportService::new(client, Arc::clone(&store), session_id);
 
-        let task_id = svc.import_one(issue).await.unwrap();
+        let task_id = svc.import_one(issue, "backlog", None).await.unwrap();
 
         let events = store.get_events_for_task(&task_id).await.unwrap();
         assert_eq!(events.len(), 2, "expected TaskCreated + AgentOutput events");

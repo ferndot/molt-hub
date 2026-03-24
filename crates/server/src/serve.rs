@@ -212,6 +212,7 @@ pub async fn build_router(
         .fallback_service(ServeDir::new(dist_dir).fallback(ServeFile::new(index_html)))
         .layer(axum::Extension(Arc::clone(&registry)))
         .layer(axum::Extension(Arc::clone(&supervisor)))
+        .layer(axum::Extension(Arc::clone(&manager)))
         .with_state(Arc::clone(&manager));
 
     (router, manager, supervisor, audit_handle)

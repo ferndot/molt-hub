@@ -41,6 +41,8 @@ export interface JiraIssue {
 export interface JiraImportProps {
   isOpen: boolean;
   onClose: () => void;
+  /** Active board column id for `TaskCreated.initial_stage` (first column). Omit for default `backlog`. */
+  targetStageId?: string;
 }
 
 type ImportStatus = "idle" | "importing" | "success" | "error";
@@ -87,10 +89,15 @@ async function searchIssues(
   return response.json() as Promise<JiraIssue[]>;
 }
 
-async function importIssues(issueKeys: string[]): Promise<{ imported: string[] }> {
+async function importIssues(
+  issueKeys: string[],
+  targetStageId?: string,
+): Promise<{ imported: string[] }> {
   const body: Record<string, unknown> = { issue_keys: issueKeys };
   const id = projectState.activeProjectId?.trim();
   if (id && id !== "default") body.projectId = id;
+  const stage = targetStageId?.trim();
+  if (stage) body.initialStage = stage;
   const response = await fetch("/api/integrations/jira/import", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -169,7 +176,7 @@ const JiraImport: Component<JiraImportProps> = (props) => {
     setImportStatus("importing");
     setImportError(null);
     try {
-      const result = await importIssues(keys);
+      const result = await importIssues(keys, props.targetStageId);
       setImportedCount(result.imported.length);
       setImportStatus("success");
       setSelectedKeys(new Set<string>());

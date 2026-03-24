@@ -7,6 +7,9 @@ use chrono::Utc;
 use thiserror::Error;
 use tracing::{info, instrument};
 
+use crate::ws::ConnectionManager;
+use crate::ws_broadcast::{broadcast_board_update_full, BoardUpdate};
+
 use molt_hub_core::events::store::{EventStore, EventStoreError};
 use molt_hub_core::events::types::{DomainEvent, EventEnvelope};
 use molt_hub_core::model::{EventId, Priority, SessionId, TaskId};
@@ -53,12 +56,14 @@ impl<S: EventStore + 'static> GithubImportService<S> {
     /// Import issue numbers in order. Skips issues already recorded via [`github_external_id`].
     ///
     /// Returns `(new_imports, skipped_duplicates)`.
-    #[instrument(skip(self), fields(owner = %owner, repo = %repo, count = issue_numbers.len()))]
+    #[instrument(skip_all, fields(owner = %owner, repo = %repo, count = issue_numbers.len()))]
     pub async fn import_issues(
         &self,
         owner: &str,
         repo: &str,
         issue_numbers: &[i64],
+        initial_stage: &str,
+        broadcast: Option<(&ConnectionManager, &str)>,
     ) -> Result<(usize, usize), GithubImportError> {
         let mut seen = load_github_imported_external_ids(self.store.as_ref()).await?;
 
@@ -73,7 +78,15 @@ impl<S: EventStore + 'static> GithubImportService<S> {
             }
 
             let issue = self.client.get_issue(owner, repo, number).await?;
-            self.persist_new_issue(owner, repo, &issue, &ext_id).await?;
+            self.persist_new_issue(
+                owner,
+                repo,
+                &issue,
+                &ext_id,
+                initial_stage,
+                broadcast,
+            )
+            .await?;
             seen.insert(ext_id);
             new_count += 1;
         }
@@ -88,8 +101,16 @@ impl<S: EventStore + 'static> GithubImportService<S> {
         _repo: &str,
         issue: &GitHubIssue,
         external_id: &str,
+        initial_stage: &str,
+        broadcast: Option<(&ConnectionManager, &str)>,
     ) -> Result<(), GithubImportError> {
         let task_id = TaskId::new();
+        let stage = initial_stage.trim();
+        let stage_owned = if stage.is_empty() {
+            "backlog".to_owned()
+        } else {
+            stage.to_owned()
+        };
 
         let created = EventEnvelope {
             id: EventId::new(),
@@ -101,7 +122,7 @@ impl<S: EventStore + 'static> GithubImportService<S> {
             payload: DomainEvent::TaskCreated {
                 title: issue.title.clone(),
                 description: issue.body.clone().unwrap_or_default(),
-                initial_stage: "triage".to_owned(),
+                initial_stage: stage_owned.clone(),
                 priority: github_priority(issue),
             },
         };
@@ -122,6 +143,22 @@ impl<S: EventStore + 'static> GithubImportService<S> {
         };
 
         self.store.append_batch(vec![created, imported]).await?;
+
+        if let Some((mgr, pid)) = broadcast {
+            broadcast_board_update_full(
+                mgr,
+                pid,
+                &BoardUpdate {
+                    task_id: task_id.to_string(),
+                    stage: stage_owned,
+                    status: "waiting".to_owned(),
+                    priority: None,
+                    name: Some(issue.title.clone()),
+                    agent_name: Some("GitHub".to_owned()),
+                    summary: None,
+                },
+            );
+        }
 
         info!(task_id = %task_id, %external_id, "GitHub issue imported");
         Ok(())
@@ -301,7 +338,9 @@ mod tests {
 
         let issue = sample_issue(42);
         let ext = github_external_id("o", "r", 42);
-        svc.persist_new_issue("o", "r", &issue, &ext).await.unwrap();
+        svc.persist_new_issue("o", "r", &issue, &ext, "backlog", None)
+            .await
+            .unwrap();
 
         let all = store.get_events_for_project("default").await.unwrap();
         assert_eq!(all.len(), 2);
@@ -344,7 +383,10 @@ mod tests {
         let client = GitHubClient::new("unused".into());
         let svc = GithubImportService::new(client, Arc::clone(&store), session_id);
 
-        let (new_c, skip_c) = svc.import_issues("o", "r", &[1]).await.unwrap();
+        let (new_c, skip_c) = svc
+            .import_issues("o", "r", &[1], "backlog", None)
+            .await
+            .unwrap();
         assert_eq!(new_c, 0);
         assert_eq!(skip_c, 1);
 

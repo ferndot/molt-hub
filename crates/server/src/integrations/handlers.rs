@@ -12,7 +12,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{FromRef, Query, State},
+    extract::{Extension, FromRef, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -25,6 +25,7 @@ use molt_hub_core::events::SqliteEventStore;
 use molt_hub_core::model::SessionId;
 
 use crate::credentials::{credential_scope_for_integration, CredentialScope};
+use crate::ws::ConnectionManager;
 
 use super::import_service::ImportService;
 use super::jira_client::{JiraClient, JiraError};
@@ -71,6 +72,9 @@ pub struct ImportRequest {
     pub cloud_id: Option<String>,
     #[serde(default, rename = "projectId")]
     pub project_id: Option<String>,
+    /// Pipeline stage id on the active board (e.g. first column). Defaults to `backlog`.
+    #[serde(default, rename = "initialStage")]
+    pub initial_stage: Option<String>,
 }
 
 /// Response body for a successful import.
@@ -112,6 +116,7 @@ pub async fn search_issues(
 #[instrument(skip_all, fields(count = body.issue_keys.len()))]
 pub async fn import_issues(
     State(state): State<JiraAppState>,
+    Extension(manager): Extension<Arc<ConnectionManager>>,
     Json(body): Json<ImportRequest>,
 ) -> impl IntoResponse {
     let scope = credential_scope_for_integration(body.project_id.as_deref());
@@ -123,9 +128,23 @@ pub async fn import_issues(
     let session_id = SessionId::new();
     let svc = ImportService::new(client, Arc::clone(&state.store), session_id);
 
+    let stage = body
+        .initial_stage
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("backlog");
+    let project_id = body
+        .project_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("default");
+    let broadcast = Some((manager.as_ref(), project_id));
+
     let mut imported = Vec::with_capacity(body.issue_keys.len());
     for key in &body.issue_keys {
-        match svc.import_issue(key).await {
+        match svc.import_issue(key, stage, broadcast).await {
             Ok(task_id) => imported.push(task_id.to_string()),
             Err(e) => {
                 return (
