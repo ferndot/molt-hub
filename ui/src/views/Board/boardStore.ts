@@ -288,6 +288,97 @@ export async function pushStagesToApi(): Promise<void> {
   }
 }
 
+function normalizeStageOrders(stages: PipelineStage[]): PipelineStage[] {
+  return stages.map((s, i) => ({ ...s, order: i }));
+}
+
+function suggestNewStageId(existing: Set<string>): string {
+  for (let n = 1; n < 10_000; n++) {
+    const id = `column-${n}`;
+    if (!existing.has(id)) return id;
+  }
+  return `column-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+/**
+ * PUT full stage list for the active board and sync `boardState.stages` ids.
+ * Rolls back local state and refetches on failure.
+ */
+async function putBoardStages(stages: PipelineStage[]): Promise<void> {
+  const bid = boardState.activeBoardId;
+  if (!bid) return;
+  const normalized = normalizeStageOrders(stages);
+  const prevStages = [...boardState.pipelineStages];
+  const prevIds = [...boardState.stages];
+  setBoardState("pipelineStages", normalized);
+  setBoardState("stages", normalized.map((s) => s.id));
+  try {
+    const res = await api.updateBoardStages(bid, { stages: normalized });
+    if (res.stages?.length) {
+      const sorted = [...res.stages].sort((a, b) => a.order - b.order);
+      setBoardState("pipelineStages", sorted);
+      setBoardState("stages", sorted.map((s) => s.id));
+    }
+  } catch {
+    setBoardState("pipelineStages", prevStages);
+    setBoardState("stages", prevIds);
+    try {
+      const data = await api.getBoardStages(bid);
+      if (data.stages?.length) {
+        const sorted = [...data.stages].sort((a, b) => a.order - b.order);
+        setBoardState("pipelineStages", sorted);
+        setBoardState("stages", sorted.map((s) => s.id));
+      }
+    } catch {
+      /* keep rollback */
+    }
+    throw new Error("Could not save columns to the server.");
+  }
+}
+
+/** Append a new column (stable id `column-N`) and persist. */
+export function addBoardColumn(): Promise<void> {
+  return runBoardStoreOp(async () => {
+    const sorted = getSortedStages();
+    const ids = new Set(sorted.map((s) => s.id));
+    const id = suggestNewStageId(ids);
+    const next: PipelineStage[] = [
+      ...sorted,
+      {
+        id,
+        label: "New column",
+        wip_limit: null,
+        requires_approval: false,
+        timeout_seconds: null,
+        terminal: false,
+        color: "#6366f1",
+        order: sorted.length,
+        hooks: [],
+      },
+    ];
+    await putBoardStages(next);
+  });
+}
+
+/**
+ * Remove a column by id. Fails if it is the last column or any task still uses it.
+ */
+export function removeBoardColumn(stageId: string): Promise<void> {
+  return runBoardStoreOp(async () => {
+    const sorted = getSortedStages();
+    if (sorted.length <= 1) {
+      throw new Error("The board must keep at least one column.");
+    }
+    if (boardState.tasks.some((t) => t.stage === stageId)) {
+      throw new Error(
+        "Move or remove every task from this column before deleting it.",
+      );
+    }
+    const next = sorted.filter((s) => s.id !== stageId);
+    await putBoardStages(next);
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Actions
 // ---------------------------------------------------------------------------
@@ -375,8 +466,14 @@ export async function patchStage(
       id,
       fields,
     );
-    setBoardState("pipelineStages", (stages) =>
-      stages.map((s) => (s.id === id ? { ...s, ...updated } : s)),
+    const merged = boardState.pipelineStages.map((s) =>
+      s.id === id ? { ...s, ...updated } : s,
+    );
+    const sorted = [...merged].sort((a, b) => a.order - b.order);
+    setBoardState("pipelineStages", sorted);
+    setBoardState(
+      "stages",
+      sorted.map((s) => s.id),
     );
   } catch {
     // Keep optimistic state — the board still works locally

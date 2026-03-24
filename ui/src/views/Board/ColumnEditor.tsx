@@ -1,13 +1,19 @@
 /**
  * ColumnEditor — modal panel for configuring kanban columns.
  *
- * Reads pipeline stages from boardStore and persists changes via
- * PATCH /api/projects/…/boards/:boardId/stages/:stageId.
+ * Persists edits via PATCH per stage; add/remove columns use PUT with the full
+ * stage list. Per-column hooks are edited as JSON (see `HookDefinition` on the server).
  */
 
-import { For, createEffect, createSignal, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, type Component } from "solid-js";
 import { Dialog } from "@kobalte/core/dialog";
-import { getSortedStages, patchStage } from "./boardStore";
+import {
+  addBoardColumn,
+  boardState,
+  getSortedStages,
+  patchStage,
+  removeBoardColumn,
+} from "./boardStore";
 import type { HookDefinitionJson, PipelineStage } from "../../lib/api";
 import styles from "./ColumnEditor.module.css";
 
@@ -17,6 +23,9 @@ import styles from "./ColumnEditor.module.css";
 
 interface StageRowProps {
   stage: PipelineStage;
+  onRemove: () => void;
+  removeDisabled: boolean;
+  removeTitle: string;
 }
 
 const StageRow: Component<StageRowProps> = (props) => {
@@ -53,6 +62,16 @@ const StageRow: Component<StageRowProps> = (props) => {
           title="Column accent color"
           onInput={(e) => patchStage(stage().id, { color: e.currentTarget.value })}
         />
+        <button
+          type="button"
+          class={styles.btnRemove}
+          disabled={props.removeDisabled}
+          title={props.removeTitle}
+          aria-label={props.removeTitle}
+          onClick={() => props.onRemove()}
+        >
+          Remove
+        </button>
       </div>
 
       <div class={styles.behaviorRow}>
@@ -138,9 +157,41 @@ export interface ColumnEditorProps {
 
 const ColumnEditor: Component<ColumnEditorProps> = (props) => {
   const sortedStages = () => getSortedStages();
+  const [structureError, setStructureError] = createSignal<string | null>(null);
+
+  const handleAddColumn = () => {
+    setStructureError(null);
+    void addBoardColumn().catch((e) =>
+      setStructureError(e instanceof Error ? e.message : String(e)),
+    );
+  };
+
+  const handleRemoveColumn = (stageId: string) => {
+    setStructureError(null);
+    void removeBoardColumn(stageId).catch((e) =>
+      setStructureError(e instanceof Error ? e.message : String(e)),
+    );
+  };
+
+  const removeTitleFor = (stageId: string) => {
+    if (sortedStages().length <= 1) {
+      return "The board must keep at least one column";
+    }
+    const n = boardState.tasks.filter((t) => t.stage === stageId).length;
+    if (n > 0) {
+      return `Move ${n} task${n === 1 ? "" : "s"} out of this column before removing it`;
+    }
+    return "Remove this column";
+  };
 
   return (
-    <Dialog open={props.open} onOpenChange={props.onOpenChange}>
+    <Dialog
+      open={props.open}
+      onOpenChange={(open: boolean) => {
+        if (open) setStructureError(null);
+        props.onOpenChange(open);
+      }}
+    >
       <Dialog.Portal>
         <Dialog.Overlay class={styles.overlay} />
         <Dialog.Content class={styles.dialogContent}>
@@ -154,13 +205,43 @@ const ColumnEditor: Component<ColumnEditorProps> = (props) => {
             </Dialog.CloseButton>
           </div>
           <Dialog.Description class={styles.srOnly}>
-            Edit column titles, colors, WIP limits, and behavior for this board.
+            Configure columns, limits, and per-column hooks for this board.
           </Dialog.Description>
 
-          <div class={styles.columnList}>
-            <For each={sortedStages()}>
-              {(stage: PipelineStage) => <StageRow stage={stage} />}
-            </For>
+          <div class={styles.editorBody}>
+            <p class={styles.helpText}>
+              Add or remove columns below. Hooks are configured per column: edit the JSON array
+              (each entry needs <code class={styles.helpCode}>kind</code> and{" "}
+              <code class={styles.helpCode}>on</code>); blur the field to save.
+            </p>
+
+            <Show when={structureError()}>
+              {(msg) => (
+                <div class={styles.structureError} role="alert">
+                  {msg()}
+                </div>
+              )}
+            </Show>
+
+            <div class={styles.columnList}>
+              <For each={sortedStages()}>
+                {(stage: PipelineStage) => (
+                  <StageRow
+                    stage={stage}
+                    onRemove={() => handleRemoveColumn(stage.id)}
+                    removeDisabled={
+                      sortedStages().length <= 1 ||
+                      boardState.tasks.some((t) => t.stage === stage.id)
+                    }
+                    removeTitle={removeTitleFor(stage.id)}
+                  />
+                )}
+              </For>
+            </div>
+
+            <button type="button" class={styles.btnAddColumn} onClick={handleAddColumn}>
+              + Add column
+            </button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

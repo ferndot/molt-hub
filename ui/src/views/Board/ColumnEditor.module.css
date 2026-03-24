@@ -53,6 +53,34 @@
   flex: 1;
 }
 
+.editorBody {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.helpText {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.helpCode {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 0.75rem;
+  color: var(--text-secondary, var(--text-primary));
+}
+
+.structureError {
+  font-size: 0.8125rem;
+  color: var(--priority-p0, #ef4444);
+  padding: 0.5rem 0.65rem;
+  border-radius: 6px;
+  border: 1px solid color-mix(in srgb, var(--priority-p0, #ef4444) 35%, var(--border-subtle));
+  background: color-mix(in srgb, var(--priority-p0, #ef4444) 8%, var(--bg-secondary));
+}
+
 .btnClose {
   background: none;
   border: none;
@@ -153,6 +181,15 @@
 
 .btnRemove:hover {
   background: rgba(239, 68, 68, 0.08);
+}
+
+.btnRemove:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btnRemove:disabled:hover {
+  background: none;
 }
 
 /* ---- Behavior row ---- */
