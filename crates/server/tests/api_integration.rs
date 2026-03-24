@@ -168,3 +168,62 @@ async fn jira_oauth_auth_returns_json_with_authorization_url() {
     );
     assert!(v["state"].as_str().is_some(), "expected state string");
 }
+
+#[tokio::test]
+async fn jira_search_returns_unauthorized_without_oauth() {
+    let app = app().await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/integrations/jira/search?jql=project%20%3D%20FOO")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "Jira REST must be mounted and require the same OAuth session as /auth"
+    );
+}
+
+#[tokio::test]
+async fn github_repos_returns_unauthorized_without_oauth() {
+    let app = app().await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/integrations/github/repos")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "GitHub REST must be mounted and require OAuth like /status"
+    );
+}
+
+#[tokio::test]
+async fn github_issues_endpoint_is_mounted() {
+    let app = app().await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/integrations/github/issues?owner=o&repo=r&state=open")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
