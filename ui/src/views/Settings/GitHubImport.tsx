@@ -46,6 +46,21 @@ type ImportStatus = "idle" | "importing" | "success" | "error";
 // API helpers
 // ---------------------------------------------------------------------------
 
+const FETCH_TIMEOUT_MS = 45_000;
+
+async function readFetchErrorMessage(response: Response): Promise<string> {
+  const text = await response.text();
+  try {
+    const body = JSON.parse(text) as { error?: string };
+    if (body.error?.trim()) return body.error.trim();
+  } catch {
+    /* use raw text */
+  }
+  const t = text.trim();
+  if (t) return t.slice(0, 200);
+  return `HTTP ${response.status}`;
+}
+
 async function searchIssues(
   owner: string,
   repo: string,
@@ -58,9 +73,22 @@ async function searchIssues(
   params.set("state", state);
   if (labels) params.set("labels", labels);
   appendActiveProjectId(params);
-  const response = await fetch(`/api/integrations/github/issues?${params}`);
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json() as Promise<GitHubIssue[]>;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch(`/api/integrations/github/issues?${params}`, {
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(await readFetchErrorMessage(response));
+    return response.json() as Promise<GitHubIssue[]>;
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("GitHub search timed out. Check your network and try again.");
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 /** `POST /import` body matches server `ImportRequest`: owner, repo, issues (numbers). */
@@ -72,13 +100,25 @@ async function importIssues(
   const body: Record<string, unknown> = { owner, repo, issues: issueNumbers };
   const id = projectState.activeProjectId?.trim();
   if (id && id !== "default") body.projectId = id;
-  const response = await fetch("/api/integrations/github/import", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status}`);
-  return response.json() as Promise<{ imported: number; message?: string }>;
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const response = await fetch("/api/integrations/github/import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(await readFetchErrorMessage(response));
+    return response.json() as Promise<{ imported: number; message?: string }>;
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("GitHub import timed out. Try again with fewer issues.");
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timer);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -175,7 +215,13 @@ const GitHubImport: Component<GitHubImportProps> = (props) => {
     }
   };
 
-  const results = () => searchResults() ?? [];
+  // Avoid calling the resource accessor when errored — Solid's read() rethrows.
+  const results = (): GitHubIssue[] => {
+    const st = searchResults.state;
+    if (st === "errored") return [];
+    if (st !== "ready" && st !== "refreshing") return [];
+    return searchResults() ?? [];
+  };
   const isSearching = () => searchResults.loading;
   const searchError = () => searchResults.error as Error | null;
   const selectedCount = () => selectedNumbers().size;

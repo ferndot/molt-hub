@@ -6,7 +6,17 @@
 
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use thiserror::Error;
+
+fn github_http_client() -> Client {
+    Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(45))
+        .user_agent("molt-hub")
+        .build()
+        .unwrap_or_else(|_| Client::new())
+}
 
 // ---------------------------------------------------------------------------
 // Error type
@@ -89,7 +99,7 @@ impl GitHubClient {
     /// or GitHub App installation token.
     pub fn new(token: String) -> Self {
         Self {
-            http: Client::new(),
+            http: github_http_client(),
             token,
             base_url: "https://api.github.com".to_owned(),
         }
@@ -104,7 +114,7 @@ impl GitHubClient {
     #[cfg(test)]
     pub fn with_base_url(token: String, base_url: String) -> Self {
         Self {
-            http: Client::new(),
+            http: github_http_client(),
             token,
             base_url,
         }

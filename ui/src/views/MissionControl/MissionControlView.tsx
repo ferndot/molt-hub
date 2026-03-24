@@ -7,6 +7,7 @@ import { Component, For, Show, createSignal } from "solid-js";
 import { TbOutlineFocus, TbOutlineEye } from "solid-icons/tb";
 import { useMissionControl } from "./missionControlStore";
 import MissionColumn from "./MissionColumn";
+import GitHubImport from "../Settings/GitHubImport";
 import JiraImport from "../Settings/JiraImport";
 import { settingsState } from "../Settings/settingsStore";
 import { projectState } from "../../stores/projectStore";
@@ -19,6 +20,10 @@ import styles from "./MissionControlView.module.css";
 const MissionControlView: Component = () => {
   const mc = useMissionControl();
   const [jiraImportOpen, setJiraImportOpen] = createSignal(false);
+  const [githubImportOpen, setGitHubImportOpen] = createSignal(false);
+
+  const hasIssueIntegration = () =>
+    settingsState.jiraConfig.connected || settingsState.githubConfig.connected;
 
   return (
     <div class={styles.container}>
@@ -70,13 +75,54 @@ const MissionControlView: Component = () => {
                 onAcknowledge={(triageId) => mc.acknowledge(triageId)}
                 onDrop={(taskId, from, to) => mc.moveTask(taskId, from, to)}
                 onToggle={(taskId) => mc.toggleCard(taskId)}
-                footer={stage === "backlog" && settingsState.jiraConfig.connected
-                  ? () => (
-                    <button class={styles.importBtn} onClick={() => setJiraImportOpen(true)}>
-                      ↓ Import from Jira
-                    </button>
-                  )
-                  : undefined}
+                footer={
+                  stage === "backlog" && hasIssueIntegration()
+                    ? () => {
+                        let detailsEl: HTMLDetailsElement | undefined;
+                        const closeMenu = () => {
+                          if (detailsEl) detailsEl.open = false;
+                        };
+                        return (
+                          <details
+                            class={styles.importDropdown}
+                            ref={(el) => {
+                              detailsEl = el;
+                            }}
+                          >
+                            <summary class={styles.importSummary}>Import issues</summary>
+                            <div class={styles.importMenu} role="menu">
+                              <Show when={settingsState.jiraConfig.connected}>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  class={styles.importMenuItem}
+                                  onClick={() => {
+                                    closeMenu();
+                                    setJiraImportOpen(true);
+                                  }}
+                                >
+                                  Jira
+                                </button>
+                              </Show>
+                              <Show when={settingsState.githubConfig.connected}>
+                                <button
+                                  type="button"
+                                  role="menuitem"
+                                  class={styles.importMenuItem}
+                                  onClick={() => {
+                                    closeMenu();
+                                    setGitHubImportOpen(true);
+                                  }}
+                                >
+                                  GitHub
+                                </button>
+                              </Show>
+                            </div>
+                          </details>
+                        );
+                      }
+                    : undefined
+                }
               />
             )}
           </For>
@@ -86,6 +132,10 @@ const MissionControlView: Component = () => {
       <JiraImport
         isOpen={jiraImportOpen()}
         onClose={() => setJiraImportOpen(false)}
+      />
+      <GitHubImport
+        isOpen={githubImportOpen()}
+        onClose={() => setGitHubImportOpen(false)}
       />
     </div>
   );
