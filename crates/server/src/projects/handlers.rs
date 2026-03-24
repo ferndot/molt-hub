@@ -646,24 +646,17 @@ pub async fn patch_project_board_stage(
 pub fn project_router(state: Arc<ProjectConfigStore>) -> Router {
     Router::new()
         .route("/", get(list_projects).post(create_project))
-        .route(
-            "/:id",
-            get(get_project)
-                .patch(update_project)
-                .delete(archive_project),
-        )
-        // Project-scoped agent routes (Extension-based, no State conflict)
+        // Register multi-segment `/:pid/...` routes before `/:id` so paths like
+        // `/default/boards` never compete with the single-segment project route.
         .route("/:pid/agents", get(list_project_agents))
         .route(
             "/:pid/agents/:aid",
             get(get_project_agent).delete(delete_project_agent),
         )
-        // Board template (new-board defaults) — register before `/:pid/boards`
         .route(
             "/:pid/board-template",
             get(get_project_board_template),
         )
-        // Named boards
         .route(
             "/:pid/boards",
             get(list_project_boards).post(post_project_board),
@@ -676,6 +669,12 @@ pub fn project_router(state: Arc<ProjectConfigStore>) -> Router {
         .route(
             "/:pid/boards/:bid/stages/:sid",
             patch(patch_project_board_stage),
+        )
+        .route(
+            "/:id",
+            get(get_project)
+                .patch(update_project)
+                .delete(archive_project),
         )
         .with_state(state)
 }
