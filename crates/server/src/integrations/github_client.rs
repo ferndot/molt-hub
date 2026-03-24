@@ -73,6 +73,7 @@ pub struct GitHubIssue {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitHubLabel {
     /// Label display name.
+    #[serde(default)]
     pub name: String,
 }
 
@@ -187,7 +188,11 @@ impl GitHubClient {
         Self::check_auth(&response)?;
 
         let body: SearchResult = Self::parse_success_json(response).await?;
-        Ok(body.items)
+        Ok(body
+            .items
+            .into_iter()
+            .map(|item| item.into_github_issue(owner, repo))
+            .collect())
     }
 
     /// Fetch a single issue (or pull request) by number.
@@ -281,9 +286,56 @@ fn extract_github_api_message(bytes: &[u8]) -> String {
 // Internal API response shapes
 // ---------------------------------------------------------------------------
 
+/// Single row from `GET /search/issues` — GitHub may omit or null fields that are
+/// always present on `GET /repos/.../issues/:n`; strict `GitHubIssue` decode then fails.
+#[derive(Debug, Deserialize)]
+struct SearchIssueItem {
+    number: i64,
+    #[serde(default)]
+    title: Option<String>,
+    #[serde(default)]
+    state: Option<String>,
+    #[serde(default)]
+    body: Option<String>,
+    #[serde(default)]
+    html_url: Option<String>,
+    #[serde(default)]
+    labels: Vec<GitHubLabel>,
+}
+
+impl SearchIssueItem {
+    fn into_github_issue(self, owner: &str, repo: &str) -> GitHubIssue {
+        let html_url = self
+            .html_url
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| {
+                format!("https://github.com/{owner}/{repo}/issues/{}", self.number)
+            });
+        GitHubIssue {
+            number: self.number,
+            title: self
+                .title
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "(no title)".to_owned()),
+            state: self
+                .state
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| "open".to_owned()),
+            body: self.body,
+            html_url,
+            labels: self
+                .labels
+                .into_iter()
+                .filter(|l| !l.name.trim().is_empty())
+                .collect(),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct SearchResult {
-    items: Vec<GitHubIssue>,
+    #[serde(default)]
+    items: Vec<SearchIssueItem>,
 }
 
 #[derive(Deserialize)]
@@ -381,6 +433,39 @@ mod tests {
         });
         let result: SearchResult = serde_json::from_value(json).expect("deserialize");
         assert_eq!(result.items.len(), 1);
-        assert_eq!(result.items[0].number, 1);
+        let gh = result
+            .items
+            .into_iter()
+            .next()
+            .unwrap()
+            .into_github_issue("o", "r");
+        assert_eq!(gh.number, 1);
+        assert_eq!(gh.title, "Issue 1");
+    }
+
+    #[test]
+    fn search_issue_item_minimal_json_maps_to_github_issue() {
+        let json = serde_json::json!({
+            "total_count": 1,
+            "incomplete_results": false,
+            "items": [{
+                "number": 99,
+                "labels": [{"name": "bug"}]
+            }]
+        });
+        let result: SearchResult = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(result.items.len(), 1);
+        let gh = result
+            .items
+            .into_iter()
+            .next()
+            .unwrap()
+            .into_github_issue("acme", "demo");
+        assert_eq!(gh.number, 99);
+        assert_eq!(gh.title, "(no title)");
+        assert_eq!(gh.state, "open");
+        assert_eq!(gh.html_url, "https://github.com/acme/demo/issues/99");
+        assert_eq!(gh.labels.len(), 1);
+        assert_eq!(gh.labels[0].name, "bug");
     }
 }
