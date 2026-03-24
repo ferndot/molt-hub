@@ -216,49 +216,52 @@ const ProjectsPanel: Component = () => {
     void loadProjects();
   });
 
+  const pickFolderViaServer = async (): Promise<boolean> => {
+    const res = await fetch("/api/system/pick-repo-folder", { method: "POST" });
+    const data = (await res.json().catch(() => ({}))) as {
+      path?: string | null;
+      error?: string | null;
+    };
+    if (!res.ok) {
+      if (res.status === 405 || res.status === 404) {
+        setFormError("Folder picker unavailable — restart Molt Hub.");
+      } else {
+        setFormError(data.error ?? "Folder picker failed.");
+      }
+      return false;
+    }
+    if (data.path) {
+      setRepoPath(data.path);
+      return true;
+    }
+    return true;
+  };
+
   const pickFolder = async () => {
     setFormError(null);
     try {
       if (isTauriShell()) {
-        // Static import: a dynamic `import()` before `open()` yields and can drop the
-        // user-activation chain, so WebKit/macOS may refuse to show the folder picker.
-        const chosen = await openNativeDialog({
-          directory: true,
-          multiple: false,
-          title: "Choose Git repository folder",
-        });
-        if (typeof chosen === "string") {
-          setRepoPath(chosen);
-        }
-        return;
-      }
-
-      const res = await fetch("/api/system/pick-repo-folder", { method: "POST" });
-      const data = (await res.json().catch(() => ({}))) as {
-        path?: string | null;
-        error?: string | null;
-      };
-      if (!res.ok) {
-        if (res.status === 405 || res.status === 404) {
-          setFormError(
-            "This Molt Hub server does not expose the folder picker (often an old binary still running). Stop it, rebuild from the repo (`cargo build -p molt-hub-server`), start `molt-hub serve` again—or type the repository path manually.",
-          );
+        try {
+          const chosen = await openNativeDialog({
+            directory: true,
+            multiple: false,
+            title: "Choose Git repository folder",
+          });
+          if (typeof chosen === "string") {
+            setRepoPath(chosen);
+          }
+          return;
+        } catch (err) {
+          console.warn("tauri folder dialog failed, trying server", err);
+          await pickFolderViaServer();
           return;
         }
-        setFormError(
-          data.error ??
-            `Could not open folder picker (HTTP ${res.status}). Enter the path manually.`,
-        );
-        return;
       }
-      if (data.path) {
-        setRepoPath(data.path);
-      }
+
+      await pickFolderViaServer();
     } catch (err) {
       console.error("folder dialog failed", err);
-      setFormError(
-        "Could not open the folder picker. Enter the repository path manually.",
-      );
+      setFormError("Folder picker failed.");
     }
   };
 
@@ -280,13 +283,6 @@ const ProjectsPanel: Component = () => {
   return (
     <div>
       <h3 class={styles.sectionTitle}>Projects</h3>
-      <p class={styles.oauthDescription}>
-        Add a project with a display name and the path to its Git repository on disk.
-        A browser-only folder dialog never gives the page a full disk path (that is intentional in
-        web security), so Molt Hub cannot learn where to run Git from JavaScript alone. Choose
-        folder… asks the OS on the machine running the app (Tauri or the local Rust server) and
-        pastes that path here. You can always type the path instead.
-      </p>
 
       <form class={styles.formGroup} onSubmit={onSubmit}>
         <label class={styles.label} for="project-name">Name</label>
