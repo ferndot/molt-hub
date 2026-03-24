@@ -24,6 +24,29 @@
   color: var(--sidebar-text-active);
 }
 
+.sectionTitleInner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.attentionBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1;
+  background: var(--priority-p0);
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
 .boardItem {
   display: flex;
   align-items: center;

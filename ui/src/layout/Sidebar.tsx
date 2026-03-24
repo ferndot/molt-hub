@@ -2,7 +2,6 @@ import type { Component, JSX } from "solid-js";
 import { Show, createSignal } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import {
-  TbOutlineLayoutDashboard,
   TbOutlineLayoutList,
   TbOutlineRobot,
   TbOutlineSettings,
@@ -23,7 +22,6 @@ import styles from "./Sidebar.module.css";
 // ---------------------------------------------------------------------------
 
 const NAV_ICONS: Record<string, () => JSX.Element> = {
-  "/": () => <TbOutlineLayoutDashboard size={16} />,
   "/boards": () => <TbOutlineLayoutList size={16} />,
   "/agents": () => <TbOutlineRobot size={16} />,
   "/settings": () => <TbOutlineSettings size={16} />,
@@ -45,18 +43,7 @@ const Sidebar: Component<Props> = (props) => {
   const location = useLocation();
   const [isDragging, setIsDragging] = createSignal(false);
 
-  const isActive = (href: string) => {
-    if (href === "/") {
-      return (
-        location.pathname === "/" ||
-        location.pathname === "/mission-control" ||
-        location.pathname === "/board"
-      );
-    }
-    return location.pathname.startsWith(href);
-  };
-
-  const navItems = [{ href: "/", label: "Workboard" }];
+  const isActive = (href: string) => location.pathname.startsWith(href);
 
   // ---- Drag-to-resize logic ------------------------------------------------
   // Update the DOM directly during drag to avoid the store → effect →
@@ -101,33 +88,6 @@ const Sidebar: Component<Props> = (props) => {
       {/* Traffic light area — pure drag region */}
       <div class={styles.trafficLightSpacer} />
 
-      {/* Nav links */}
-      <nav class={styles.nav}>
-        {navItems.map((item) => {
-          const count = () => item.href === "/" ? attentionCount() : 0;
-          return (
-            <A
-              href={item.href}
-              class={styles.navItem}
-              classList={{ [styles.active]: isActive(item.href) }}
-            >
-              <span class={styles.navIcon}>{NAV_ICONS[item.href]?.()}</span>
-              <Show when={!props.collapsed}>
-                <span class={styles.navLabel}>{item.label}</span>
-              </Show>
-              <Show when={count() > 0}>
-                <span
-                  class={styles.badge}
-                  title={`${count()} item(s) needing attention`}
-                >
-                  {count()}
-                </span>
-              </Show>
-            </A>
-          );
-        })}
-      </nav>
-
       {/* Board + agent lists when expanded; icon links when collapsed */}
       <Show
         when={!props.collapsed}
@@ -139,6 +99,14 @@ const Sidebar: Component<Props> = (props) => {
               classList={{ [styles.active]: isActive("/boards") }}
             >
               <span class={styles.navIcon}>{NAV_ICONS["/boards"]?.()}</span>
+              <Show when={attentionCount() > 0}>
+                <span
+                  class={styles.badge}
+                  title={`${attentionCount()} item(s) needing attention`}
+                >
+                  {attentionCount()}
+                </span>
+              </Show>
             </A>
             <A
               href="/agents"

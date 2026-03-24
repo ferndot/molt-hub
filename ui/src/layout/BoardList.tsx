@@ -1,6 +1,7 @@
 import { createSignal, For, Show, type Component } from "solid-js";
 import { A, useLocation, useNavigate } from "@solidjs/router";
 import { boardState, setActiveBoard } from "../views/Board/boardStore";
+import { attentionCount } from "./attentionStore";
 import styles from "./BoardList.module.css";
 
 interface Props {
@@ -9,8 +10,6 @@ interface Props {
 
 function isWorkboardPath(pathname: string): boolean {
   return (
-    pathname === "/" ||
-    pathname === "/mission-control" ||
     pathname === "/board" ||
     /\/projects\/[^/]+\/board$/.test(pathname)
   );
@@ -48,7 +47,17 @@ const BoardList: Component<Props> = (props) => {
           [styles.sectionTitleActive]: location.pathname.startsWith("/boards"),
         }}
       >
-        Boards
+        <span class={styles.sectionTitleInner}>
+          <span>Boards</span>
+          <Show when={attentionCount() > 0}>
+            <span
+              class={styles.attentionBadge}
+              title={`${attentionCount()} item(s) needing attention`}
+            >
+              {attentionCount()}
+            </span>
+          </Show>
+        </span>
       </A>
       <div class={styles.searchWrapper}>
         <input

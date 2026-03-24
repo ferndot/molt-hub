@@ -7,9 +7,9 @@ import { test, expect } from "@playwright/test";
 test.describe("Smoke", () => {
   test("app loads and shows the sidebar", async ({ page }) => {
     await page.goto("/");
-    // The sidebar contains the Workboard nav link.
+    await expect(page).toHaveURL(/\/board$/);
     await expect(page.locator("nav")).toBeVisible();
-    await expect(page.getByText("Workboard")).toBeVisible();
+    await expect(page.getByText("Boards", { exact: true })).toBeVisible();
   });
 
   test("can navigate to Boards list", async ({ page }) => {

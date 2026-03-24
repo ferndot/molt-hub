@@ -19,11 +19,7 @@ import HelpOverlay from "./HelpOverlay";
 type ViewContext = "triage" | "agents" | "mission-control" | "other";
 
 function getViewContext(pathname: string): ViewContext {
-  if (
-    pathname === "/" ||
-    pathname === "/mission-control" ||
-    pathname === "/board"
-  ) {
+  if (pathname === "/board") {
     return "mission-control";
   }
   if (pathname.startsWith("/triage")) return "triage";
@@ -98,13 +94,13 @@ const KeyboardManager: ParentComponent = (props) => {
           navigate("/triage");
           break;
         case "goto-board":
-          navigate("/");
+          navigate("/board");
           break;
         case "goto-agents":
           navigate("/agents");
           break;
         case "goto-mission-control":
-          navigate("/");
+          navigate("/board");
           break;
       }
       return;
