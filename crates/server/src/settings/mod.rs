@@ -8,9 +8,9 @@
 //! | GET    | `/api/settings`              | Return current typed settings as JSON |
 //! | PUT    | `/api/settings`              | Full-replace typed settings           |
 //! | PATCH  | `/api/settings/:section`     | Update a single section               |
-//! | GET    | `/api/settings/kv`           | Return all KV settings (legacy)       |
-//! | PUT    | `/api/settings/kv`           | Upsert KV settings (legacy)           |
-//! | DELETE | `/api/settings/kv/:key`      | Delete a specific KV key (legacy)     |
+//! | GET    | `/api/settings/kv`           | Return all KV settings                |
+//! | PUT    | `/api/settings/kv`           | Upsert KV settings                    |
+//! | DELETE | `/api/settings/kv/:key`      | Delete a specific KV key              |
 
 pub mod file_store;
 pub mod handlers;

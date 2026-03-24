@@ -613,18 +613,14 @@ export function stopJiraStatusPolling(): void {
   }
 }
 
-/**
- * @deprecated Use connectJira() instead.
- * Kept for backward compatibility with any existing callers.
- */
+/** Same as {@link connectJira}. */
 export async function initiateOAuth(): Promise<void> {
   return connectJira();
 }
 
 /**
- * Handle the OAuth callback result (called after redirect back from Atlassian).
- * Expects a code query param to be exchanged for tokens by the backend.
- * @deprecated The new flow uses status polling instead of direct callback handling.
+ * Exchange an OAuth `code` from Atlassian for tokens (direct callback handling).
+ * The primary UI flow polls {@link fetchJiraStatus} after opening the auth URL.
  */
 export async function handleOAuthCallback(code: string): Promise<void> {
   setConnectionTestStatus("testing");

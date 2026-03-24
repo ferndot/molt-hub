@@ -211,7 +211,7 @@ export function useWebSocket() {
 }
 
 // ---------------------------------------------------------------------------
-// Workspace topic helper (wire prefix is still `project:` for server compatibility)
+// Workspace topic helper (WS topic prefix `project:`)
 // ---------------------------------------------------------------------------
 
 /**

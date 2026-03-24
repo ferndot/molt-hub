@@ -88,7 +88,7 @@ export function parseBoardIdFromKanbanPath(pathname: string): string | null {
   }
 }
 
-/** Home / legacy `/board` redirect: kanban URL, last-used board, or boards list. */
+/** Home redirect: kanban URL from path, last-used board, or boards list. */
 export function homeRedirectBoardPath(): string {
   const fromPath = parseBoardIdFromKanbanPath(window.location.pathname);
   if (fromPath) return boardKanbanPath(fromPath);

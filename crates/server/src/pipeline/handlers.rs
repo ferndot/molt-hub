@@ -1,8 +1,8 @@
 //! Axum HTTP handlers for the pipeline stages API.
 //!
 //! Persistence and responses align with [`molt_hub_core::config::PipelineConfig`]: `pipeline.yaml`
-//! stores the full config (stages with hooks, `columns`, etc.). Legacy files that contain only
-//! a top-level `stages` list are still loaded and migrated in memory.
+//! stores the full config (stages with hooks, `columns`, etc.). YAML that contains only a
+//! top-level `stages` list is still accepted and normalized to a full config in memory.
 //!
 //! [`pipeline_router`] exposes the paths below when nested (e.g. in tests). The main app serves
 //! stages under `/api/projects/:pid/boards/:bid/stages` instead.
@@ -159,9 +159,9 @@ pub struct StagesResponse {
     pub columns: Option<Vec<ColumnConfig>>,
 }
 
-/// Legacy `pipeline.yaml` shape: only `stages` (pre–full [`PipelineConfig`]).
+/// `pipeline.yaml` with only a top-level `stages` list (no full [`PipelineConfig`] wrapper).
 #[derive(Debug, Deserialize)]
-struct LegacyPipelineYamlV1 {
+struct PipelineYamlStagesOnly {
     stages: Vec<StageResponse>,
 }
 
@@ -186,9 +186,9 @@ fn load_pipeline_yaml(contents: &str) -> Result<PipelineConfig, String> {
         validate_pipeline_config(&cfg)?;
         return Ok(cfg);
     }
-    if let Ok(legacy) = serde_yaml::from_str::<LegacyPipelineYamlV1>(contents) {
+    if let Ok(stages_only) = serde_yaml::from_str::<PipelineYamlStagesOnly>(contents) {
         let stages: Result<Vec<StageDefinition>, String> =
-            legacy.stages.into_iter().map(stage_from_response).collect();
+            stages_only.stages.into_iter().map(stage_from_response).collect();
         let stages = stages?;
         let mut cfg = PipelineConfig::board_defaults();
         cfg.stages = stages;
@@ -432,10 +432,9 @@ impl PipelineConfigStore {
 }
 
 // ---------------------------------------------------------------------------
-// Backward compat: PipelineState type alias
+// PipelineState — same as PipelineConfigStore (app wiring)
 // ---------------------------------------------------------------------------
 
-/// Legacy alias kept so `serve.rs` can use the same construction pattern.
 pub type PipelineState = PipelineConfigStore;
 
 impl PipelineState {

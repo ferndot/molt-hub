@@ -371,7 +371,7 @@ fn collect_memory_bytes() -> u64 {
 #[cfg(target_os = "macos")]
 fn macos_rss() -> Option<u64> {
     use std::mem;
-    // Use rusage to get RSS on macOS — avoids deprecated mach_task_self.
+    // RSS via getrusage(RUSAGE_SELF) on macOS.
     // SAFETY: getrusage is a standard POSIX call reading our own process stats.
     unsafe {
         let mut usage: libc::rusage = mem::zeroed();

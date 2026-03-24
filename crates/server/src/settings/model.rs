@@ -303,7 +303,7 @@ mod tests {
 
     #[test]
     fn deserialise_without_new_sections_uses_none() {
-        // Simulate an old settings file that lacks the new fields
+        // JSON without optional sections
         let json = serde_json::json!({
             "appearance": { "theme": "system", "colorblindMode": false },
             "notifications": { "attentionLevel": "p0p1" },

@@ -19,7 +19,6 @@ import {
 } from "solid-icons/tb";
 import {
   settingsState,
-  initiateOAuth,
   connectJira,
   disconnectJira,
   connectGitHub,

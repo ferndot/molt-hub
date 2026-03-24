@@ -253,7 +253,7 @@ fn raw_to_issue(raw: IssueRaw) -> JiraIssue {
     // back to the self_url if the pattern doesn't match.
     let url = {
         if let Some(pos) = raw.self_url.find("/rest/api/") {
-            // This works for both old site URLs and new cloud API URLs.
+            // Works for site-hosted and cloud API `self_url` shapes.
             // For cloud API URLs this gives us a non-browsable URL, but it's
             // still a unique identifier.  A future improvement could store the
             // site URL alongside the client and use it here.
