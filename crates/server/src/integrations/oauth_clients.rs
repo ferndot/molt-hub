@@ -6,10 +6,10 @@
 //!
 //! | Variable | Purpose |
 //! |----------|---------|
-//! | `GITHUB_CLIENT_ID` / `MOLTHUB_GITHUB_CLIENT_ID` | Optional; defaults to the upstream public app id |
-//! | `GITHUB_CLIENT_SECRET` / `MOLTHUB_GITHUB_CLIENT_SECRET` | Required for GitHub token exchange |
-//! | `JIRA_CLIENT_ID` / `MOLTHUB_JIRA_CLIENT_ID` | Optional; defaults to the upstream public app id |
-//! | `JIRA_CLIENT_SECRET` / `MOLTHUB_JIRA_CLIENT_SECRET` | Required for Atlassian 3LO token exchange |
+//! | `MOLTHUB_GITHUB_CLIENT_ID` | GitHub OAuth app client id (embedded at build; empty if unset) |
+//! | `MOLTHUB_GITHUB_CLIENT_SECRET` | GitHub OAuth app secret (required for token exchange when using GitHub) |
+//! | `MOLTHUB_JIRA_CLIENT_ID` | Atlassian 3LO client id (embedded at build; empty if unset) |
+//! | `MOLTHUB_JIRA_CLIENT_SECRET` | Atlassian 3LO secret (required for token exchange when using Jira) |
 
 include!(concat!(env!("OUT_DIR"), "/oauth_clients_embed.rs"));
 
@@ -33,15 +33,4 @@ pub fn jira_client_credentials() -> (String, Option<String>) {
         BUILT_JIRA_CLIENT_ID.to_string(),
         BUILT_JIRA_CLIENT_SECRET.map(String::from),
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn built_ids_are_non_empty() {
-        assert!(!BUILT_GITHUB_CLIENT_ID.is_empty());
-        assert!(!BUILT_JIRA_CLIENT_ID.is_empty());
-    }
 }

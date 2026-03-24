@@ -393,7 +393,8 @@ const JiraPanel: Component<{ onBack: () => void }> = (props) => {
             Connect your Atlassian account via OAuth to import Jira issues. The app’s Jira{" "}
             <strong>client id / secret</strong> are fixed in the build you are running (set when the
             binary was compiled — see project README). If token exchange fails, rebuild with the
-            correct <code>JIRA_CLIENT_SECRET</code> (and optional <code>JIRA_CLIENT_ID</code>).
+            correct <code>MOLTHUB_JIRA_CLIENT_ID</code> and{" "}
+            <code>MOLTHUB_JIRA_CLIENT_SECRET</code>.
           </p>
           <div class={styles.connectedRow}>
             <span class={`${styles.statusBadge} ${styles.statusIdle}`}>
