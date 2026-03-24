@@ -32,6 +32,7 @@ import {
   setAgentAdapter,
 } from "./settingsStore";
 import type { Theme, AttentionLevel, AgentAdapter } from "./settingsStore";
+import JiraImport from "./JiraImport";
 import AuditLog from "./AuditLog";
 import PriorityBadge from "../../components/PriorityBadge/PriorityBadge";
 import styles from "./Settings.module.css";
@@ -226,6 +227,7 @@ const IntegrationsPanel: Component<{ onSelect: (id: SectionId) => void }> = (pro
 const JiraPanel: Component<{ onBack: () => void }> = (props) => {
   const isConnected = () => settingsState.jiraConfig.connected;
   const [connecting, setConnecting] = createSignal(false);
+  const [importOpen, setImportOpen] = createSignal(false);
 
   const handleConnect = async () => {
     setConnecting(true);
@@ -279,11 +281,15 @@ const JiraPanel: Component<{ onBack: () => void }> = (props) => {
             <p class={styles.siteUrl}>{settingsState.jiraConfig.baseUrl}</p>
           </Show>
           <div class={styles.buttonRow}>
+            <button class={styles.btnPrimary} onClick={() => setImportOpen(true)}>
+              Import issues
+            </button>
             <button class={styles.btnDanger} onClick={() => disconnectJira()}>
               Disconnect
             </button>
           </div>
         </div>
+        <JiraImport isOpen={importOpen()} onClose={() => setImportOpen(false)} />
       </Show>
     </div>
   );
