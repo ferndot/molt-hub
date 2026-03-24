@@ -4,7 +4,6 @@
  */
 
 import { For, Show, createEffect, createSignal, type Component } from "solid-js";
-import { Dialog } from "@kobalte/core/dialog";
 import {
   TbOutlineFocus,
   TbOutlineEye,
@@ -25,8 +24,8 @@ import styles from "./BoardView.module.css";
 const BoardView: Component = () => {
   const mc = useMissionControl();
   const [editorOpen, setEditorOpen] = createSignal(false);
-  const [addIssueOpen, setAddIssueOpen] = createSignal(false);
-  const [addIssueTitle, setAddIssueTitle] = createSignal("");
+  const [addIssueExpanded, setAddIssueExpanded] = createSignal(false);
+  const [addIssueBody, setAddIssueBody] = createSignal("");
   const [addIssueError, setAddIssueError] = createSignal<string | null>(null);
   const [addIssueBusy, setAddIssueBusy] = createSignal(false);
   const [jiraImportOpen, setJiraImportOpen] = createSignal(false);
@@ -39,7 +38,7 @@ const BoardView: Component = () => {
   const firstStageId = () => sortedStages()[0]?.id;
 
   createEffect(() => {
-    if (!addIssueOpen() || !firstStageId()) return;
+    if (!addIssueExpanded() || !firstStageId()) return;
     if (
       addIssueError() ===
       "Board columns are still loading. Try again in a moment."
@@ -54,14 +53,35 @@ const BoardView: Component = () => {
     return b?.name ?? id;
   };
 
-  const openAddIssueDialog = () => {
-    setAddIssueTitle("");
+  const collapseAddIssue = () => {
+    setAddIssueExpanded(false);
+    setAddIssueBody("");
+    setAddIssueError(null);
+  };
+
+  const expandAddIssue = () => {
+    setAddIssueBody("");
     setAddIssueError(
       firstStageId()
         ? null
         : "Board columns are still loading. Try again in a moment.",
     );
-    setAddIssueOpen(true);
+    setAddIssueExpanded(true);
+  };
+
+  /** First line → title; following lines → description (optional). */
+  const parseIssueBody = (raw: string): { title: string; description?: string } => {
+    const t = raw.trim();
+    const nl = t.indexOf("\n");
+    if (nl === -1) {
+      return { title: t };
+    }
+    const title = t.slice(0, nl).trim();
+    const rest = t.slice(nl + 1).trim();
+    return {
+      title,
+      ...(rest ? { description: rest } : {}),
+    };
   };
 
   const submitAddIssue = async () => {
@@ -72,9 +92,9 @@ const BoardView: Component = () => {
       );
       return;
     }
-    const title = addIssueTitle().trim();
+    const { title, description } = parseIssueBody(addIssueBody());
     if (!title) {
-      setAddIssueError("Enter a title.");
+      setAddIssueError("Write a title on the first line (or a single line of text).");
       return;
     }
     setAddIssueBusy(true);
@@ -82,9 +102,10 @@ const BoardView: Component = () => {
     try {
       await api.createTask({
         title,
+        ...(description ? { description } : {}),
         initialStage: stageId,
       });
-      setAddIssueOpen(false);
+      collapseAddIssue();
     } catch (e) {
       setAddIssueError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -132,66 +153,6 @@ const BoardView: Component = () => {
 
       <ColumnEditor open={editorOpen()} onOpenChange={setEditorOpen} />
 
-      <Dialog open={addIssueOpen()} onOpenChange={setAddIssueOpen}>
-        <Dialog.Portal>
-          <Dialog.Overlay class={styles.addIssueOverlay} />
-          <Dialog.Content class={styles.addIssueDialog}>
-            <div class={styles.addIssueHeader}>
-              <Dialog.Title class={styles.addIssueTitle}>Add issue</Dialog.Title>
-              <Dialog.CloseButton
-                class={styles.addIssueClose}
-                aria-label="Close"
-              >
-                ✕
-              </Dialog.CloseButton>
-            </div>
-            <Dialog.Description class={styles.addIssueSrOnly}>
-              Create a new task in the first column of this board.
-            </Dialog.Description>
-            <label class={styles.addIssueLabel} for="add-issue-title-input">
-              Title
-            </label>
-            <input
-              id="add-issue-title-input"
-              class={styles.addIssueInput}
-              type="text"
-              placeholder="What needs to be done?"
-              value={addIssueTitle()}
-              onInput={(e) => setAddIssueTitle(e.currentTarget.value)}
-              disabled={addIssueBusy()}
-              autofocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  void submitAddIssue();
-                }
-              }}
-            />
-            <Show when={addIssueError()}>
-              {(msg) => <p class={styles.addIssueError}>{msg()}</p>}
-            </Show>
-            <div class={styles.addIssueActions}>
-              <button
-                type="button"
-                class={styles.addIssueCancel}
-                onClick={() => setAddIssueOpen(false)}
-                disabled={addIssueBusy()}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                class={styles.addIssueSubmit}
-                onClick={() => void submitAddIssue()}
-                disabled={addIssueBusy() || !firstStageId()}
-              >
-                {addIssueBusy() ? "Creating…" : "Create"}
-              </button>
-            </div>
-          </Dialog.Content>
-        </Dialog.Portal>
-      </Dialog>
-
       <div class={mcStyles.body}>
         <div class={mcStyles.boardRegion}>
           <For each={sortedStages()}>
@@ -226,13 +187,84 @@ const BoardView: Component = () => {
                               onSelectGitHub={() => setGitHubImportOpen(true)}
                             />
                           </Show>
-                          <button
-                            type="button"
-                            class={styles.addIssueBtn}
-                            onClick={() => openAddIssueDialog()}
+                          <Show
+                            when={addIssueExpanded()}
+                            fallback={
+                              <button
+                                type="button"
+                                class={styles.addIssueBtn}
+                                onClick={() => expandAddIssue()}
+                              >
+                                Add issue
+                              </button>
+                            }
                           >
-                            Add issue
-                          </button>
+                            <div class={styles.addIssuePanel}>
+                              <div class={styles.addIssueInstructions}>
+                                <p class={styles.addIssueLead}>
+                                  New tasks land in this column. Use the box below to describe the work.
+                                </p>
+                                <ul class={styles.addIssueList}>
+                                  <li>
+                                    <strong>First line</strong> becomes the task title (keep it short and actionable).
+                                  </li>
+                                  <li>
+                                    <strong>Additional lines</strong> become the description: context, acceptance criteria, links, or notes for whoever picks it up.
+                                  </li>
+                                  <li>
+                                    Submit with <strong>Create</strong> or{" "}
+                                    <strong>Ctrl+Enter</strong> (⌘+Enter on Mac).
+                                  </li>
+                                </ul>
+                              </div>
+                              <label class={styles.addIssueFieldLabel} for="add-issue-body">
+                                Issue
+                              </label>
+                              <textarea
+                                id="add-issue-body"
+                                class={styles.addIssueTextarea}
+                                rows={6}
+                                placeholder={`Example:\nFix login redirect on Safari\n\nRepro: …\nExpected: …`}
+                                value={addIssueBody()}
+                                onInput={(e) => setAddIssueBody(e.currentTarget.value)}
+                                disabled={addIssueBusy()}
+                                onKeyDown={(e) => {
+                                  if (
+                                    e.key === "Enter" &&
+                                    (e.metaKey || e.ctrlKey)
+                                  ) {
+                                    e.preventDefault();
+                                    void submitAddIssue();
+                                  }
+                                }}
+                              />
+                              <Show when={addIssueError()}>
+                                {(msg) => (
+                                  <p class={styles.addIssueError} role="alert">
+                                    {msg()}
+                                  </p>
+                                )}
+                              </Show>
+                              <div class={styles.addIssueActions}>
+                                <button
+                                  type="button"
+                                  class={styles.addIssueCancel}
+                                  onClick={() => collapseAddIssue()}
+                                  disabled={addIssueBusy()}
+                                >
+                                  Cancel
+                                </button>
+                                <button
+                                  type="button"
+                                  class={styles.addIssueSubmit}
+                                  onClick={() => void submitAddIssue()}
+                                  disabled={addIssueBusy() || !firstStageId()}
+                                >
+                                  {addIssueBusy() ? "Creating…" : "Create"}
+                                </button>
+                              </div>
+                            </div>
+                          </Show>
                         </div>
                       )
                     : undefined

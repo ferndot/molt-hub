@@ -162,96 +162,77 @@
   color: var(--accent);
 }
 
-/* Add issue dialog (Kobalte) — avoids window.prompt, which is unreliable in Tauri/WebKit */
+/* Add issue — inline panel in first column (no modal; works in Tauri/WebKit) */
 
-.addIssueOverlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  z-index: 160;
-}
-
-.addIssueDialog {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 161;
+.addIssuePanel {
   box-sizing: border-box;
-  width: min(400px, calc(100vw - 2rem));
-  padding: 1rem;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-}
-
-.addIssueHeader {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 0.75rem;
-}
-
-.addIssueTitle {
-  font-size: 0.9375rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  margin: 0;
-}
-
-.addIssueClose {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 1rem;
-  padding: 0.25rem;
-  border-radius: 4px;
-  line-height: 1;
-}
-
-.addIssueClose:hover {
-  color: var(--text-primary);
+  width: 100%;
+  padding: 0.625rem;
   background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  text-align: left;
 }
 
-.addIssueSrOnly {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0, 0, 0, 0);
-  white-space: nowrap;
-  border: 0;
-}
-
-.addIssueLabel {
-  display: block;
+.addIssueInstructions {
   font-size: 0.75rem;
-  font-weight: 600;
+  line-height: 1.45;
   color: var(--text-secondary);
+  margin-bottom: 0.625rem;
+}
+
+.addIssueLead {
+  margin: 0 0 0.4rem;
+  color: var(--text-primary);
+}
+
+.addIssueList {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.addIssueList li {
+  margin-bottom: 0.25rem;
+}
+
+.addIssueList li:last-child {
+  margin-bottom: 0;
+}
+
+.addIssueFieldLabel {
+  display: block;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
   margin-bottom: 0.35rem;
 }
 
-.addIssueInput {
+.addIssueTextarea {
   width: 100%;
   box-sizing: border-box;
+  min-height: 6.5rem;
   padding: 0.5rem 0.625rem;
   border: 1px solid var(--border);
   border-radius: 6px;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
   font-family: inherit;
+  resize: vertical;
   margin-bottom: 0.5rem;
 }
 
-.addIssueInput:focus {
+.addIssueTextarea:focus {
   outline: none;
   border-color: var(--accent);
+}
+
+.addIssueTextarea:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }
 
 .addIssueError {
