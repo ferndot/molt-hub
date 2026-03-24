@@ -152,7 +152,8 @@ pub async fn append_event(
     State(state): State<Arc<EventStoreState>>,
     Json(envelope): Json<EventEnvelope>,
 ) -> impl IntoResponse {
-    info!(event_id = %envelope.id, task_id = %envelope.task_id, "appending event via API");
+    let task_id_str = envelope.task_id.as_ref().map(|t| t.0.to_string()).unwrap_or_default();
+    info!(event_id = %envelope.id, task_id = %task_id_str, "appending event via API");
     match state.store.append(envelope).await {
         Ok(()) => (
             StatusCode::CREATED,
@@ -177,7 +178,11 @@ pub async fn list_tasks(
             let mut tasks: HashMap<String, TaskSummary> = HashMap::new();
 
             for ev in &events {
-                let tid = ev.task_id.0.to_string();
+                let tid = ev
+                    .task_id
+                    .as_ref()
+                    .map(|t| t.0.to_string())
+                    .unwrap_or_else(|| ev.project_id.clone());
                 let entry = tasks.entry(tid.clone()).or_insert_with(|| TaskSummary {
                     task_id: tid,
                     title: None,
@@ -290,7 +295,8 @@ mod tests {
     fn make_envelope(task_id: TaskId, title: &str) -> EventEnvelope {
         EventEnvelope {
             id: EventId::new(),
-            task_id,
+            task_id: Some(task_id),
+            project_id: "default".to_owned(),
             session_id: SessionId::new(),
             timestamp: Utc::now(),
             caused_by: None,
@@ -454,7 +460,7 @@ mod tests {
         let app = test_app(state);
 
         let envelope = make_envelope(TaskId::new(), "Posted Task");
-        let task_id = envelope.task_id.clone();
+        let task_id = envelope.task_id.clone().unwrap();
         let body_json = serde_json::to_string(&envelope).unwrap();
 
         let req = Request::builder()
@@ -503,7 +509,8 @@ mod tests {
         store
             .append(EventEnvelope {
                 id: EventId::new(),
-                task_id: task_a.clone(),
+                task_id: Some(task_a.clone()),
+                project_id: "default".to_owned(),
                 session_id: SessionId::new(),
                 timestamp: Utc::now(),
                 caused_by: None,

@@ -24,8 +24,10 @@ use crate::model::{
 pub struct EventEnvelope {
     /// Unique identifier for this event instance.
     pub id: EventId,
-    /// The task this event relates to.
-    pub task_id: TaskId,
+    /// The task this event relates to (None for project-level events).
+    pub task_id: Option<TaskId>,
+    /// The project this event belongs to.
+    pub project_id: String,
     /// The session in which this event occurred.
     pub session_id: SessionId,
     /// Wall-clock time the event was recorded.

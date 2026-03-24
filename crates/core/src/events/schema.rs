@@ -4,7 +4,8 @@
 ///
 /// Columns:
 /// - `id`           — opaque text primary key (EventId)
-/// - `task_id`      — the task this event belongs to
+/// - `task_id`      — the task this event belongs to (nullable for project-level events)
+/// - `project_id`   — the project this event belongs to (defaults to "default")
 /// - `session_id`   — the session in which the event occurred
 /// - `timestamp`    — ISO-8601 / RFC-3339 wall-clock time
 /// - `caused_by`    — optional foreign-key-like link to a parent event
@@ -13,7 +14,8 @@
 pub const CREATE_EVENTS_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS events (
     id         TEXT NOT NULL PRIMARY KEY,
-    task_id    TEXT NOT NULL,
+    task_id    TEXT,
+    project_id TEXT NOT NULL DEFAULT 'default',
     session_id TEXT NOT NULL,
     timestamp  TEXT NOT NULL,
     caused_by  TEXT,
@@ -32,6 +34,10 @@ CREATE INDEX IF NOT EXISTS idx_events_timestamp ON events (timestamp)";
 /// Index on `caused_by` for causal-chain traversal.
 pub const CREATE_IDX_EVENTS_CAUSED_BY: &str = "
 CREATE INDEX IF NOT EXISTS idx_events_caused_by ON events (caused_by)";
+
+/// Index on `project_id` for efficient per-project event queries.
+pub const CREATE_IDX_EVENTS_PROJECT_ID: &str = "
+CREATE INDEX IF NOT EXISTS idx_events_project_id ON events (project_id)";
 
 // ---------------------------------------------------------------------------
 // Projection tables (read side)

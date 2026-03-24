@@ -104,7 +104,8 @@ impl<S: EventStore + 'static> ImportService<S> {
 
         let created = EventEnvelope {
             id: EventId::new(),
-            task_id: task_id.clone(),
+            task_id: Some(task_id.clone()),
+            project_id: "default".to_owned(),
             session_id: self.session_id.clone(),
             timestamp: Utc::now(),
             caused_by: None,
@@ -131,7 +132,8 @@ impl<S: EventStore + 'static> ImportService<S> {
         let task_created_id = created.id.clone();
         let imported = EventEnvelope {
             id: EventId::new(),
-            task_id: task_id.clone(),
+            task_id: Some(task_id.clone()),
+            project_id: "default".to_owned(),
             session_id: self.session_id.clone(),
             timestamp: Utc::now(),
             caused_by: Some(task_created_id),
@@ -203,7 +205,7 @@ mod tests {
                 .lock()
                 .unwrap()
                 .iter()
-                .filter(|e| &e.task_id == task_id)
+                .filter(|e| e.task_id.as_ref() == Some(task_id))
                 .cloned()
                 .collect())
         }
@@ -245,6 +247,20 @@ mod tests {
                 .unwrap()
                 .iter()
                 .filter(|e| &e.id == event_id)
+                .cloned()
+                .collect())
+        }
+
+        async fn get_events_for_project(
+            &self,
+            project_id: &str,
+        ) -> Result<Vec<EventEnvelope>, EventStoreError> {
+            Ok(self
+                .events
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|e| e.project_id == project_id)
                 .cloned()
                 .collect())
         }

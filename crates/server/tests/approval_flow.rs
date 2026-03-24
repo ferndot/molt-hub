@@ -51,7 +51,7 @@ impl EventStore for MemoryEventStore {
             .lock()
             .unwrap()
             .iter()
-            .filter(|e| &e.task_id == task_id)
+            .filter(|e| e.task_id.as_ref() == Some(task_id))
             .cloned()
             .collect())
     }
@@ -93,6 +93,20 @@ impl EventStore for MemoryEventStore {
             .unwrap()
             .iter()
             .filter(|e| &e.id == event_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn get_events_for_project(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<EventEnvelope>, EventStoreError> {
+        Ok(self
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e.project_id == project_id)
             .cloned()
             .collect())
     }
@@ -146,7 +160,8 @@ async fn spawn_actor_awaiting_approval(
     // Pending → InProgress
     let assign = EventEnvelope {
         id: EventId::new(),
-        task_id: task_id.clone(),
+        task_id: Some(task_id.clone()),
+        project_id: "default".to_owned(),
         session_id: session_id.clone(),
         timestamp: Utc::now(),
         caused_by: None,
@@ -160,7 +175,8 @@ async fn spawn_actor_awaiting_approval(
     // InProgress → AwaitingApproval (requires_approval stage)
     let complete = EventEnvelope {
         id: EventId::new(),
-        task_id: task_id.clone(),
+        task_id: Some(task_id.clone()),
+        project_id: "default".to_owned(),
         session_id: session_id.clone(),
         timestamp: Utc::now(),
         caused_by: None,

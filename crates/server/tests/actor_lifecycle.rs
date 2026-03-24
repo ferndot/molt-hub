@@ -48,7 +48,7 @@ impl EventStore for MemoryEventStore {
             .lock()
             .unwrap()
             .iter()
-            .filter(|e| &e.task_id == task_id)
+            .filter(|e| e.task_id.as_ref() == Some(task_id))
             .cloned()
             .collect())
     }
@@ -90,6 +90,20 @@ impl EventStore for MemoryEventStore {
             .unwrap()
             .iter()
             .filter(|e| &e.id == event_id)
+            .cloned()
+            .collect())
+    }
+
+    async fn get_events_for_project(
+        &self,
+        project_id: &str,
+    ) -> Result<Vec<EventEnvelope>, EventStoreError> {
+        Ok(self
+            .events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| e.project_id == project_id)
             .cloned()
             .collect())
     }
@@ -145,7 +159,8 @@ fn make_config(task_id: TaskId, stage: &str, pipeline: Arc<PipelineConfig>) -> T
 fn assign_event(task_id: &TaskId, session_id: &SessionId) -> EventEnvelope {
     EventEnvelope {
         id: EventId::new(),
-        task_id: task_id.clone(),
+        task_id: Some(task_id.clone()),
+        project_id: "default".to_owned(),
         session_id: session_id.clone(),
         timestamp: Utc::now(),
         caused_by: None,
@@ -159,7 +174,8 @@ fn assign_event(task_id: &TaskId, session_id: &SessionId) -> EventEnvelope {
 fn complete_event(task_id: &TaskId, session_id: &SessionId) -> EventEnvelope {
     EventEnvelope {
         id: EventId::new(),
-        task_id: task_id.clone(),
+        task_id: Some(task_id.clone()),
+        project_id: "default".to_owned(),
         session_id: session_id.clone(),
         timestamp: Utc::now(),
         caused_by: None,
@@ -173,7 +189,8 @@ fn complete_event(task_id: &TaskId, session_id: &SessionId) -> EventEnvelope {
 fn human_approved_event(task_id: &TaskId, session_id: &SessionId) -> EventEnvelope {
     EventEnvelope {
         id: EventId::new(),
-        task_id: task_id.clone(),
+        task_id: Some(task_id.clone()),
+        project_id: "default".to_owned(),
         session_id: session_id.clone(),
         timestamp: Utc::now(),
         caused_by: None,
@@ -281,7 +298,8 @@ async fn lifecycle_rejection_routes_to_in_progress() {
 
     let rejected_event = EventEnvelope {
         id: EventId::new(),
-        task_id: task_id.clone(),
+        task_id: Some(task_id.clone()),
+        project_id: "default".to_owned(),
         session_id: session_id.clone(),
         timestamp: Utc::now(),
         caused_by: None,
