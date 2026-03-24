@@ -6,8 +6,8 @@ pub mod types;
 
 // Re-export the most commonly needed items at the module root.
 pub use schema::{
-    CREATE_EVENTS_TABLE, CREATE_TASK_CURRENT_STATE_TABLE, CREATE_TASK_TIMELINE_TABLE,
-    ENABLE_WAL, SET_SYNCHRONOUS,
+    apply_migrations, CREATE_EVENTS_TABLE, CREATE_SCHEMA_VERSION_TABLE,
+    CREATE_TASK_CURRENT_STATE_TABLE, CREATE_TASK_TIMELINE_TABLE, ENABLE_WAL, SET_SYNCHRONOUS,
 };
 pub use store::{EventStore, EventStoreError, SqliteEventStore};
 pub use types::{DomainEvent, EventEnvelope, HumanDecisionKind};
