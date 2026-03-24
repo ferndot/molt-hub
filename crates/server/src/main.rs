@@ -36,7 +36,7 @@ enum Command {
 #[derive(Debug, Parser)]
 struct ServeArgs {
     /// Port to listen on.
-    #[arg(long, default_value_t = 3001)]
+    #[arg(long, default_value_t = 13401)]
     port: u16,
 
     /// Host address to bind to.
@@ -65,7 +65,7 @@ async fn main() {
     let args = match cli.command {
         Some(Command::Serve(a)) => a,
         None => ServeArgs {
-            port: 3001,
+            port: 13401,
             host: "127.0.0.1".to_owned(),
             no_open: false,
         },
@@ -190,7 +190,7 @@ mod tests {
     #[test]
     fn serve_defaults() {
         let args = ServeArgs::parse_from(["molt-hub"]);
-        assert_eq!(args.port, 3001);
+        assert_eq!(args.port, 13401);
         assert_eq!(args.host, "127.0.0.1");
         assert!(!args.no_open);
     }

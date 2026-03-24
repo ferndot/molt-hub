@@ -2,7 +2,7 @@
  * API client — typed wrappers around fetch for backend endpoints.
  *
  * All methods return the parsed JSON body. The base path is `/api`,
- * which the Vite dev server proxies to the Rust backend at 127.0.0.1:3001.
+ * which the Vite dev server proxies to the Rust backend at 127.0.0.1:13401.
  */
 
 const BASE = "/api";
