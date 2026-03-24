@@ -5,6 +5,7 @@
 //! personal access token, passed as a Bearer header.
 
 use reqwest::{Client, StatusCode};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 use thiserror::Error;
@@ -37,6 +38,10 @@ pub enum GitHubError {
     #[error("parse error: {0}")]
     ParseError(String),
 
+    /// GitHub returned a non-success HTTP status with a JSON error payload.
+    #[error("GitHub API error (HTTP {status}): {message}")]
+    ApiError { status: u16, message: String },
+
     /// Issue or pull request not found for this repository.
     #[error("issue not found: {repo}#{number}")]
     NotFound { repo: String, number: i64 },
@@ -60,6 +65,7 @@ pub struct GitHubIssue {
     /// Browser URL to the issue.
     pub html_url: String,
     /// Labels attached to the issue.
+    #[serde(default)]
     pub labels: Vec<GitHubLabel>,
 }
 
@@ -135,12 +141,7 @@ impl GitHubClient {
 
         Self::check_auth(&response)?;
 
-        let repos: Vec<GitHubRepo> = response
-            .json()
-            .await
-            .map_err(|e| GitHubError::ParseError(e.to_string()))?;
-
-        Ok(repos)
+        Self::parse_success_json(response).await
     }
 
     /// GitHub login for the authenticated user (`GET /user`).
@@ -157,11 +158,7 @@ impl GitHubClient {
 
         Self::check_auth(&response)?;
 
-        let user: GithubUser = response
-            .json()
-            .await
-            .map_err(|e| GitHubError::ParseError(e.to_string()))?;
-
+        let user: GithubUser = Self::parse_success_json(response).await?;
         Ok(user.login)
     }
 
@@ -189,11 +186,7 @@ impl GitHubClient {
 
         Self::check_auth(&response)?;
 
-        let body: SearchResult = response
-            .json()
-            .await
-            .map_err(|e| GitHubError::ParseError(e.to_string()))?;
-
+        let body: SearchResult = Self::parse_success_json(response).await?;
         Ok(body.items)
     }
 
@@ -247,6 +240,41 @@ impl GitHubClient {
         }
         Ok(())
     }
+
+    /// Read the full body, fail with [`GitHubError::ApiError`] if status is not success,
+    /// then deserialize JSON. Avoids treating GitHub error JSON as a success shape (which
+    /// produced misleading `parse error: error decoding response body`).
+    async fn parse_success_json<T: DeserializeOwned>(
+        response: reqwest::Response,
+    ) -> Result<T, GitHubError> {
+        let status = response.status();
+        let bytes = response.bytes().await.map_err(GitHubError::HttpError)?;
+        if !status.is_success() {
+            return Err(GitHubError::ApiError {
+                status: status.as_u16(),
+                message: extract_github_api_message(&bytes),
+            });
+        }
+        serde_json::from_slice(&bytes).map_err(|e| GitHubError::ParseError(e.to_string()))
+    }
+}
+
+fn extract_github_api_message(bytes: &[u8]) -> String {
+    #[derive(Deserialize)]
+    struct GhErr {
+        message: Option<String>,
+    }
+    serde_json::from_slice::<GhErr>(bytes)
+        .ok()
+        .and_then(|e| e.message)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| {
+            String::from_utf8_lossy(bytes)
+                .trim()
+                .chars()
+                .take(200)
+                .collect()
+        })
 }
 
 // ---------------------------------------------------------------------------
@@ -291,6 +319,19 @@ mod tests {
 
         let err2 = GitHubError::ParseError("bad json".into());
         assert!(err2.to_string().contains("bad json"));
+
+        let err3 = GitHubError::ApiError {
+            status: 422,
+            message: "Validation Failed".into(),
+        };
+        assert!(err3.to_string().contains("422"));
+        assert!(err3.to_string().contains("Validation Failed"));
+    }
+
+    #[test]
+    fn extract_github_api_message_reads_json_message() {
+        let j = br#"{"message":"Validation Failed","documentation_url":"https://docs.github.com"}"#;
+        assert_eq!(super::extract_github_api_message(j), "Validation Failed");
     }
 
     #[test]

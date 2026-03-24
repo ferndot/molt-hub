@@ -157,8 +157,14 @@ const GitHubImport: Component<GitHubImportProps> = (props) => {
   // ---- Handlers ----
   const handleSearch = () => {
     const owner = githubOwner();
-    const repoName = repo().trim();
+    let repoName = repo().trim();
     if (!repoName || !owner) return;
+    // Avoid `repo:owner/owner/name` when the user pastes a full `owner/repo` path.
+    const prefix = `${owner}/`;
+    if (repoName.toLowerCase().startsWith(prefix.toLowerCase())) {
+      repoName = repoName.slice(prefix.length);
+    }
+    if (!repoName) return;
     setSelectedNumbers(new Set<number>());
     setImportStatus("idle");
     setImportError(null);

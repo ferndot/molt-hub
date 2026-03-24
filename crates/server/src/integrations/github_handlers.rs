@@ -338,6 +338,10 @@ fn github_error_to_http(e: &GitHubError) -> (StatusCode, String) {
         GitHubError::NotFound { .. } => (StatusCode::NOT_FOUND, e.to_string()),
         GitHubError::HttpError(_) => (StatusCode::BAD_GATEWAY, e.to_string()),
         GitHubError::ParseError(_) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+        GitHubError::ApiError { status, .. } => (
+            StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY),
+            e.to_string(),
+        ),
     }
 }
 
@@ -372,6 +376,18 @@ mod tests {
         let err = GitHubError::ParseError("bad json".into());
         let (status, _) = github_error_to_http(&err);
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn github_error_to_http_maps_api_error() {
+        let err = GitHubError::ApiError {
+            status: 422,
+            message: "Validation Failed".into(),
+        };
+        let (status, msg) = github_error_to_http(&err);
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(msg.contains("422"));
+        assert!(msg.contains("Validation"));
     }
 
     #[test]
