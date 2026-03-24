@@ -183,6 +183,10 @@ export const api = {
     initialStage?: string;
   }) => post<{ taskId: string }>("/tasks/create", body),
 
+  /** Uses the same harness as agents (Claude CLI by default; CLI adapter if set in settings). */
+  suggestTaskTitle: (body: { text: string; adapterConfig?: unknown }) =>
+    post<{ title: string; source: string }>("/agents/suggest-task-title", body),
+
   // Audit — server returns a JSON array; normalize to `{ entries }` for the UI.
   getAuditLog: async (limit = 100) => {
     const raw = await get<unknown>(`/audit?limit=${limit}`);

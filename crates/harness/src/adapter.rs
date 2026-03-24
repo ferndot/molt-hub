@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tokio::sync::broadcast::error::RecvError;
 
 use molt_hub_core::model::{AgentId, AgentStatus, SessionId, TaskId};
 
@@ -186,4 +187,57 @@ pub trait AgentAdapter: Send + Sync + 'static {
 
     /// A short identifier for this adapter implementation (e.g. `"claude-cli"`).
     fn adapter_type(&self) -> &str;
+}
+
+// ---------------------------------------------------------------------------
+// One-shot output collection (print / stdin-once flows)
+// ---------------------------------------------------------------------------
+
+/// Drain [`AgentEvent`]s from a broadcast receiver until this `agent_id` completes or errors.
+///
+/// Used by adapters that spawn a subprocess once, subscribe before the reader task runs,
+/// and need the concatenated [`AgentEvent::Output`] text.
+pub async fn collect_agent_print_output(
+    rx: &mut tokio::sync::broadcast::Receiver<AgentEvent>,
+    agent_id: &AgentId,
+) -> Result<String, AdapterError> {
+    let mut acc = String::new();
+    loop {
+        match rx.recv().await {
+            Ok(AgentEvent::Output {
+                agent_id: id,
+                content,
+                ..
+            }) if id == *agent_id => {
+                acc.push_str(&content);
+            }
+            Ok(AgentEvent::Completed {
+                agent_id: id,
+                exit_code,
+                ..
+            }) if id == *agent_id => {
+                if exit_code == Some(0) {
+                    return Ok(acc);
+                }
+                return Err(AdapterError::SpawnFailed(format!(
+                    "process exited with code {:?}",
+                    exit_code
+                )));
+            }
+            Ok(AgentEvent::Error {
+                agent_id: id,
+                message,
+                ..
+            }) if id == *agent_id => {
+                return Err(AdapterError::SpawnFailed(message));
+            }
+            Ok(_) => {}
+            Err(RecvError::Closed) => {
+                return Err(AdapterError::SpawnFailed(
+                    "event channel closed before completion".into(),
+                ));
+            }
+            Err(RecvError::Lagged(_)) => {}
+        }
+    }
 }

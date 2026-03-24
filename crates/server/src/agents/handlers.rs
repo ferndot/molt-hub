@@ -8,6 +8,7 @@
 //!   POST /api/agents/:id/resume    — resume an agent
 //!   POST /api/agents/:id/steer     — send a steering message to an agent
 //!   GET  /api/agents/:id/output    — get buffered output lines
+//!   POST /api/agents/suggest-task-title — one-shot title via the configured harness (Claude CLI or CLI adapter)
 
 use axum::{
     extract::{Extension, Path, State},
@@ -20,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tracing::{instrument, warn};
 
 use molt_hub_core::model::{AgentId, SessionId, TaskId};
@@ -31,6 +33,7 @@ use molt_hub_harness::worktree::{validate_repo, WorktreeConfig, WorktreeManager}
 
 use crate::projects::handlers::ProjectConfigStore;
 use crate::projects::runtime::{ensure_project_runtime, ProjectRuntimeRegistry};
+use crate::settings::typed_handlers::TypedSettingsState;
 
 use super::output_buffer::AgentOutputBuffer;
 use super::worktree_registry::{WorktreeManagerCache, WorktreeRegistry};
@@ -137,6 +140,15 @@ pub struct SteerResponse {
     pub agent_id: String,
 }
 
+/// Request body for POST /api/agents/suggest-task-title.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SuggestTaskTitleRequest {
+    text: String,
+    #[serde(default)]
+    adapter_config: Option<serde_json::Value>,
+}
+
 // ---------------------------------------------------------------------------
 // Handlers
 // ---------------------------------------------------------------------------
@@ -169,6 +181,169 @@ fn resolve_spawn_adapter(
             StatusCode::BAD_REQUEST,
             format!("unknown adapter_type: {other} (expected claude, claude-cli, or cli)"),
         )),
+    }
+}
+
+/// Maps persisted settings `agent_defaults.adapter` to the harness spawn kind.
+fn settings_adapter_kind(settings_adapter: &str) -> &'static str {
+    match settings_adapter.trim() {
+        "cli" => "cli",
+        _ => "claude",
+    }
+}
+
+fn task_title_prompt(draft: &str) -> String {
+    format!(
+        "You are helping label a task in a tracker. Reply with exactly one short title: maximum 80 characters, plain text only. No quotation marks, no markdown, no bullets, no trailing period. Base it on this draft:\n\n{}",
+        draft.trim()
+    )
+}
+
+fn title_suggestion_timeout(agent_timeout_minutes: u32) -> Duration {
+    let secs = u64::from(agent_timeout_minutes).saturating_mul(60);
+    Duration::from_secs(secs.clamp(15, 120))
+}
+
+fn sanitize_suggested_title(raw: &str) -> String {
+    let mut s = raw.trim();
+    s = s.trim_matches(|c| c == '"' || c == '\'' || c == '`');
+    let s = if let Some(i) = s.find('\n') {
+        s[..i].trim()
+    } else {
+        s
+    };
+    s.chars().take(100).collect()
+}
+
+fn heuristic_title_from_draft(draft: &str) -> String {
+    let line = draft
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or("")
+        .trim();
+    sanitize_suggested_title(line)
+}
+
+fn spawn_config_for_title_suggestion(
+    instructions: String,
+    adapter_config: serde_json::Value,
+    timeout: Duration,
+) -> SpawnConfig {
+    let working_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    SpawnConfig {
+        agent_id: AgentId::new(),
+        task_id: TaskId::new(),
+        session_id: SessionId::new(),
+        working_dir,
+        instructions,
+        env: HashMap::new(),
+        timeout: Some(timeout),
+        adapter_config,
+        project_id: None,
+    }
+}
+
+/// POST /api/agents/suggest-task-title — ask the configured harness for a short task title.
+#[instrument(skip(state, settings_state, body))]
+async fn suggest_task_title(
+    State(state): State<Arc<AgentState>>,
+    Extension(settings_state): Extension<Arc<TypedSettingsState>>,
+    Json(body): Json<SuggestTaskTitleRequest>,
+) -> impl IntoResponse {
+    let draft = body.text.trim();
+    if draft.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "text must not be empty" })),
+        )
+            .into_response();
+    }
+
+    if state.test_spawn_adapter.is_some() {
+        let title = heuristic_title_from_draft(draft);
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "title": title,
+                "source": "fallback"
+            })),
+        )
+            .into_response();
+    }
+
+    let settings = settings_state.store.get().await;
+    let kind = settings_adapter_kind(&settings.agent_defaults.adapter);
+    let timeout = title_suggestion_timeout(settings.agent_defaults.timeout_minutes.max(1));
+    let instructions = task_title_prompt(draft);
+    let adapter_config = body.adapter_config.unwrap_or_else(|| serde_json::json!({}));
+
+    match kind {
+        "cli" => {
+            if adapter_config
+                .get("command")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim()
+                .is_empty()
+            {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": "CLI adapter requires adapter_config.command (pass adapterConfig in the request body, same shape as spawnAgent)."
+                    })),
+                )
+                    .into_response();
+            }
+            let cli = CliAdapter::new();
+            let cfg = spawn_config_for_title_suggestion(instructions, adapter_config, timeout);
+            match cli.run_stdin_once_collect(cfg).await {
+                Ok(raw) => {
+                    let title = sanitize_suggested_title(&raw);
+                    if title.is_empty() {
+                        return (
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            Json(serde_json::json!({ "error": "harness returned an empty title" })),
+                        )
+                            .into_response();
+                    }
+                    (
+                        StatusCode::OK,
+                        Json(serde_json::json!({ "title": title, "source": "cli" })),
+                    )
+                        .into_response()
+                }
+                Err(e) => (
+                    StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+                    .into_response(),
+            }
+        }
+        _ => {
+            let cfg = spawn_config_for_title_suggestion(instructions, adapter_config, timeout);
+            match state.claude_adapter.run_print_collect(cfg).await {
+                Ok(raw) => {
+                    let title = sanitize_suggested_title(&raw);
+                    if title.is_empty() {
+                        return (
+                            StatusCode::UNPROCESSABLE_ENTITY,
+                            Json(serde_json::json!({ "error": "harness returned an empty title" })),
+                        )
+                            .into_response();
+                    }
+                    (
+                        StatusCode::OK,
+                        Json(serde_json::json!({ "title": title, "source": "claude-cli" })),
+                    )
+                        .into_response()
+                }
+                Err(e) => (
+                    StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({ "error": e.to_string() })),
+                )
+                    .into_response(),
+            }
+        }
     }
 }
 
@@ -507,6 +682,7 @@ async fn get_agent_output(
 /// Mounts:
 ///   GET  /                  — list all agents
 ///   POST /spawn             — spawn a new agent
+///   POST /suggest-task-title — suggest a short title via the harness
 ///   POST /:id/terminate     — terminate an agent
 ///   POST /:id/pause         — pause an agent
 ///   POST /:id/resume        — resume an agent
@@ -516,6 +692,7 @@ pub fn agent_router(state: Arc<AgentState>) -> Router {
     Router::new()
         .route("/", get(list_agents))
         .route("/spawn", post(spawn_agent))
+        .route("/suggest-task-title", post(suggest_task_title))
         .route("/:id/terminate", post(terminate_agent))
         .route("/:id/pause", post(pause_agent))
         .route("/:id/resume", post(resume_agent))

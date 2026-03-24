@@ -12,7 +12,8 @@ use tracing::warn;
 use molt_hub_core::model::{AgentId, AgentStatus};
 
 use crate::adapter::{
-    AdapterError, AgentAdapter, AgentEvent, AgentHandle, AgentMessage, SpawnConfig,
+    collect_agent_print_output, AdapterError, AgentAdapter, AgentEvent, AgentHandle, AgentMessage,
+    SpawnConfig,
 };
 
 // ---------------------------------------------------------------------------
@@ -89,6 +90,106 @@ impl CliAdapter {
     /// Construct an adapter with sensible defaults.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Single-shot: spawn the configured CLI, write `config.instructions` to stdin, close stdin, then collect output until exit 0.
+    ///
+    /// Closing stdin allows processes that read until EOF to finish. Subscribe to events before the stdout reader starts.
+    pub async fn run_stdin_once_collect(&self, config: SpawnConfig) -> Result<String, AdapterError> {
+        let command = config
+            .adapter_config
+            .get("command")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| self.default_command.clone())
+            .ok_or_else(|| {
+                AdapterError::SpawnFailed(
+                    "adapter_config missing required field \"command\"".to_string(),
+                )
+            })?;
+
+        let config_args: Vec<String> = config
+            .adapter_config
+            .get("args")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|a| a.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let args: Vec<String> = self
+            .default_args
+            .iter()
+            .cloned()
+            .chain(config_args)
+            .collect();
+
+        let output_mode = config
+            .adapter_config
+            .get("output_mode")
+            .and_then(|v| v.as_str())
+            .map(OutputMode::from_config)
+            .unwrap_or_else(|| self.default_output_mode.clone());
+
+        let mut cmd = tokio::process::Command::new(&command);
+        cmd.args(&args)
+            .current_dir(&config.working_dir)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .kill_on_drop(true);
+
+        for (k, v) in &config.env {
+            cmd.env(k, v);
+        }
+
+        let mut child = cmd.spawn().map_err(|e| {
+            AdapterError::SpawnFailed(format!("failed to spawn \"{command}\": {e}"))
+        })?;
+
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| AdapterError::SpawnFailed("could not obtain stdin pipe".to_string()))?;
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| AdapterError::SpawnFailed("could not obtain stdout pipe".to_string()))?;
+
+        let (event_tx, _) = broadcast::channel::<AgentEvent>(256);
+        let mut rx = event_tx.subscribe();
+        let status = Arc::new(RwLock::new(AgentStatus::Running));
+        let child_arc = Arc::new(Mutex::new(child));
+
+        if !config.instructions.is_empty() {
+            let payload = format!("{}\n", config.instructions);
+            stdin
+                .write_all(payload.as_bytes())
+                .await
+                .map_err(|e| {
+                    AdapterError::SendFailed(format!("failed to write initial instructions: {e}"))
+                })?;
+            stdin
+                .flush()
+                .await
+                .map_err(|e| {
+                    AdapterError::SendFailed(format!("failed to flush stdin: {e}"))
+                })?;
+        }
+        drop(stdin);
+
+        spawn_reader_task(
+            config.agent_id.clone(),
+            stdout,
+            output_mode,
+            Arc::clone(&status),
+            event_tx,
+            Arc::clone(&child_arc),
+        );
+
+        collect_agent_print_output(&mut rx, &config.agent_id).await
     }
 }
 

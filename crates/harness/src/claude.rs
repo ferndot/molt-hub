@@ -19,7 +19,8 @@ use tracing::{debug, error, warn};
 use molt_hub_core::model::{AgentId, AgentStatus};
 
 use crate::adapter::{
-    AdapterError, AgentAdapter, AgentEvent, AgentHandle, AgentMessage, SpawnConfig,
+    collect_agent_print_output, AdapterError, AgentAdapter, AgentEvent, AgentHandle, AgentMessage,
+    SpawnConfig,
 };
 
 // ---------------------------------------------------------------------------
@@ -208,6 +209,67 @@ impl ClaudeAdapter {
     /// Resolve the effective timeout from config or adapter defaults.
     fn effective_timeout(&self, config: &SpawnConfig) -> Option<Duration> {
         config.timeout.or(self.default_timeout)
+    }
+
+    /// Single non-interactive `--print` run: spawn Claude, collect streamed text, wait for exit 0.
+    ///
+    /// Stdin is closed immediately so the CLI does not wait for interactive input. Subscribe to the
+    /// event channel before starting the stdout reader to avoid missing early events.
+    pub async fn run_print_collect(&self, config: SpawnConfig) -> Result<String, AdapterError> {
+        let timeout = self.effective_timeout(&config);
+        let mut cmd = self.build_command(&config);
+
+        let mut child = cmd.spawn().map_err(|e| {
+            let msg = match e.kind() {
+                io::ErrorKind::NotFound => {
+                    format!("claude binary not found at '{}': {}", self.binary_path, e)
+                }
+                _ => format!("failed to spawn claude: {}", e),
+            };
+            AdapterError::SpawnFailed(msg)
+        })?;
+
+        let stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| AdapterError::SpawnFailed("stdin not available".into()))?;
+        drop(stdin);
+
+        let stdout = child
+            .stdout
+            .take()
+            .ok_or_else(|| AdapterError::SpawnFailed("stdout not available".into()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| AdapterError::SpawnFailed("stderr not available".into()))?;
+
+        let agent_id = config.agent_id.clone();
+        let status = Arc::new(RwLock::new(AgentStatus::Running));
+        let (event_tx, _) = tokio::sync::broadcast::channel(256);
+        let mut rx = event_tx.subscribe();
+        let child_arc = Arc::new(Mutex::new(child));
+
+        Self::spawn_output_reader(
+            agent_id.clone(),
+            stdout,
+            stderr,
+            status.clone(),
+            event_tx.clone(),
+            Arc::clone(&child_arc),
+        );
+
+        if let Some(t) = timeout {
+            Self::spawn_timeout_watchdog(
+                agent_id.clone(),
+                t,
+                Arc::clone(&child_arc),
+                status,
+                event_tx,
+            );
+        }
+
+        collect_agent_print_output(&mut rx, &agent_id).await
     }
 
     /// Spawn the background task that reads stdout and emits events.

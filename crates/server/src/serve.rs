@@ -136,7 +136,7 @@ pub async fn build_router(
 
     let agents = agent_router(agent_state);
     let audit = audit_router(audit_state);
-    let typed_settings = typed_settings_router(typed_settings_state);
+    let typed_settings = typed_settings_router(Arc::clone(&typed_settings_state));
     let projects = project_router(project_state);
 
     // Shared credential store backed by the OS keychain.
@@ -210,6 +210,7 @@ pub async fn build_router(
         .layer(axum::Extension(Arc::clone(&registry)))
         .layer(axum::Extension(Arc::clone(&supervisor)))
         .layer(axum::Extension(Arc::clone(&manager)))
+        .layer(axum::Extension(Arc::clone(&typed_settings_state)))
         .with_state(Arc::clone(&manager));
 
     (router, manager, supervisor, audit_handle)

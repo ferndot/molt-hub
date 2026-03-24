@@ -28,6 +28,7 @@ const BoardView: Component = () => {
   const [addIssueBody, setAddIssueBody] = createSignal("");
   const [addIssueError, setAddIssueError] = createSignal<string | null>(null);
   const [addIssueBusy, setAddIssueBusy] = createSignal(false);
+  const [suggestTitleBusy, setSuggestTitleBusy] = createSignal(false);
   const [jiraImportOpen, setJiraImportOpen] = createSignal(false);
   const [githubImportOpen, setGitHubImportOpen] = createSignal(false);
 
@@ -82,6 +83,32 @@ const BoardView: Component = () => {
       title,
       ...(rest ? { description: rest } : {}),
     };
+  };
+
+  const suggestTitleFromHarness = async () => {
+    const raw = addIssueBody().trim();
+    if (!raw) {
+      setAddIssueError("Write a draft first, then suggest a title.");
+      return;
+    }
+    setSuggestTitleBusy(true);
+    setAddIssueError(null);
+    try {
+      const { title } = await api.suggestTaskTitle({ text: raw });
+      const current = addIssueBody();
+      const nl = current.indexOf("\n");
+      if (nl === -1) {
+        const t = current.trim();
+        setAddIssueBody(t ? `${title}\n\n${t}` : title);
+      } else {
+        const rest = current.slice(nl);
+        setAddIssueBody(`${title}${rest}`);
+      }
+    } catch (e) {
+      setAddIssueError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSuggestTitleBusy(false);
+    }
   };
 
   const submitAddIssue = async () => {
@@ -245,6 +272,22 @@ const BoardView: Component = () => {
                                   </p>
                                 )}
                               </Show>
+                              <div class={styles.addIssueSuggestRow}>
+                                <button
+                                  type="button"
+                                  class={styles.addIssueSuggest}
+                                  onClick={() => void suggestTitleFromHarness()}
+                                  disabled={
+                                    addIssueBusy() ||
+                                    suggestTitleBusy() ||
+                                    !addIssueBody().trim()
+                                  }
+                                >
+                                  {suggestTitleBusy()
+                                    ? "Suggesting title…"
+                                    : "Suggest title (AI)"}
+                                </button>
+                              </div>
                               <div class={styles.addIssueActions}>
                                 <button
                                   type="button"
