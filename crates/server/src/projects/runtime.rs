@@ -10,6 +10,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dashmap::DashMap;
+use molt_hub_core::config::PipelineConfig;
 use molt_hub_harness::supervisor::Supervisor;
 use tokio::sync::RwLock;
 
@@ -20,33 +21,27 @@ use crate::pipeline::handlers::PipelineConfigStore;
 // ---------------------------------------------------------------------------
 
 /// Named kanban boards, each backed by an in-memory [`PipelineConfigStore`].
+///
+/// New boards are cloned from [`MultiBoardPipelineStore::new_board_template`]; there is no
+/// built-in `default` board id — users create boards from that template.
 pub struct MultiBoardPipelineStore {
     boards: RwLock<HashMap<String, Arc<PipelineConfigStore>>>,
+    /// Pipeline config copied for each `create_board` (columns, stages, hooks).
+    new_board_template: PipelineConfig,
 }
 
 impl MultiBoardPipelineStore {
-    /// One board with id `default` using built-in stage defaults.
-    pub fn new() -> Self {
-        let mut m = HashMap::new();
-        m.insert(
-            "default".to_string(),
-            Arc::new(PipelineConfigStore::in_memory()),
-        );
+    /// Empty project: no boards until the user creates one (each new board uses `template`).
+    pub fn empty_with_template(new_board_template: PipelineConfig) -> Self {
         Self {
-            boards: RwLock::new(m),
+            boards: RwLock::new(HashMap::new()),
+            new_board_template,
         }
     }
 
-    /// Start with `default` seeded from an existing config snapshot (e.g. global pipeline file).
-    pub fn with_default_from_config(cfg: molt_hub_core::config::PipelineConfig) -> Self {
-        let mut m = HashMap::new();
-        m.insert(
-            "default".to_string(),
-            Arc::new(PipelineConfigStore::from_pipeline_config(cfg)),
-        );
-        Self {
-            boards: RwLock::new(m),
-        }
+    /// Tests: empty store with stock [`PipelineConfig::board_defaults`] as the create template.
+    pub fn new() -> Self {
+        Self::empty_with_template(PipelineConfig::board_defaults())
     }
 
     fn normalize_id(id: &str) -> Result<String, String> {
@@ -86,7 +81,7 @@ impl MultiBoardPipelineStore {
         if g.contains_key(&id) {
             return Err(format!("board '{id}' already exists"));
         }
-        let store = PipelineConfigStore::in_memory();
+        let store = PipelineConfigStore::from_pipeline_config(self.new_board_template.clone());
         if let Some(n) = name {
             let trimmed = n.trim();
             if !trimmed.is_empty() {
@@ -99,13 +94,7 @@ impl MultiBoardPipelineStore {
 
     pub async fn delete_board(&self, board_id: &str) -> Result<(), String> {
         let id = Self::normalize_id(board_id)?;
-        if id == "default" {
-            return Err("cannot delete the default board".into());
-        }
         let mut g = self.boards.write().await;
-        if g.len() <= 1 {
-            return Err("cannot delete the last board".into());
-        }
         g.remove(&id)
             .ok_or_else(|| format!("board '{id}' not found"))?;
         Ok(())
@@ -187,11 +176,13 @@ pub struct ProjectRuntime {
 pub struct ProjectRuntimeRegistry {
     map: DashMap<String, RuntimeEntry>,
     max_projects: usize,
+    /// Copied into each new [`MultiBoardPipelineStore`] when a project runtime is created.
+    new_board_template: PipelineConfig,
 }
 
 impl Default for ProjectRuntimeRegistry {
     fn default() -> Self {
-        Self::new()
+        Self::new(PipelineConfig::board_defaults())
     }
 }
 
@@ -210,7 +201,9 @@ pub async fn ensure_project_runtime(
     let runtime = Arc::new(ProjectRuntime {
         project_id: project_id.to_string(),
         supervisor: Arc::clone(supervisor),
-        boards: Arc::new(MultiBoardPipelineStore::new()),
+        boards: Arc::new(MultiBoardPipelineStore::empty_with_template(
+            registry.new_board_template.clone(),
+        )),
     });
     registry
         .insert(project_id.to_string(), Arc::clone(&runtime))
@@ -220,15 +213,16 @@ pub async fn ensure_project_runtime(
 
 impl ProjectRuntimeRegistry {
     /// Create a registry with the default capacity ([`DEFAULT_MAX_PROJECT_RUNTIMES`]).
-    pub fn new() -> Self {
-        Self::with_max_projects(DEFAULT_MAX_PROJECT_RUNTIMES)
+    pub fn new(new_board_template: PipelineConfig) -> Self {
+        Self::with_max_projects(DEFAULT_MAX_PROJECT_RUNTIMES, new_board_template)
     }
 
     /// Create a registry that retains at most `max_projects` entries before LRU eviction.
-    pub fn with_max_projects(max_projects: usize) -> Self {
+    pub fn with_max_projects(max_projects: usize, new_board_template: PipelineConfig) -> Self {
         Self {
             map: DashMap::new(),
             max_projects: max_projects.max(2),
+            new_board_template,
         }
     }
 
@@ -290,6 +284,11 @@ impl ProjectRuntimeRegistry {
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
     }
+
+    /// Pipeline snapshot used when creating new boards (and new project runtimes).
+    pub fn new_board_template(&self) -> PipelineConfig {
+        self.new_board_template.clone()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -316,7 +315,7 @@ mod tests {
 
     #[tokio::test]
     async fn registry_insert_and_get() {
-        let registry = ProjectRuntimeRegistry::new();
+        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults());
         let rt = make_runtime("proj-1");
 
         registry.insert("proj-1".into(), Arc::clone(&rt)).await;
@@ -328,13 +327,13 @@ mod tests {
 
     #[tokio::test]
     async fn registry_get_missing_returns_none() {
-        let registry = ProjectRuntimeRegistry::new();
+        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults());
         assert!(registry.get("nonexistent").await.is_none());
     }
 
     #[tokio::test]
     async fn registry_remove() {
-        let registry = ProjectRuntimeRegistry::new();
+        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults());
         registry.insert("p".into(), make_runtime("p")).await;
         assert_eq!(registry.len(), 1);
 
@@ -345,7 +344,7 @@ mod tests {
 
     #[tokio::test]
     async fn registry_is_empty() {
-        let registry = ProjectRuntimeRegistry::new();
+        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults());
         assert!(registry.is_empty());
         registry.insert("x".into(), make_runtime("x")).await;
         assert!(!registry.is_empty());
@@ -353,7 +352,8 @@ mod tests {
 
     #[tokio::test]
     async fn registry_evicts_lru_when_over_capacity() {
-        let registry = ProjectRuntimeRegistry::with_max_projects(2);
+        let registry =
+            ProjectRuntimeRegistry::with_max_projects(2, PipelineConfig::board_defaults());
 
         registry
             .insert("default".into(), make_runtime("default"))

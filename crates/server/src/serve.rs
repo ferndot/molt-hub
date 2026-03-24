@@ -117,11 +117,11 @@ pub async fn build_router(
     let event_store_state = init_event_store().await;
 
     // ---- Project runtime registry ------------------------------------------
-    let registry = Arc::new(ProjectRuntimeRegistry::new());
+    let board_template = pipeline_state.snapshot_config().await;
+    let registry = Arc::new(ProjectRuntimeRegistry::new(board_template.clone()));
     {
-        let default_cfg = pipeline_state.snapshot_config().await;
-        let boards = Arc::new(MultiBoardPipelineStore::with_default_from_config(
-            default_cfg,
+        let boards = Arc::new(MultiBoardPipelineStore::empty_with_template(
+            board_template.clone(),
         ));
         let default_runtime = Arc::new(ProjectRuntime {
             project_id: "default".to_owned(),
@@ -209,6 +209,7 @@ pub async fn build_router(
         .fallback_service(ServeDir::new(dist_dir).fallback(ServeFile::new(index_html)))
         .layer(axum::Extension(Arc::clone(&registry)))
         .layer(axum::Extension(Arc::clone(&supervisor)))
+        .layer(axum::Extension(Arc::clone(&pipeline_state)))
         .layer(axum::Extension(Arc::clone(&manager)))
         .layer(axum::Extension(Arc::clone(&typed_settings_state)))
         .with_state(Arc::clone(&manager));

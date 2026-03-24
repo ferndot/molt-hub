@@ -50,6 +50,7 @@ const BoardView: Component = () => {
 
   const activeBoardTitle = () => {
     const id = boardState.activeBoardId;
+    if (!id) return "Board";
     const b = boardState.boards.find((x) => x.id === id);
     return b?.name ?? id;
   };

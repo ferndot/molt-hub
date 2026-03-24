@@ -124,9 +124,14 @@ export const api = {
   updateSettings: (settings: unknown) =>
     put<Record<string, unknown>>("/settings", settings),
 
-  /** Named kanban boards (`default` is always present). */
+  /** Named kanban boards (empty until you create one). */
   listBoards: () =>
     get<{ boards: BoardSummary[] }>(`${WS_PROJECT}/boards`),
+  /** Default stages/columns applied to each new board (preview before create). */
+  getBoardTemplate: () =>
+    get<{ stages: PipelineStage[]; columns?: unknown }>(
+      `${WS_PROJECT}/board-template`,
+    ),
   createBoard: (body: { id: string; name?: string }) =>
     post<{ boards: BoardSummary[] }>(`${WS_PROJECT}/boards`, body),
   deleteBoard: (boardId: string) =>

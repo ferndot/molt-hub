@@ -211,3 +211,42 @@
   color: var(--text-muted);
   font-size: 0.875rem;
 }
+
+.templatePanel {
+  margin-bottom: 1rem;
+  padding: 0.875rem 1rem;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  font-size: 0.8125rem;
+}
+
+.templateTitle {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+}
+
+.templateList {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.templateList li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: baseline;
+}
+
+.templateLabel {
+  color: var(--text-primary);
+}
+
+.templateId {
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}

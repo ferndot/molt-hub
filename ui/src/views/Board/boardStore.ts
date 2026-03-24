@@ -88,20 +88,21 @@ export function parseBoardIdFromKanbanPath(pathname: string): string | null {
   }
 }
 
-/** Home / legacy `/board` redirect target from URL (if already on a kanban path) or localStorage. */
+/** Home / legacy `/board` redirect: kanban URL, last-used board, or boards list. */
 export function homeRedirectBoardPath(): string {
   const fromPath = parseBoardIdFromKanbanPath(window.location.pathname);
   if (fromPath) return boardKanbanPath(fromPath);
   const raw = localStorage.getItem(BOARD_STORAGE_KEY);
   if (raw) return boardKanbanPath(raw);
-  return boardKanbanPath("default");
+  return "/boards";
 }
 
-function preferredInitialBoardId(boards: BoardSummary[]): string {
+function preferredInitialBoardId(boards: BoardSummary[]): string | null {
   const fromUrl = parseBoardIdFromKanbanPath(window.location.pathname);
   if (fromUrl && boards.some((b) => b.id === fromUrl)) return fromUrl;
   const stored = localStorage.getItem(BOARD_STORAGE_KEY);
   if (stored && boards.some((b) => b.id === stored)) return stored;
+  if (boards.length === 0) return null;
   return boards[0].id;
 }
 
@@ -146,8 +147,8 @@ const initialState: BoardState = {
   pipelineStages: DEFAULT_PIPELINE_STAGES,
   stagesLoaded: false,
   tasks: [],
-  boards: [{ id: "default", name: "Default" }],
-  activeBoardId: "default",
+  boards: [],
+  activeBoardId: "",
   boardsSynced: false,
 };
 
@@ -170,12 +171,21 @@ async function applyStagesFromFetch(fetched: PipelineStage[] | null): Promise<vo
 }
 
 async function applySetActiveBoard(boardId: string): Promise<void> {
-  if (!boardState.boards.some((b) => b.id === boardId)) return;
+  if (!boardId || !boardState.boards.some((b) => b.id === boardId)) return;
   setBoardState("activeBoardId", boardId);
   localStorage.setItem(BOARD_STORAGE_KEY, boardId);
   setBoardState("stagesLoaded", false);
   const fetched = await fetchBoardStages(boardId);
   await applyStagesFromFetch(fetched);
+  setBoardState("stagesLoaded", true);
+}
+
+/** Clear selection when there are no boards (or last board removed). */
+async function applyNoActiveBoard(): Promise<void> {
+  setBoardState("activeBoardId", "");
+  localStorage.removeItem(BOARD_STORAGE_KEY);
+  setBoardState("stagesLoaded", false);
+  await applyStagesFromFetch(null);
   setBoardState("stagesLoaded", true);
 }
 
@@ -196,13 +206,14 @@ export function initBoardStages(): Promise<void> {
     } catch {
       boards = [];
     }
-    if (boards.length === 0) {
-      boards = [{ id: "default", name: "Default" }];
-    }
     setBoardState("boards", boards);
 
     const pick = preferredInitialBoardId(boards);
-    await applySetActiveBoard(pick);
+    if (pick) {
+      await applySetActiveBoard(pick);
+    } else {
+      await applyNoActiveBoard();
+    }
     setBoardState("boardsSynced", true);
   });
 }
@@ -219,9 +230,6 @@ export function refreshBoardList(): Promise<void> {
       boards = res.boards ?? [];
     } catch {
       boards = [];
-    }
-    if (boards.length === 0) {
-      boards = [{ id: "default", name: "Default" }];
     }
     setBoardState("boards", boards);
   });
@@ -246,17 +254,20 @@ export function createBoard(id: string, name?: string): Promise<void> {
   });
 }
 
-/** Delete a board (not `default`). */
+/** Delete a board. */
 export function deleteBoard(boardId: string): Promise<void> {
   return runBoardStoreOp(async () => {
-    if (boardId === "default") return;
     const wasActive = boardState.activeBoardId === boardId;
     const res = await api.deleteBoard(boardId);
     const list = res.boards ?? [];
     setBoardState("boards", list);
     if (wasActive) {
-      const next = list[0]?.id ?? "default";
-      await applySetActiveBoard(next);
+      const next = list[0]?.id ?? null;
+      if (next) {
+        await applySetActiveBoard(next);
+      } else {
+        await applyNoActiveBoard();
+      }
     }
   });
 }
@@ -265,6 +276,7 @@ export function deleteBoard(boardId: string): Promise<void> {
  * Push the current pipeline stages to the backend API (active board).
  */
 export async function pushStagesToApi(): Promise<void> {
+  if (!boardState.activeBoardId) return;
   try {
     await api.updateBoardStages(boardState.activeBoardId, {
       stages: boardState.pipelineStages,
@@ -344,6 +356,7 @@ export async function patchStage(
   setBoardState("pipelineStages", (stages) =>
     stages.map((s) => (s.id === id ? { ...s, ...fields } : s)),
   );
+  if (!boardState.activeBoardId) return;
   try {
     await api.patchBoardStage(boardState.activeBoardId, id, fields);
   } catch {

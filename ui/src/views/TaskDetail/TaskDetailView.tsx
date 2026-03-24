@@ -71,7 +71,11 @@ const TaskDetailView: Component = () => {
               {/* Header */}
               <div class={styles.header}>
                 <a
-                  href={boardKanbanPath(boardState.activeBoardId)}
+                  href={
+                    boardState.activeBoardId
+                      ? boardKanbanPath(boardState.activeBoardId)
+                      : "/boards"
+                  }
                   class={styles.backBtn}
                   data-testid="back-btn"
                 >

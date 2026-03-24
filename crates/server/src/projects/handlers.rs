@@ -8,7 +8,7 @@
 //!   DELETE /api/projects/:id   — archive (soft-delete) a project
 
 use crate::agents::handlers::{delete_project_agent, get_project_agent, list_project_agents};
-use crate::pipeline::handlers::{PipelineConfigStore, StagePatch, StagesResponse};
+use crate::pipeline::handlers::{PipelineConfigStore, PipelineState, StagePatch, StagesResponse};
 use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
@@ -323,7 +323,9 @@ pub async fn create_project(
             let runtime = Arc::new(ProjectRuntime {
                 project_id: pid.clone(),
                 supervisor: Arc::clone(&supervisor),
-                boards: Arc::new(MultiBoardPipelineStore::new()),
+                boards: Arc::new(MultiBoardPipelineStore::empty_with_template(
+                    registry.new_board_template(),
+                )),
             });
             registry.insert(pid, runtime).await;
             info!(id = %project.id, name = %project.name, "project created");
@@ -405,6 +407,28 @@ pub async fn archive_project(
 // ---------------------------------------------------------------------------
 // Boards + project-scoped pipeline stages
 // ---------------------------------------------------------------------------
+
+/// GET /api/projects/:pid/board-template
+///
+/// Default stages/columns for **new** boards (same JSON shape as GET …/boards/:bid/stages).
+#[instrument(skip_all)]
+pub async fn get_project_board_template(
+    Path(project_id): Path<String>,
+    State(projects): State<Arc<ProjectConfigStore>>,
+    Extension(pipeline): Extension<Arc<PipelineState>>,
+) -> impl IntoResponse {
+    if !project_exists_or_default(&projects, &project_id).await {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("project '{project_id}' not found"),
+            }),
+        )
+            .into_response();
+    }
+    let body = pipeline.get_stages_response().await;
+    (StatusCode::OK, Json(body)).into_response()
+}
 
 async fn project_exists_or_default(projects: &ProjectConfigStore, project_id: &str) -> bool {
     project_id == "default" || projects.get(project_id).await.is_some()
@@ -620,6 +644,11 @@ pub fn project_router(state: Arc<ProjectConfigStore>) -> Router {
             "/:pid/agents/:aid",
             get(get_project_agent).delete(delete_project_agent),
         )
+        // Board template (new-board defaults) — register before `/:pid/boards`
+        .route(
+            "/:pid/board-template",
+            get(get_project_board_template),
+        )
         // Named boards
         .route(
             "/:pid/boards",
@@ -659,7 +688,8 @@ mod tests {
         Extension<Arc<ProjectRuntimeRegistry>>,
         Extension<Arc<Supervisor>>,
     ) {
-        let registry = Arc::new(ProjectRuntimeRegistry::new());
+        use molt_hub_core::config::PipelineConfig;
+        let registry = Arc::new(ProjectRuntimeRegistry::new(PipelineConfig::board_defaults()));
         let (tx, _rx) = broadcast::channel::<AgentEvent>(4);
         let supervisor = Arc::new(Supervisor::new(SupervisorConfig::default(), tx));
         (Extension(registry), Extension(supervisor))

@@ -76,12 +76,13 @@ describe("boardStore API integration", () => {
       json: () => Promise.resolve({ stages: [] }),
     });
 
-    const { pushStagesToApi } = await import("../boardStore");
+    const { pushStagesToApi, setBoardState } = await import("../boardStore");
+    setBoardState("activeBoardId", "main");
     await pushStagesToApi();
 
     expect(mockFetch).toHaveBeenCalled();
     const call = mockFetch.mock.calls[0];
-    expect(call[0]).toBe("/api/projects/default/boards/default/stages");
+    expect(call[0]).toBe("/api/projects/default/boards/main/stages");
     expect((call[1] as { method: string }).method).toBe("PUT");
     const body = JSON.parse((call[1] as { body: string }).body as string);
     expect(body).toHaveProperty("stages");
@@ -103,7 +104,8 @@ describe("boardStore API integration", () => {
         }),
     });
 
-    const { patchStage, boardState } = await import("../boardStore");
+    const { patchStage, boardState, setBoardState } = await import("../boardStore");
+    setBoardState("activeBoardId", "main");
     await patchStage("backlog", { label: "Updated", color: "#ff0000" });
 
     const updated = boardState.pipelineStages.find((s) => s.id === "backlog");
@@ -112,7 +114,7 @@ describe("boardStore API integration", () => {
 
     expect(mockFetch).toHaveBeenCalled();
     const call = mockFetch.mock.calls[0];
-    expect(call[0]).toBe("/api/projects/default/boards/default/stages/backlog");
+    expect(call[0]).toBe("/api/projects/default/boards/main/stages/backlog");
     expect((call[1] as { method: string }).method).toBe("PATCH");
     const body = JSON.parse((call[1] as { body: string }).body as string);
     expect(body.label).toBe("Updated");
@@ -138,7 +140,7 @@ describe("boardStore API integration", () => {
       headers: {
         get: (name: string) => (name === "content-type" ? "application/json" : null),
       },
-      json: () => Promise.resolve({ boards: [{ id: "default", name: "Default" }] }),
+      json: () => Promise.resolve({ boards: [{ id: "main", name: "Main" }] }),
     });
     mockFetch.mockResolvedValueOnce({
       ok: true,

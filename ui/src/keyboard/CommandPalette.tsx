@@ -36,7 +36,11 @@ const CommandPalette: Component<Props> = (props) => {
         navigate("/triage");
         break;
       case "goto-board":
-        navigate(boardKanbanPath(boardState.activeBoardId));
+        navigate(
+          boardState.activeBoardId
+            ? boardKanbanPath(boardState.activeBoardId)
+            : "/boards",
+        );
         break;
       case "goto-boards-list":
         navigate("/boards");

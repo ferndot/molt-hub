@@ -8,6 +8,7 @@ import {
 } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { TbOutlineLayoutDashboard } from "solid-icons/tb";
+import { api, type PipelineStage } from "../../lib/api";
 import {
   boardKanbanPath,
   boardState,
@@ -25,9 +26,19 @@ const BoardsView: Component = () => {
   const [newName, setNewName] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  const [templateStages, setTemplateStages] = createSignal<PipelineStage[]>([]);
 
   onMount(() => {
     void refreshBoardList();
+    void (async () => {
+      try {
+        const res = await api.getBoardTemplate();
+        const stages = [...(res.stages ?? [])].sort((a, b) => a.order - b.order);
+        setTemplateStages(stages);
+      } catch {
+        setTemplateStages([]);
+      }
+    })();
   });
 
   const filtered = createMemo(() => {
@@ -67,7 +78,6 @@ const BoardsView: Component = () => {
   };
 
   const handleDelete = async (boardId: string) => {
-    if (boardId === "default") return;
     if (!confirm(`Delete board "${boardId}"? This cannot be undone.`)) return;
     setError(null);
     setBusy(true);
@@ -94,6 +104,22 @@ const BoardsView: Component = () => {
           aria-label="Filter boards"
         />
       </div>
+
+      <Show when={templateStages().length > 0}>
+        <div class={styles.templatePanel} role="region" aria-label="New board template">
+          <div class={styles.templateTitle}>New boards start with these columns</div>
+          <ul class={styles.templateList}>
+            <For each={templateStages()}>
+              {(s) => (
+                <li>
+                  <span class={styles.templateLabel}>{s.label}</span>
+                  <span class={styles.templateId}>{s.id}</span>
+                </li>
+              )}
+            </For>
+          </ul>
+        </div>
+      </Show>
 
       <div class={styles.createPanel}>
         <div class={styles.field}>
@@ -161,16 +187,14 @@ const BoardsView: Component = () => {
                   >
                     Open
                   </button>
-                  <Show when={board.id !== "default"}>
-                    <button
-                      type="button"
-                      class={styles.deleteBtn}
-                      onClick={() => void handleDelete(board.id)}
-                      disabled={busy()}
-                    >
-                      Delete
-                    </button>
-                  </Show>
+                  <button
+                    type="button"
+                    class={styles.deleteBtn}
+                    onClick={() => void handleDelete(board.id)}
+                    disabled={busy()}
+                  >
+                    Delete
+                  </button>
                 </div>
               </div>
             )}

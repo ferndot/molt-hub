@@ -25,7 +25,10 @@ const BoardPage: Component = () => {
     const exists = boards.some((b) => b.id === id);
 
     if (synced && !exists) {
-      navigate(boardKanbanPath(activeBoardId), { replace: true });
+      navigate(
+        activeBoardId ? boardKanbanPath(activeBoardId) : "/boards",
+        { replace: true },
+      );
       return;
     }
     if (exists && id !== activeBoardId) {

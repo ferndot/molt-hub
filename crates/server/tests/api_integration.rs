@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use axum::body::Body;
-use axum::http::{Request, StatusCode};
+use axum::http::{Method, Request, StatusCode};
 use tower::ServiceExt;
 
 use molt_hub_server::serve::build_router;
@@ -26,24 +26,56 @@ async fn app() -> axum::Router {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn get_default_board_stages_returns_non_empty_stages() {
+async fn board_template_and_new_board_stages_round_trip() {
     let app = app().await;
+
+    let tmpl = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/projects/default/board-template")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(tmpl.status(), StatusCode::OK);
+    let tmpl_body = axum::body::to_bytes(tmpl.into_body(), 1_000_000)
+        .await
+        .unwrap();
+    let tmpl_json: serde_json::Value = serde_json::from_slice(&tmpl_body).unwrap();
+    assert!(
+        tmpl_json["stages"].is_array() && !tmpl_json["stages"].as_array().unwrap().is_empty(),
+        "board template should expose non-empty default stages"
+    );
+
+    let create = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method(Method::POST)
+                .uri("/api/projects/default/boards")
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({ "id": "main", "name": "Main" }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(create.status(), StatusCode::CREATED);
 
     let resp = app
         .oneshot(
             Request::builder()
-                .uri("/api/projects/default/boards/default/stages")
+                .uri("/api/projects/default/boards/main/stages")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(
-        resp.status(),
-        StatusCode::OK,
-        "default project runtime must be registered; empty Extension registry would return 404"
-    );
+    assert_eq!(resp.status(), StatusCode::OK);
 
     let body = axum::body::to_bytes(resp.into_body(), 1_000_000)
         .await
@@ -51,7 +83,7 @@ async fn get_default_board_stages_returns_non_empty_stages() {
     let wrapper: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert!(
         wrapper["stages"].is_array() && !wrapper["stages"].as_array().unwrap().is_empty(),
-        "expected non-empty stages from default board"
+        "expected non-empty stages on a newly created board (cloned from template)"
     );
     let first = &wrapper["stages"].as_array().unwrap()[0];
     assert!(first.get("id").is_some(), "stage missing 'id'");
