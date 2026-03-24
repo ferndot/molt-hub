@@ -390,7 +390,12 @@ const JiraPanel: Component<{ onBack: () => void }> = (props) => {
       <Show when={!isConnected()}>
         <div class={styles.oauthSection}>
           <p class={styles.oauthDescription}>
-            Connect your Atlassian account via OAuth to import Jira issues.
+            Connect your Atlassian account via OAuth to import Jira issues. Atlassian requires a{" "}
+            <strong>client secret</strong> on the token step: set{" "}
+            <code>MOLTHUB_JIRA_CLIENT_SECRET</code> or <code>JIRA_CLIENT_SECRET</code> to the secret
+            from the <em>same</em> developer-console app as the client ID. Prefer registering your
+            own OAuth 2.0 (3LO) app and setting <code>MOLTHUB_JIRA_CLIENT_ID</code> plus that secret.
+            Restart the server after changing env, then connect again.
           </p>
           <div class={styles.connectedRow}>
             <span class={`${styles.statusBadge} ${styles.statusIdle}`}>

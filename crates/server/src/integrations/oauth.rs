@@ -3,17 +3,22 @@
 use oauth2::basic::{BasicClient, BasicErrorResponse, BasicTokenResponse};
 
 macro_rules! jira_oauth_client {
-    ($svc:expr) => {
-        BasicClient::new(ClientId::new($svc.client_id.clone()))
+    ($svc:expr) => {{
+        let mut c = BasicClient::new(ClientId::new($svc.client_id.clone()))
             .set_auth_uri(auth_url())
             .set_token_uri(token_url())
-            .set_redirect_uri($svc.redirect_url.clone())
-    };
+            .set_redirect_uri($svc.redirect_url.clone());
+        if let Some(ref s) = $svc.client_secret {
+            c = c.set_client_secret(ClientSecret::new(s.clone()));
+        }
+        c
+    }};
 }
 use oauth2::TokenResponse as _;
 use oauth2::{
-    AuthUrl, AuthorizationCode, ClientId, CsrfToken, HttpClientError, PkceCodeChallenge,
-    PkceCodeVerifier, RedirectUrl, RefreshToken, RequestTokenError, Scope, TokenUrl,
+    AuthUrl, AuthorizationCode, ClientId, ClientSecret, CsrfToken, HttpClientError,
+    PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, RefreshToken, RequestTokenError, Scope,
+    TokenUrl,
 };
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -82,14 +87,36 @@ pub const DEFAULT_SCOPES: &[&str] = &[
 
 pub struct JiraOAuthService {
     client_id: String,
+    /// Atlassian requires this for the code and refresh_token exchanges (see 3LO docs).
+    client_secret: Option<String>,
     redirect_url: RedirectUrl,
     http: Client,
+}
+
+fn resolve_jira_client_secret() -> Option<String> {
+    for key in ["MOLTHUB_JIRA_CLIENT_SECRET", "JIRA_CLIENT_SECRET"] {
+        if let Ok(v) = std::env::var(key) {
+            let t = v.trim().to_owned();
+            if !t.is_empty() {
+                return Some(t);
+            }
+        }
+    }
+    None
 }
 
 impl JiraOAuthService {
     pub fn new(redirect_uri: &str) -> Self {
         let client_id =
             std::env::var("MOLTHUB_JIRA_CLIENT_ID").unwrap_or_else(|_| JIRA_CLIENT_ID.to_owned());
+        let client_secret = resolve_jira_client_secret();
+        if client_secret.is_none() {
+            tracing::warn!(
+                "Jira OAuth: no client secret (set MOLTHUB_JIRA_CLIENT_SECRET or JIRA_CLIENT_SECRET). \
+                 Atlassian's token endpoint requires it for 3LO; without it you typically get \
+                 access_denied / Unauthorized on callback."
+            );
+        }
         let redirect_url = RedirectUrl::new(redirect_uri.to_owned())
             .unwrap_or_else(|e| panic!("invalid Jira OAuth redirect URI: {e}"));
         let http = Client::builder()
@@ -98,6 +125,26 @@ impl JiraOAuthService {
             .expect("reqwest client");
         Self {
             client_id,
+            client_secret,
+            redirect_url,
+            http,
+        }
+    }
+
+    /// Construct with an explicit secret (tests); does not log the missing-secret warning.
+    pub fn with_client_secret(redirect_uri: &str, client_secret: String) -> Self {
+        let client_id =
+            std::env::var("MOLTHUB_JIRA_CLIENT_ID").unwrap_or_else(|_| JIRA_CLIENT_ID.to_owned());
+        let redirect_url = RedirectUrl::new(redirect_uri.to_owned())
+            .unwrap_or_else(|e| panic!("invalid Jira OAuth redirect URI: {e}"));
+        let http = Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+            .expect("reqwest client");
+        let secret = client_secret.trim().to_owned();
+        Self {
+            client_id,
+            client_secret: (!secret.is_empty()).then_some(secret),
             redirect_url,
             http,
         }

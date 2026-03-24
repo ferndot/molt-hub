@@ -17,6 +17,8 @@ The default API origin is `http://127.0.0.1:13401`. If you use another port, ope
 
 **GitHub token exchange** needs a client secret at runtime: set **`MOLTHUB_GITHUB_CLIENT_SECRET`** or **`GITHUB_CLIENT_SECRET`** before starting the server (or compile with `GITHUB_CLIENT_SECRET` set).
 
+**Jira (Atlassian 3LO)** needs **`MOLTHUB_JIRA_CLIENT_SECRET`** or **`JIRA_CLIENT_SECRET`** for the same OAuth app as the client ID (see Atlassian’s “Exchange authorization code for access token” docs).
+
 **“Callback URL is invalid” (Atlassian)** — `redirect_uri` and console must match; client ID must be that app’s (`oauth.rs` default or **`MOLTHUB_JIRA_CLIENT_ID`**).
 
 Any static HTTPS host works if paths match what you register.
