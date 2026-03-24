@@ -3,9 +3,9 @@
  * pipeline stage. Exported as the default component for the /board route.
  */
 
-import { For, Show, createSignal, onMount, type Component } from "solid-js";
+import { For, Show, createSignal, type Component } from "solid-js";
 import { TbOutlineSettings } from "solid-icons/tb";
-import { moveTask, tasksForStage, initBoardStages, getSortedStages, type BoardTask } from "./boardStore";
+import { moveTask, tasksForStage, getSortedStages, type BoardTask } from "./boardStore";
 import { activeRepoPath } from "../../stores/projectStore";
 import BoardColumn from "./BoardColumn";
 import ColumnEditor from "./ColumnEditor";
@@ -17,11 +17,6 @@ import styles from "./BoardView.module.css";
 
 const BoardView: Component = () => {
   const [editorOpen, setEditorOpen] = createSignal(false);
-
-  // Fetch pipeline stages from server on mount (falls back to defaults)
-  onMount(() => {
-    initBoardStages();
-  });
 
   const handleDrop = (
     taskId: string,

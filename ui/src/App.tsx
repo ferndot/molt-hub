@@ -1,7 +1,9 @@
 import type { Component } from "solid-js";
-import { lazy, Suspense, onMount } from "solid-js";
+import { lazy, Suspense, createEffect, onCleanup, onMount } from "solid-js";
 import { Router, Route } from "@solidjs/router";
-import { loadProjects } from "./stores/projectStore";
+import { loadProjects, projectState } from "./stores/projectStore";
+import { initBoardStages, handleBoardWsMessage } from "./views/Board/boardStore";
+import { subscribe, projectTopic } from "./lib/ws";
 import AppLayout from "./layout/AppLayout";
 import TriageView from "./views/Triage/TriageView";
 import AgentDetailView from "./views/AgentDetail/AgentDetailView";
@@ -37,6 +39,17 @@ const SettingsPage: Component = () => <SettingsView />;
 const App: Component = () => {
   onMount(() => {
     void loadProjects();
+  });
+
+  createEffect(() => {
+    projectState.activeProjectId;
+    void initBoardStages();
+  });
+
+  createEffect(() => {
+    const topic = projectTopic(projectState.activeProjectId, "board:*");
+    const unsub = subscribe(topic, handleBoardWsMessage);
+    onCleanup(unsub);
   });
 
   return (

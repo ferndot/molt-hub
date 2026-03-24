@@ -39,7 +39,10 @@ describe("boardStore API integration", () => {
     });
 
     const { fetchPipelineStages } = await import("../boardStore");
-    const result = await fetchPipelineStages();
+    const result = await fetchPipelineStages("default");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/projects/default/pipeline/stages",
+    );
     expect(result).toEqual(stages);
   });
 
@@ -47,7 +50,7 @@ describe("boardStore API integration", () => {
     mockFetch.mockRejectedValueOnce(new Error("Network error"));
 
     const { fetchPipelineStages } = await import("../boardStore");
-    const result = await fetchPipelineStages();
+    const result = await fetchPipelineStages("default");
     expect(result).toBeNull();
   });
 
@@ -58,7 +61,7 @@ describe("boardStore API integration", () => {
     });
 
     const { fetchPipelineStages } = await import("../boardStore");
-    const result = await fetchPipelineStages();
+    const result = await fetchPipelineStages("default");
     expect(result).toBeNull();
   });
 
@@ -72,7 +75,7 @@ describe("boardStore API integration", () => {
     });
 
     const { fetchPipelineStages } = await import("../boardStore");
-    const result = await fetchPipelineStages();
+    const result = await fetchPipelineStages("default");
     expect(result).toBeNull();
   });
 
@@ -89,7 +92,7 @@ describe("boardStore API integration", () => {
     // Verify fetch was called with PUT and pipeline stages
     expect(mockFetch).toHaveBeenCalled();
     const call = mockFetch.mock.calls[0];
-    expect(call[0]).toBe("/api/pipeline/stages");
+    expect(call[0]).toBe("/api/projects/default/pipeline/stages");
     expect(call[1].method).toBe("PUT");
     const body = JSON.parse(call[1].body as string);
     expect(body).toHaveProperty("stages");
@@ -113,7 +116,7 @@ describe("boardStore API integration", () => {
     // Verify PATCH was called
     expect(mockFetch).toHaveBeenCalled();
     const call = mockFetch.mock.calls[0];
-    expect(call[0]).toBe("/api/pipeline/stages/backlog");
+    expect(call[0]).toBe("/api/projects/default/pipeline/stages/backlog");
     expect(call[1].method).toBe("PATCH");
     const body = JSON.parse(call[1].body as string);
     expect(body.label).toBe("Updated");

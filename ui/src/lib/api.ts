@@ -113,12 +113,32 @@ export const api = {
   updateSettings: (settings: unknown) =>
     put<Record<string, unknown>>("/settings", settings),
 
-  // Pipeline
+  // Pipeline (legacy global routes — prefer project-scoped for multi-tenant UI)
   getStages: () => get<{ stages: PipelineStage[] }>("/pipeline/stages"),
   updateStages: (stages: unknown) =>
     put<{ stages: PipelineStage[] }>("/pipeline/stages", stages),
   patchStage: (id: string, fields: Partial<PipelineStage>) =>
     patch<PipelineStage>(`/pipeline/stages/${id}`, fields),
+
+  /** Per-project pipeline (matches `/api/projects/:pid/pipeline/...` on the server). */
+  getProjectPipelineStages: (projectId: string) =>
+    get<{ stages: PipelineStage[] }>(
+      `/projects/${projectId}/pipeline/stages`,
+    ),
+  updateProjectPipelineStages: (projectId: string, body: unknown) =>
+    put<{ stages: PipelineStage[] }>(
+      `/projects/${projectId}/pipeline/stages`,
+      body,
+    ),
+  patchProjectPipelineStage: (
+    projectId: string,
+    stageId: string,
+    fields: Partial<PipelineStage>,
+  ) =>
+    patch<PipelineStage>(
+      `/projects/${projectId}/pipeline/stages/${stageId}`,
+      fields,
+    ),
 
   // Agents
   getAgents: () => get<AgentsListResponse>("/agents"),

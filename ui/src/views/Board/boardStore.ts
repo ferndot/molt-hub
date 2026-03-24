@@ -3,12 +3,15 @@
  * grouped by stage. Subscribes to WebSocket topic "board:*" for real-time
  * updates.
  *
- * Stages are fetched from GET /api/pipeline/stages on init, falling back
+ * Stages are fetched from GET /api/projects/:id/pipeline/stages on init, falling back
  * to hardcoded defaults if the API is unavailable.
+ *
+ * WebSocket board events are subscribed from `App.tsx` per `activeProjectId`
+ * so the topic updates on project switch and Mission Control stays in sync.
  */
 
 import { createStore } from "solid-js/store";
-import { subscribe, projectTopic } from "../../lib/ws";
+import type { ServerMessage } from "../../types";
 import { api, type PipelineStage } from "../../lib/api";
 import { projectState } from "../../stores/projectStore";
 import type { Priority } from "../../types/domain";
@@ -74,12 +77,16 @@ interface StagesApiResponse {
 }
 
 /**
- * Fetch pipeline stages from the server.
+ * Fetch pipeline stages for a project from the server.
  * Returns null on failure so callers can fall back to defaults.
  */
-export async function fetchPipelineStages(): Promise<PipelineStage[] | null> {
+export async function fetchPipelineStages(
+  projectId: string,
+): Promise<PipelineStage[] | null> {
   try {
-    const response = await fetch("/api/pipeline/stages");
+    const response = await fetch(
+      `/api/projects/${encodeURIComponent(projectId)}/pipeline/stages`,
+    );
     if (!response.ok) return null;
     const ct = response.headers.get("content-type") ?? "";
     if (!ct.includes("application/json")) return null;
@@ -112,14 +119,21 @@ export const [boardState, setBoardState] =
 /**
  * Load pipeline stages from the server API and update the store.
  * Falls back to the hardcoded defaults if the API is unavailable.
- * Call this once at app startup or when the Board view mounts.
+ * Clears board tasks so a project switch does not show the previous project's cards.
+ * Call when the Board view mounts and whenever `activeProjectId` changes.
  */
 export async function initBoardStages(): Promise<void> {
-  const fetched = await fetchPipelineStages();
+  const projectId = projectState.activeProjectId;
+  setBoardState("tasks", []);
+  setBoardState("stagesLoaded", false);
+  const fetched = await fetchPipelineStages(projectId);
   if (fetched) {
     const sorted = [...fetched].sort((a, b) => a.order - b.order);
     setBoardState("stages", sorted.map((s) => s.id));
     setBoardState("pipelineStages", sorted);
+  } else {
+    setBoardState("stages", DEFAULT_STAGES);
+    setBoardState("pipelineStages", DEFAULT_PIPELINE_STAGES);
   }
   setBoardState("stagesLoaded", true);
 }
@@ -130,7 +144,9 @@ export async function initBoardStages(): Promise<void> {
  */
 export async function pushStagesToApi(): Promise<void> {
   try {
-    await api.updateStages({ stages: boardState.pipelineStages });
+    await api.updateProjectPipelineStages(projectState.activeProjectId, {
+      stages: boardState.pipelineStages,
+    });
   } catch {
     // Silently ignore — the board still works with local state
   }
@@ -214,27 +230,30 @@ export async function patchStage(
     stages.map((s) => (s.id === id ? { ...s, ...fields } : s)),
   );
   try {
-    await api.patchStage(id, fields);
+    await api.patchProjectPipelineStage(
+      projectState.activeProjectId,
+      id,
+      fields,
+    );
   } catch {
     // Silently ignore — the board still works with local state
   }
 }
 
 // ---------------------------------------------------------------------------
-// WebSocket subscription (stub — real handler wired when server sends board events)
+// WebSocket — handler for board:* events (subscribe from BoardView per project)
 // ---------------------------------------------------------------------------
 
-subscribe(projectTopic(projectState.activeProjectId, "board:*"), (msg) => {
+/** Process a server board event for the active project's Kanban. */
+export function handleBoardWsMessage(msg: ServerMessage): void {
   if (msg.type !== "event") return;
   const payload = msg.payload as Record<string, unknown>;
   const taskId = payload.task_id as string | undefined;
   if (!taskId) return;
 
-  // Check if this is an existing task update or a new task
   const existing = boardState.tasks.find((t) => t.id === taskId);
 
   if (existing) {
-    // Update existing task fields from the payload
     setBoardState("tasks", (tasks) =>
       tasks.map((t) => {
         if (t.id !== taskId) return t;
@@ -258,7 +277,6 @@ subscribe(projectTopic(projectState.activeProjectId, "board:*"), (msg) => {
       }),
     );
   } else if (payload.stage && payload.status) {
-    // New task — append to the board
     const newTask: BoardTask = {
       id: taskId,
       name: (payload.name as string) ?? "Untitled",
@@ -272,4 +290,4 @@ subscribe(projectTopic(projectState.activeProjectId, "board:*"), (msg) => {
     };
     setBoardState("tasks", (tasks) => [...tasks, newTask]);
   }
-});
+}
