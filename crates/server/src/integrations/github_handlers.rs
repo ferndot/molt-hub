@@ -1,49 +1,45 @@
 //! Axum HTTP handlers for the GitHub integration endpoints.
 //!
-//! Routes:
-//!   GET  /api/integrations/github/repos   — list repos
-//!   GET  /api/integrations/github/search  — search issues
-//!   POST /api/integrations/github/import  — import selected issues (stub)
+//! Routes (under `/api/integrations/github`):
+//!   GET  /repos   — list repos
+//!   GET  /search  — search issues (GitHub `q` string)
+//!   GET  /issues  — list/search issues (UI: owner, repo, state, labels)
+//!   POST /import  — import selected issues (stub)
 //!
-//! Authentication is via a GitHub personal access token stored in app state.
+//! Authentication uses the same OAuth tokens as `/auth` and `/oauth/callback`
+//! via [`GithubOAuthState`] inside [`GithubAppState`].
 
 use std::sync::Arc;
 
 use axum::{
-    extract::{Query, State},
+    extract::{FromRef, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    routing::{get, post},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-use super::github_client::{GitHubClient, GitHubError};
+use super::github_client::{GitHubClient, GitHubError, GitHubIssue};
+use super::github_oauth_handlers::{
+    github_auth, github_disconnect, github_oauth_callback, github_status, GithubOAuthState,
+    GithubOAuthStateRef,
+};
 
 // ---------------------------------------------------------------------------
-// Shared app state
+// App state
 // ---------------------------------------------------------------------------
 
-/// State injected into GitHub integration handlers.
-pub struct GitHubState {
-    /// The GitHub token used to authenticate API requests.
-    /// `None` means no token has been configured yet.
-    pub token: tokio::sync::RwLock<Option<String>>,
+/// Shared state for GitHub OAuth and REST handlers.
+#[derive(Clone)]
+pub struct GithubAppState {
+    pub oauth: Arc<GithubOAuthState>,
 }
 
-impl GitHubState {
-    /// Create a new state with no token.
-    pub fn new() -> Self {
-        Self {
-            token: tokio::sync::RwLock::new(None),
-        }
-    }
-
-    /// Create a new state with a pre-configured token.
-    pub fn with_token(token: String) -> Self {
-        Self {
-            token: tokio::sync::RwLock::new(Some(token)),
-        }
+impl FromRef<GithubAppState> for GithubOAuthStateRef {
+    fn from_ref(state: &GithubAppState) -> Self {
+        GithubOAuthStateRef(state.oauth.clone())
     }
 }
 
@@ -61,6 +57,32 @@ pub struct SearchQuery {
     /// Free-text search query.
     #[serde(default)]
     pub q: String,
+}
+
+/// Query parameters for `GET /issues` (Solid UI).
+#[derive(Debug, Deserialize)]
+pub struct IssuesQuery {
+    pub owner: String,
+    pub repo: String,
+    /// `open`, `closed`, or `all` (default `open`).
+    #[serde(default = "default_issue_state_filter")]
+    pub state: String,
+    /// Comma-separated label names.
+    #[serde(default)]
+    pub labels: String,
+}
+
+fn default_issue_state_filter() -> String {
+    "open".to_owned()
+}
+
+/// Issue row shape expected by the web UI.
+#[derive(Debug, Serialize)]
+pub struct GitHubIssueUi {
+    pub number: i64,
+    pub title: String,
+    pub state: String,
+    pub labels: Vec<String>,
 }
 
 /// Body for the import endpoint.
@@ -84,15 +106,15 @@ pub struct ImportResponse {
 }
 
 // ---------------------------------------------------------------------------
-// Handler: GET /api/integrations/github/repos
+// Handlers
 // ---------------------------------------------------------------------------
 
 /// List GitHub repositories visible to the authenticated user.
 #[instrument(skip_all)]
 pub async fn list_repos(
-    State(state): State<Arc<GitHubState>>,
+    State(state): State<GithubAppState>,
 ) -> impl IntoResponse {
-    let client = match build_client(&state).await {
+    let client = match build_client(&state.oauth).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
@@ -106,22 +128,21 @@ pub async fn list_repos(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Handler: GET /api/integrations/github/search
-// ---------------------------------------------------------------------------
-
-/// Search issues in a GitHub repository.
+/// Search issues in a GitHub repository (raw `q` appended to `repo:owner/name`).
 #[instrument(skip_all, fields(owner = %query.owner, repo = %query.repo))]
 pub async fn search_issues(
-    State(state): State<Arc<GitHubState>>,
+    State(state): State<GithubAppState>,
     Query(query): Query<SearchQuery>,
 ) -> impl IntoResponse {
-    let client = match build_client(&state).await {
+    let client = match build_client(&state.oauth).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
 
-    match client.search_issues(&query.owner, &query.repo, &query.q).await {
+    match client
+        .search_issues(&query.owner, &query.repo, &query.q)
+        .await
+    {
         Ok(issues) => Json(issues).into_response(),
         Err(e) => {
             let (status, msg) = github_error_to_http(&e);
@@ -130,23 +151,44 @@ pub async fn search_issues(
     }
 }
 
-// ---------------------------------------------------------------------------
-// Handler: POST /api/integrations/github/import
-// ---------------------------------------------------------------------------
-
-/// Import selected GitHub issues (stub — returns success without persisting).
-#[instrument(skip_all, fields(count = body.issues.len()))]
-pub async fn import_issues(
-    State(state): State<Arc<GitHubState>>,
-    Json(body): Json<ImportRequest>,
+/// Search issues using UI-friendly query parameters (`state`, `labels`).
+#[instrument(skip_all, fields(owner = %query.owner, repo = %query.repo))]
+pub async fn list_issues_ui(
+    State(state): State<GithubAppState>,
+    Query(query): Query<IssuesQuery>,
 ) -> impl IntoResponse {
-    // Verify we have a token (even though we don't actually call the API yet).
-    let _client = match build_client(&state).await {
+    let client = match build_client(&state.oauth).await {
         Ok(c) => c,
         Err(resp) => return resp,
     };
 
-    // Stub: acknowledge the request without actually importing.
+    let q = build_github_search_q(&query.state, &query.labels);
+    match client
+        .search_issues(&query.owner, &query.repo, &q)
+        .await
+    {
+        Ok(issues) => {
+            let ui: Vec<GitHubIssueUi> = issues.into_iter().map(issue_to_ui).collect();
+            Json(ui).into_response()
+        }
+        Err(e) => {
+            let (status, msg) = github_error_to_http(&e);
+            (status, Json(serde_json::json!({ "error": msg }))).into_response()
+        }
+    }
+}
+
+/// Import selected GitHub issues (stub — returns success without persisting).
+#[instrument(skip_all, fields(count = body.issues.len()))]
+pub async fn import_issues(
+    State(state): State<GithubAppState>,
+    Json(body): Json<ImportRequest>,
+) -> impl IntoResponse {
+    let _client = match build_client(&state.oauth).await {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
     let count = body.issues.len();
     Json(ImportResponse {
         imported: count,
@@ -159,16 +201,19 @@ pub async fn import_issues(
 }
 
 // ---------------------------------------------------------------------------
-// Router builder
+// Router
 // ---------------------------------------------------------------------------
 
-use axum::{routing::{get, post}, Router};
-
-/// Build the `/api/integrations/github` sub-router.
-pub fn github_router(state: Arc<GitHubState>) -> Router {
+/// GitHub OAuth + REST integration routes sharing [`GithubAppState`].
+pub fn github_integrations_router(state: GithubAppState) -> Router {
     Router::new()
+        .route("/auth", get(github_auth))
+        .route("/oauth/callback", get(github_oauth_callback))
+        .route("/status", get(github_status))
+        .route("/disconnect", post(github_disconnect))
         .route("/repos", get(list_repos))
         .route("/search", get(search_issues))
+        .route("/issues", get(list_issues_ui))
         .route("/import", post(import_issues))
         .with_state(state)
 }
@@ -177,22 +222,48 @@ pub fn github_router(state: Arc<GitHubState>) -> Router {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-/// Build a [`GitHubClient`] from the stored token.
+fn build_github_search_q(state_filter: &str, labels_csv: &str) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    match state_filter {
+        "closed" => parts.push("is:closed".to_owned()),
+        "all" => {}
+        _ => parts.push("is:open".to_owned()),
+    }
+    for label in labels_csv
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        parts.push(format!("label:{label}"));
+    }
+    parts.join(" ")
+}
+
+fn issue_to_ui(issue: GitHubIssue) -> GitHubIssueUi {
+    GitHubIssueUi {
+        number: issue.number,
+        title: issue.title,
+        state: issue.state,
+        labels: issue.labels.into_iter().map(|l| l.name).collect(),
+    }
+}
+
 async fn build_client(
-    state: &GitHubState,
+    oauth: &GithubOAuthState,
 ) -> Result<GitHubClient, axum::response::Response> {
-    let guard = state.token.read().await;
-    let token = guard.as_ref().ok_or_else(|| {
+    oauth.ensure_tokens_loaded().await;
+    let stored = oauth.stored_tokens.lock().await;
+    let tokens = stored.as_ref().ok_or_else(|| {
         (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({
-                "error": "GitHub token not configured. Set a personal access token first."
+                "error": "Not authenticated. Please complete GitHub OAuth authorization."
             })),
         )
             .into_response()
     })?;
 
-    Ok(GitHubClient::new(token.clone()))
+    Ok(GitHubClient::new(tokens.access_token.clone()))
 }
 
 fn github_error_to_http(e: &GitHubError) -> (StatusCode, String) {
@@ -227,7 +298,6 @@ mod tests {
 
     #[test]
     fn github_error_to_http_maps_http_error() {
-        // We can't easily create a reqwest::Error, so test the other branches.
         let err = GitHubError::AuthError { status: 403 };
         let (status, msg) = github_error_to_http(&err);
         assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -236,30 +306,55 @@ mod tests {
 
     #[tokio::test]
     async fn build_client_returns_error_when_no_token() {
-        let state = GitHubState::new();
-        let result = build_client(&state).await;
+        use crate::credentials::MemoryStore;
+        use crate::integrations::github_oauth::GithubOAuthService;
+        use crate::integrations::github_oauth::GITHUB_CALLBACK_URL;
+
+        let svc = GithubOAuthService::with_secret(GITHUB_CALLBACK_URL, "sec".into());
+        let store = Arc::new(MemoryStore::new());
+        let oauth = GithubOAuthState::new(svc, store);
+
+        let result = build_client(&oauth).await;
         assert!(result.is_err(), "should fail when no token is set");
     }
 
     #[tokio::test]
     async fn build_client_succeeds_with_token() {
-        let state = GitHubState::with_token("ghp_test123".into());
-        let result = build_client(&state).await;
+        use crate::credentials::MemoryStore;
+        use crate::integrations::github_oauth::GithubOAuthService;
+        use crate::integrations::github_oauth::GITHUB_CALLBACK_URL;
+        use crate::integrations::github_oauth_handlers::GithubStoredTokens;
+
+        let svc = GithubOAuthService::with_secret(GITHUB_CALLBACK_URL, "sec".into());
+        let store = Arc::new(MemoryStore::new());
+        let oauth = GithubOAuthState::new(svc, store);
+
+        {
+            let mut stored = oauth.stored_tokens.lock().await;
+            *stored = Some(GithubStoredTokens {
+                access_token: "ghp_test123".into(),
+                refresh_token: None,
+                expires_in: Some(3600),
+                scope: "repo".into(),
+            });
+        }
+
+        let result = build_client(&oauth).await;
         assert!(result.is_ok(), "should succeed when token is set");
     }
 
     #[test]
-    fn github_state_new_has_no_token() {
-        let state = GitHubState::new();
-        let token = state.token.try_read().unwrap();
-        assert!(token.is_none());
+    fn build_github_search_q_open_and_labels() {
+        let q = build_github_search_q("open", "bug, ui");
+        assert!(q.contains("is:open"));
+        assert!(q.contains("label:bug"));
+        assert!(q.contains("label:ui"));
     }
 
     #[test]
-    fn github_state_with_token_stores_token() {
-        let state = GitHubState::with_token("tok".into());
-        let token = state.token.try_read().unwrap();
-        assert_eq!(token.as_deref(), Some("tok"));
+    fn build_github_search_q_all_skips_is() {
+        let q = build_github_search_q("all", "");
+        assert!(!q.contains("is:"));
     }
 
     #[test]

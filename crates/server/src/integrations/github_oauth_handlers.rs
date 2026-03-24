@@ -6,6 +6,7 @@
 //!   GET    /api/integrations/github/status            — returns connection status
 //!   POST   /api/integrations/github/disconnect        — clears stored tokens
 
+use std::ops::Deref;
 use std::sync::Arc;
 
 use axum::{
@@ -33,6 +34,19 @@ const KEY_SCOPE: &str = "github/scope";
 // ---------------------------------------------------------------------------
 // Shared OAuth state
 // ---------------------------------------------------------------------------
+
+/// Axum [`State`] wrapper so `FromRef<Arc<GithubAppState>>` can be implemented without orphan-rule
+/// `Arc` impl conflicts (see `github_handlers::GithubAppState`).
+#[derive(Clone)]
+pub struct GithubOAuthStateRef(pub Arc<GithubOAuthState>);
+
+impl Deref for GithubOAuthStateRef {
+    type Target = GithubOAuthState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 /// State injected into GitHub OAuth handlers.
 pub struct GithubOAuthState {
@@ -63,6 +77,30 @@ impl GithubOAuthState {
             stored_tokens: tokio::sync::Mutex::new(None),
             pkce_verifiers: DashMap::new(),
             credential_store,
+        }
+    }
+
+    /// Load tokens from the credential store when the in-memory cache is empty.
+    pub async fn ensure_tokens_loaded(&self) {
+        let mut stored = self.stored_tokens.lock().await;
+        if stored.is_some() {
+            return;
+        }
+        if let Ok(access_token) = self.credential_store.retrieve(KEY_ACCESS_TOKEN, &CRED_SCOPE) {
+            let refresh_token = self
+                .credential_store
+                .retrieve(KEY_REFRESH_TOKEN, &CRED_SCOPE)
+                .ok();
+            let scope = self
+                .credential_store
+                .retrieve(KEY_SCOPE, &CRED_SCOPE)
+                .unwrap_or_default();
+            *stored = Some(GithubStoredTokens {
+                access_token,
+                refresh_token,
+                expires_in: None,
+                scope,
+            });
         }
     }
 }
@@ -115,7 +153,7 @@ pub struct GithubDisconnectResponse {
 /// Generate a GitHub authorization URL with a fresh CSRF state token.
 #[instrument(skip_all)]
 pub async fn github_auth(
-    State(state): State<Arc<GithubOAuthState>>,
+    State(state): State<GithubOAuthStateRef>,
 ) -> impl IntoResponse {
     let csrf_state = generate_state_token();
 
@@ -138,7 +176,7 @@ pub async fn github_auth(
 /// Exchange the authorization code for tokens.
 #[instrument(skip_all, fields(state = %query.state))]
 pub async fn github_oauth_callback(
-    State(app_state): State<Arc<GithubOAuthState>>,
+    State(app_state): State<GithubOAuthStateRef>,
     Query(query): Query<GithubCallbackQuery>,
 ) -> impl IntoResponse {
     // Retrieve (and consume) the PKCE verifier for this CSRF state.
@@ -222,29 +260,10 @@ pub async fn github_oauth_callback(
 /// so that connections survive server restarts.
 #[instrument(skip_all)]
 pub async fn github_status(
-    State(app_state): State<Arc<GithubOAuthState>>,
+    State(app_state): State<GithubOAuthStateRef>,
 ) -> impl IntoResponse {
-    let mut stored = app_state.stored_tokens.lock().await;
-
-    // Warm the in-memory cache from the credential store on first access.
-    if stored.is_none() {
-        if let Ok(access_token) = app_state.credential_store.retrieve(KEY_ACCESS_TOKEN, &CRED_SCOPE) {
-            let refresh_token = app_state
-                .credential_store
-                .retrieve(KEY_REFRESH_TOKEN, &CRED_SCOPE)
-                .ok();
-            let scope = app_state
-                .credential_store
-                .retrieve(KEY_SCOPE, &CRED_SCOPE)
-                .unwrap_or_default();
-            *stored = Some(GithubStoredTokens {
-                access_token,
-                refresh_token,
-                expires_in: None,
-                scope,
-            });
-        }
-    }
+    app_state.ensure_tokens_loaded().await;
+    let stored = app_state.stored_tokens.lock().await;
 
     match stored.as_ref() {
         Some(tokens) => Json(GithubStatusResponse {
@@ -267,7 +286,7 @@ pub async fn github_status(
 /// Clear all stored GitHub OAuth tokens (both in-memory and persisted).
 #[instrument(skip_all)]
 pub async fn github_disconnect(
-    State(app_state): State<Arc<GithubOAuthState>>,
+    State(app_state): State<GithubOAuthStateRef>,
 ) -> impl IntoResponse {
     // Clear the credential store (best-effort).
     for key in [KEY_ACCESS_TOKEN, KEY_REFRESH_TOKEN, KEY_SCOPE] {
@@ -362,7 +381,7 @@ pub fn github_oauth_router(state: Arc<GithubOAuthState>) -> Router {
         .route("/oauth/callback", get(github_oauth_callback))
         .route("/status", get(github_status))
         .route("/disconnect", post(github_disconnect))
-        .with_state(state)
+        .with_state(GithubOAuthStateRef(state))
 }
 
 // ---------------------------------------------------------------------------
@@ -440,7 +459,7 @@ mod tests {
     async fn pkce_verifier_stored_on_auth() {
         let state = make_state();
 
-        let response = github_auth(State(Arc::clone(&state))).await;
+        let response = github_auth(State(GithubOAuthStateRef(Arc::clone(&state)))).await;
         let _ = response.into_response();
 
         assert_eq!(
@@ -462,7 +481,7 @@ mod tests {
             code: "somecode".to_string(),
             state: "unknown-state".to_string(),
         };
-        let response = github_oauth_callback(State(Arc::clone(&state)), Query(query))
+        let response = github_oauth_callback(State(GithubOAuthStateRef(Arc::clone(&state))), Query(query))
             .await
             .into_response();
 
@@ -486,7 +505,7 @@ mod tests {
             });
         }
 
-        let response = github_disconnect(State(Arc::clone(&state))).await;
+        let response = github_disconnect(State(GithubOAuthStateRef(Arc::clone(&state)))).await;
         let _ = response.into_response();
 
         let stored = state.stored_tokens.lock().await;
@@ -496,7 +515,7 @@ mod tests {
     #[tokio::test]
     async fn status_returns_disconnected_when_no_tokens() {
         let state = make_state();
-        let response = github_status(State(Arc::clone(&state))).await;
+        let response = github_status(State(GithubOAuthStateRef(Arc::clone(&state)))).await;
         let resp = response.into_response();
         assert_eq!(resp.status(), StatusCode::OK);
     }
@@ -514,7 +533,7 @@ mod tests {
             });
         }
 
-        let response = github_status(State(Arc::clone(&state))).await;
+        let response = github_status(State(GithubOAuthStateRef(Arc::clone(&state)))).await;
         let resp = response.into_response();
         assert_eq!(resp.status(), StatusCode::OK);
     }

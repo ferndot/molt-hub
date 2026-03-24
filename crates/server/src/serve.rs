@@ -26,7 +26,9 @@ use crate::credentials::KeyringStore;
 use crate::events::handlers::{events_router, tasks_router, EventStoreState};
 use crate::integrations::github_oauth::GithubOAuthService;
 use crate::integrations::github_oauth::GITHUB_CLIENT_SECRET;
-use crate::integrations::github_oauth_handlers::{github_oauth_router, GithubOAuthState};
+use crate::integrations::github_handlers::{github_integrations_router, GithubAppState};
+use crate::integrations::github_oauth_handlers::GithubOAuthState;
+use crate::integrations::handlers::{jira_integrations_router, JiraAppState};
 use crate::integrations::jira_oauth_handlers::{jira_oauth_router, JiraOAuthState};
 use crate::integrations::oauth::JiraOAuthService;
 use crate::integrations::oauth_redirect::{github_redirect_uri, jira_redirect_uri};
@@ -141,7 +143,9 @@ pub async fn build_router(
         github_oauth_svc,
         Arc::clone(&credential_store),
     ));
-    let github_oauth = github_oauth_router(github_oauth_state);
+    let github_stack = github_integrations_router(GithubAppState {
+        oauth: Arc::clone(&github_oauth_state),
+    });
 
     // Jira OAuth — PKCE only, no client secret required
     let jira_oauth_svc = JiraOAuthService::new(&jira_redirect_uri());
@@ -149,7 +153,15 @@ pub async fn build_router(
         jira_oauth_svc,
         Arc::clone(&credential_store),
     ));
-    let jira_oauth = jira_oauth_router(jira_oauth_state);
+
+    // Jira REST (search/import/projects) requires the event store; OAuth-only if SQLite failed.
+    let jira_stack = match event_store_state.as_ref() {
+        Some(es) => jira_integrations_router(JiraAppState {
+            oauth: Arc::clone(&jira_oauth_state),
+            store: Arc::clone(&es.store),
+        }),
+        None => jira_oauth_router(Arc::clone(&jira_oauth_state)),
+    };
 
     let mut router = Router::new()
         .route("/ws", get(ws_handler))
@@ -157,8 +169,8 @@ pub async fn build_router(
         .nest_service("/api/agents", agents)
         .nest_service("/api/audit", audit)
         .nest_service("/api/settings", typed_settings)
-        .nest_service("/api/integrations/github", github_oauth)
-        .nest_service("/api/integrations/jira", jira_oauth)
+        .nest_service("/api/integrations/github", github_stack)
+        .nest_service("/api/integrations/jira", jira_stack)
         // Projects CRUD + project-scoped agent/pipeline routes.
         // The project-scoped routes are part of project_router (same nest_service)
         // so there is no wildcard conflict.

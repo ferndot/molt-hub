@@ -1,40 +1,50 @@
 //! Axum HTTP handlers for the Jira integration endpoints.
 //!
-//! Routes:
-//!   GET  /api/integrations/jira/search   — search / preview issues
-//!   POST /api/integrations/jira/import   — import selected issues
-//!   GET  /api/integrations/jira/projects — list projects
+//! Routes (under `/api/integrations/jira` when the event store is available):
+//!   GET  /search   — search / preview issues
+//!   POST /import   — import selected issues
+//!   GET  /projects — list projects
 //!
-//! Authentication is handled via OAuth 2.0 — see `oauth_handlers.rs`.
-//! Credentials are read from the shared [`OAuthState`] rather than from
-//! request bodies.
+//! OAuth routes (`/auth`, `/oauth/callback`, `/status`, `/disconnect`) share
+//! [`JiraOAuthState`] with these handlers via [`JiraAppState`] so import/search
+//! use the same tokens as the OAuth flow.
 
 use std::sync::Arc;
 
 use axum::{
-    extract::{Query, State},
+    extract::{FromRef, Query, State},
     http::StatusCode,
     response::IntoResponse,
-    Json,
+    routing::{get, post},
+    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use tracing::instrument;
 
-use molt_hub_core::events::store::EventStore;
+use molt_hub_core::events::SqliteEventStore;
 use molt_hub_core::model::SessionId;
 
 use super::import_service::ImportService;
 use super::jira_client::{JiraClient, JiraError};
-use super::oauth_handlers::OAuthState;
+use super::jira_oauth_handlers::{
+    jira_auth, jira_disconnect, jira_oauth_callback, jira_status, JiraOAuthState, JiraOAuthStateRef,
+};
 
 // ---------------------------------------------------------------------------
-// Shared app state for integration routes
+// App state: OAuth + event store (import/search)
 // ---------------------------------------------------------------------------
 
-/// State injected into integration handlers.
-pub struct IntegrationState<S: EventStore + 'static> {
-    pub store: Arc<S>,
-    pub oauth: Arc<OAuthState>,
+/// State for Jira OAuth and REST integration routes mounted together.
+#[derive(Clone)]
+pub struct JiraAppState {
+    pub oauth: Arc<JiraOAuthState>,
+    pub store: Arc<SqliteEventStore>,
+}
+
+impl FromRef<JiraAppState> for JiraOAuthStateRef {
+    fn from_ref(state: &JiraAppState) -> Self {
+        JiraOAuthStateRef(state.oauth.clone())
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -69,8 +79,8 @@ pub struct ImportResponse {
 
 /// Search Jira issues (preview without importing).
 #[instrument(skip_all, fields(jql = %query.jql))]
-pub async fn search_issues<S: EventStore + 'static>(
-    State(state): State<Arc<IntegrationState<S>>>,
+pub async fn search_issues(
+    State(state): State<JiraAppState>,
     Query(query): Query<SearchQuery>,
 ) -> impl IntoResponse {
     let client = match build_client(&state.oauth, query.cloud_id.as_deref()).await {
@@ -93,8 +103,8 @@ pub async fn search_issues<S: EventStore + 'static>(
 
 /// Import the specified issues into Molt Hub.
 #[instrument(skip_all, fields(count = body.issue_keys.len()))]
-pub async fn import_issues<S: EventStore + 'static>(
-    State(state): State<Arc<IntegrationState<S>>>,
+pub async fn import_issues(
+    State(state): State<JiraAppState>,
     Json(body): Json<ImportRequest>,
 ) -> impl IntoResponse {
     let client = match build_client(&state.oauth, body.cloud_id.as_deref()).await {
@@ -128,8 +138,8 @@ pub async fn import_issues<S: EventStore + 'static>(
 
 /// List all Jira projects visible to the authenticated user.
 #[instrument(skip_all)]
-pub async fn list_projects<S: EventStore + 'static>(
-    State(state): State<Arc<IntegrationState<S>>>,
+pub async fn list_projects(
+    State(state): State<JiraAppState>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> impl IntoResponse {
     let cloud_id = params.get("cloud_id").map(|s| s.as_str());
@@ -148,19 +158,21 @@ pub async fn list_projects<S: EventStore + 'static>(
 }
 
 // ---------------------------------------------------------------------------
-// Router builder
+// Router builders
 // ---------------------------------------------------------------------------
 
-use axum::{routing::{get, post}, Router};
-
-/// Build the `/api/integrations/jira` sub-router.
+/// OAuth + Jira REST routes sharing [`JiraAppState`].
 ///
-/// `state` is shared across all handlers that need store and OAuth access.
-pub fn jira_router<S: EventStore + Clone + 'static>(state: Arc<IntegrationState<S>>) -> Router {
+/// Mount at `/api/integrations/jira` when the SQLite event store is available.
+pub fn jira_integrations_router(state: JiraAppState) -> Router {
     Router::new()
-        .route("/search", get(search_issues::<S>))
-        .route("/import", post(import_issues::<S>))
-        .route("/projects", get(list_projects::<S>))
+        .route("/auth", get(jira_auth))
+        .route("/oauth/callback", get(jira_oauth_callback))
+        .route("/status", get(jira_status))
+        .route("/disconnect", post(jira_disconnect))
+        .route("/search", get(search_issues))
+        .route("/import", post(import_issues))
+        .route("/projects", get(list_projects))
         .with_state(state)
 }
 
@@ -170,12 +182,13 @@ pub fn jira_router<S: EventStore + Clone + 'static>(state: Arc<IntegrationState<
 
 /// Build a [`JiraClient`] from the stored OAuth tokens.
 ///
-/// Selects `cloud_id` if provided, otherwise falls back to the first stored site.
-/// Returns an error response if no tokens are stored.
+/// Selects `cloud_id` if provided, otherwise the cloud ID from the OAuth session.
+/// Returns an error response if not authenticated or cloud ID is unknown.
 async fn build_client(
-    oauth: &OAuthState,
+    oauth: &JiraOAuthState,
     cloud_id: Option<&str>,
 ) -> Result<JiraClient, axum::response::Response> {
+    oauth.ensure_tokens_loaded().await;
     let stored = oauth.stored_tokens.lock().await;
     let tokens = stored.as_ref().ok_or_else(|| {
         (
@@ -190,19 +203,15 @@ async fn build_client(
     let selected_cloud_id = if let Some(id) = cloud_id {
         id.to_owned()
     } else {
-        tokens
-            .sites
-            .first()
-            .map(|s| s.id.clone())
-            .ok_or_else(|| {
-                (
-                    StatusCode::UNPROCESSABLE_ENTITY,
-                    Json(serde_json::json!({
-                        "error": "No Atlassian sites found. Please re-authorize."
-                    })),
-                )
-                    .into_response()
-            })?
+        tokens.cloud_id.clone().ok_or_else(|| {
+            (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                Json(serde_json::json!({
+                    "error": "No Atlassian cloud ID stored. Please disconnect and re-authorize Jira."
+                })),
+            )
+                .into_response()
+        })?
     };
 
     Ok(JiraClient::from_oauth(&selected_cloud_id, &tokens.access_token))
@@ -224,6 +233,10 @@ fn jira_error_to_http(e: &JiraError) -> (StatusCode, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::credentials::MemoryStore;
+
+    use super::super::jira_oauth_handlers::JiraStoredTokens;
+    use super::super::oauth::JiraOAuthService;
 
     #[test]
     fn jira_error_to_http_maps_auth_error() {
@@ -250,90 +263,83 @@ mod tests {
 
     #[tokio::test]
     async fn build_client_returns_error_when_no_tokens() {
-        use super::super::oauth::JiraOAuthService;
         let svc = JiraOAuthService::new("https://example.com/cb");
-        let oauth = OAuthState::new(svc);
+        let store = Arc::new(MemoryStore::new());
+        let oauth = JiraOAuthState::new(svc, store);
 
         let result = build_client(&oauth, None).await;
         assert!(result.is_err(), "should fail when no tokens are stored");
     }
 
     #[tokio::test]
-    async fn build_client_returns_error_when_no_sites() {
-        use super::super::oauth::JiraOAuthService;
-        use super::super::oauth_handlers::StoredTokens;
-
+    async fn build_client_returns_error_when_no_cloud_id() {
         let svc = JiraOAuthService::new("https://example.com/cb");
-        let oauth = OAuthState::new(svc);
+        let store = Arc::new(MemoryStore::new());
+        let oauth = JiraOAuthState::new(svc, store);
 
         {
             let mut stored = oauth.stored_tokens.lock().await;
-            *stored = Some(StoredTokens {
+            *stored = Some(JiraStoredTokens {
                 access_token: "tok".into(),
                 refresh_token: None,
                 expires_in: 3600,
                 scope: "read:jira-work".into(),
-                sites: vec![], // no sites
+                cloud_id: None,
+                site_url: None,
+                site_name: None,
             });
         }
 
         let result = build_client(&oauth, None).await;
-        assert!(result.is_err(), "should fail when no sites are stored");
+        assert!(result.is_err(), "should fail when no cloud_id is stored");
     }
 
     #[tokio::test]
-    async fn build_client_succeeds_with_tokens_and_site() {
-        use super::super::oauth::{CloudResource, JiraOAuthService};
-        use super::super::oauth_handlers::StoredTokens;
-
+    async fn build_client_succeeds_with_tokens_and_cloud_id() {
         let svc = JiraOAuthService::new("https://example.com/cb");
-        let oauth = OAuthState::new(svc);
+        let store = Arc::new(MemoryStore::new());
+        let oauth = JiraOAuthState::new(svc, store);
 
         {
             let mut stored = oauth.stored_tokens.lock().await;
-            *stored = Some(StoredTokens {
+            *stored = Some(JiraStoredTokens {
                 access_token: "my-token".into(),
                 refresh_token: Some("ref".into()),
                 expires_in: 3600,
                 scope: "read:jira-work".into(),
-                sites: vec![CloudResource {
-                    id: "cloud-abc".into(),
-                    name: "my-org".into(),
-                    url: "https://my-org.atlassian.net".into(),
-                }],
+                cloud_id: Some("cloud-abc".into()),
+                site_url: Some("https://my-org.atlassian.net".into()),
+                site_name: Some("my-org".into()),
             });
         }
 
         let client = build_client(&oauth, None).await.expect("should succeed");
-        // Verify the client was built with correct cloud ID.
         assert!(client.base_url.contains("cloud-abc"));
         assert_eq!(client.access_token, "my-token");
     }
 
     #[tokio::test]
     async fn build_client_uses_provided_cloud_id() {
-        use super::super::oauth::{CloudResource, JiraOAuthService};
-        use super::super::oauth_handlers::StoredTokens;
-
         let svc = JiraOAuthService::new("https://example.com/cb");
-        let oauth = OAuthState::new(svc);
+        let store = Arc::new(MemoryStore::new());
+        let oauth = JiraOAuthState::new(svc, store);
 
         {
             let mut stored = oauth.stored_tokens.lock().await;
-            *stored = Some(StoredTokens {
+            *stored = Some(JiraStoredTokens {
                 access_token: "tok".into(),
                 refresh_token: None,
                 expires_in: 3600,
                 scope: "read:jira-work".into(),
-                sites: vec![CloudResource {
-                    id: "default-cloud".into(),
-                    name: "default".into(),
-                    url: "https://default.atlassian.net".into(),
-                }],
+                cloud_id: Some("default-cloud".into()),
+                site_url: None,
+                site_name: None,
             });
         }
 
-        let client = build_client(&oauth, Some("override-cloud")).await.expect("should succeed");
+        let client = build_client(&oauth, Some("override-cloud"))
+            .await
+            .expect("should succeed");
         assert!(client.base_url.contains("override-cloud"));
     }
 }

@@ -6,6 +6,7 @@
 //!   GET    /status            — returns `{ connected, site_url? }`
 //!   POST   /disconnect        — clears stored tokens
 
+use std::ops::Deref;
 use std::sync::Arc;
 
 use axum::{
@@ -32,10 +33,23 @@ const KEY_REFRESH_TOKEN: &str = "jira/refresh_token";
 const KEY_SCOPE: &str = "jira/scope";
 const KEY_SITE_URL: &str = "jira/site_url";
 const KEY_SITE_NAME: &str = "jira/site_name";
+const KEY_CLOUD_ID: &str = "jira/cloud_id";
 
 // ---------------------------------------------------------------------------
 // Shared OAuth state
 // ---------------------------------------------------------------------------
+
+/// Axum [`State`] wrapper for `FromRef<Arc<JiraAppState>>` (see `handlers::JiraAppState`).
+#[derive(Clone)]
+pub struct JiraOAuthStateRef(pub Arc<JiraOAuthState>);
+
+impl Deref for JiraOAuthStateRef {
+    type Target = JiraOAuthState;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 /// State injected into Jira OAuth handlers.
 pub struct JiraOAuthState {
@@ -55,6 +69,8 @@ pub struct JiraStoredTokens {
     pub refresh_token: Option<String>,
     pub expires_in: u64,
     pub scope: String,
+    /// Atlassian cloud ID for REST URLs (`/ex/jira/{cloud_id}/...`).
+    pub cloud_id: Option<String>,
     /// The URL of the first accessible Atlassian cloud site.
     pub site_url: Option<String>,
     /// The name of the first accessible Atlassian cloud site.
@@ -70,6 +86,45 @@ impl JiraOAuthState {
             stored_tokens: tokio::sync::Mutex::new(None),
             pkce_verifiers: DashMap::new(),
             credential_store,
+        }
+    }
+
+    /// Load tokens from the credential store when the in-memory cache is empty.
+    pub async fn ensure_tokens_loaded(&self) {
+        let mut stored = self.stored_tokens.lock().await;
+        if stored.is_some() {
+            return;
+        }
+        if let Ok(access_token) = self.credential_store.retrieve(KEY_ACCESS_TOKEN, &CRED_SCOPE) {
+            let refresh_token = self
+                .credential_store
+                .retrieve(KEY_REFRESH_TOKEN, &CRED_SCOPE)
+                .ok();
+            let scope = self
+                .credential_store
+                .retrieve(KEY_SCOPE, &CRED_SCOPE)
+                .unwrap_or_default();
+            let site_url = self
+                .credential_store
+                .retrieve(KEY_SITE_URL, &CRED_SCOPE)
+                .ok();
+            let site_name = self
+                .credential_store
+                .retrieve(KEY_SITE_NAME, &CRED_SCOPE)
+                .ok();
+            let cloud_id = self
+                .credential_store
+                .retrieve(KEY_CLOUD_ID, &CRED_SCOPE)
+                .ok();
+            *stored = Some(JiraStoredTokens {
+                access_token,
+                refresh_token,
+                expires_in: 0,
+                scope,
+                cloud_id,
+                site_url,
+                site_name,
+            });
         }
     }
 }
@@ -127,7 +182,7 @@ pub struct JiraDisconnectResponse {
 /// Generate a Jira authorization URL with a fresh CSRF state token.
 #[instrument(skip_all)]
 pub async fn jira_auth(
-    State(state): State<Arc<JiraOAuthState>>,
+    State(state): State<JiraOAuthStateRef>,
 ) -> impl IntoResponse {
     let csrf_state = generate_state_token();
 
@@ -149,7 +204,7 @@ pub async fn jira_auth(
 /// Exchange the authorization code for tokens and fetch accessible site info.
 #[instrument(skip_all, fields(state = %query.state))]
 pub async fn jira_oauth_callback(
-    State(app_state): State<Arc<JiraOAuthState>>,
+    State(app_state): State<JiraOAuthStateRef>,
     Query(query): Query<JiraCallbackQuery>,
 ) -> impl IntoResponse {
     // Retrieve (and consume) the PKCE verifier for this CSRF state.
@@ -179,17 +234,21 @@ pub async fn jira_oauth_callback(
         }
     };
 
-    // Fetch accessible resources to get site URL.
-    let (site_url, site_name) = match app_state
+    // Fetch accessible resources to get site URL and cloud ID for REST.
+    let (site_url, site_name, cloud_id) = match app_state
         .service
         .get_accessible_resources(&tokens.access_token)
         .await
     {
         Ok(sites) => {
             let first = sites.into_iter().next();
-            (first.as_ref().map(|s| s.url.clone()), first.as_ref().map(|s| s.name.clone()))
+            (
+                first.as_ref().map(|s| s.url.clone()),
+                first.as_ref().map(|s| s.name.clone()),
+                first.map(|s| s.id),
+            )
         }
-        Err(_) => (None, None),
+        Err(_) => (None, None, None),
     };
 
     // Build token struct.
@@ -198,6 +257,7 @@ pub async fn jira_oauth_callback(
         refresh_token: tokens.refresh_token.clone(),
         expires_in: tokens.expires_in,
         scope: tokens.scope.clone(),
+        cloud_id: cloud_id.clone(),
         site_url: site_url.clone(),
         site_name: site_name.clone(),
     };
@@ -222,6 +282,11 @@ pub async fn jira_oauth_callback(
     if let Some(ref name) = site_name {
         if let Err(e) = app_state.credential_store.store(KEY_SITE_NAME, &CRED_SCOPE, name) {
             warn!(error = %e, "failed to persist Jira site_name to credential store");
+        }
+    }
+    if let Some(ref id) = cloud_id {
+        if let Err(e) = app_state.credential_store.store(KEY_CLOUD_ID, &CRED_SCOPE, id) {
+            warn!(error = %e, "failed to persist Jira cloud_id to credential store");
         }
     }
 
@@ -249,39 +314,10 @@ pub async fn jira_oauth_callback(
 /// so that connections survive server restarts.
 #[instrument(skip_all)]
 pub async fn jira_status(
-    State(app_state): State<Arc<JiraOAuthState>>,
+    State(app_state): State<JiraOAuthStateRef>,
 ) -> impl IntoResponse {
-    let mut stored = app_state.stored_tokens.lock().await;
-
-    // Warm the in-memory cache from the credential store on first access.
-    if stored.is_none() {
-        if let Ok(access_token) = app_state.credential_store.retrieve(KEY_ACCESS_TOKEN, &CRED_SCOPE) {
-            let refresh_token = app_state
-                .credential_store
-                .retrieve(KEY_REFRESH_TOKEN, &CRED_SCOPE)
-                .ok();
-            let scope = app_state
-                .credential_store
-                .retrieve(KEY_SCOPE, &CRED_SCOPE)
-                .unwrap_or_default();
-            let site_url = app_state
-                .credential_store
-                .retrieve(KEY_SITE_URL, &CRED_SCOPE)
-                .ok();
-            let site_name = app_state
-                .credential_store
-                .retrieve(KEY_SITE_NAME, &CRED_SCOPE)
-                .ok();
-            *stored = Some(JiraStoredTokens {
-                access_token,
-                refresh_token,
-                expires_in: 0,
-                scope,
-                site_url,
-                site_name,
-            });
-        }
-    }
+    app_state.ensure_tokens_loaded().await;
+    let stored = app_state.stored_tokens.lock().await;
 
     match stored.as_ref() {
         Some(tokens) => Json(JiraStatusResponse {
@@ -306,10 +342,17 @@ pub async fn jira_status(
 /// Clear all stored Jira OAuth tokens (both in-memory and persisted).
 #[instrument(skip_all)]
 pub async fn jira_disconnect(
-    State(app_state): State<Arc<JiraOAuthState>>,
+    State(app_state): State<JiraOAuthStateRef>,
 ) -> impl IntoResponse {
     // Clear the credential store (best-effort).
-    for key in [KEY_ACCESS_TOKEN, KEY_REFRESH_TOKEN, KEY_SCOPE, KEY_SITE_URL, KEY_SITE_NAME] {
+    for key in [
+        KEY_ACCESS_TOKEN,
+        KEY_REFRESH_TOKEN,
+        KEY_SCOPE,
+        KEY_SITE_URL,
+        KEY_SITE_NAME,
+        KEY_CLOUD_ID,
+    ] {
         if let Err(e) = app_state.credential_store.delete(key, &CRED_SCOPE) {
             warn!(error = %e, key, "failed to delete Jira credential from store");
         }
@@ -363,7 +406,7 @@ pub fn jira_oauth_router(state: Arc<JiraOAuthState>) -> Router {
         .route("/oauth/callback", get(jira_oauth_callback))
         .route("/status", get(jira_status))
         .route("/disconnect", post(jira_disconnect))
-        .with_state(state)
+        .with_state(JiraOAuthStateRef(state))
 }
 
 // ---------------------------------------------------------------------------
@@ -433,7 +476,7 @@ mod tests {
     async fn pkce_verifier_stored_on_auth() {
         let state = make_state();
 
-        let response = jira_auth(State(Arc::clone(&state))).await;
+        let response = jira_auth(State(JiraOAuthStateRef(Arc::clone(&state)))).await;
         let _ = response.into_response();
 
         assert_eq!(
@@ -453,7 +496,7 @@ mod tests {
             code: "somecode".to_string(),
             state: "unknown-state".to_string(),
         };
-        let response = jira_oauth_callback(State(Arc::clone(&state)), Query(query))
+        let response = jira_oauth_callback(State(JiraOAuthStateRef(Arc::clone(&state))), Query(query))
             .await
             .into_response();
 
@@ -472,12 +515,13 @@ mod tests {
                 refresh_token: Some("ref".into()),
                 expires_in: 3600,
                 scope: "read:jira-work".into(),
+                cloud_id: Some("cloud-1".into()),
                 site_url: Some("https://my-org.atlassian.net".into()),
                 site_name: Some("my-org".into()),
             });
         }
 
-        let response = jira_disconnect(State(Arc::clone(&state))).await;
+        let response = jira_disconnect(State(JiraOAuthStateRef(Arc::clone(&state)))).await;
         let _ = response.into_response();
 
         let stored = state.stored_tokens.lock().await;
@@ -487,7 +531,7 @@ mod tests {
     #[tokio::test]
     async fn status_returns_disconnected_when_no_tokens() {
         let state = make_state();
-        let response = jira_status(State(Arc::clone(&state))).await;
+        let response = jira_status(State(JiraOAuthStateRef(Arc::clone(&state)))).await;
         let resp = response.into_response();
         assert_eq!(resp.status(), StatusCode::OK);
     }
@@ -502,12 +546,13 @@ mod tests {
                 refresh_token: None,
                 expires_in: 3600,
                 scope: "read:jira-work".into(),
+                cloud_id: Some("cloud-1".into()),
                 site_url: Some("https://my-org.atlassian.net".into()),
                 site_name: Some("my-org".into()),
             });
         }
 
-        let response = jira_status(State(Arc::clone(&state))).await;
+        let response = jira_status(State(JiraOAuthStateRef(Arc::clone(&state)))).await;
         let resp = response.into_response();
         assert_eq!(resp.status(), StatusCode::OK);
     }
