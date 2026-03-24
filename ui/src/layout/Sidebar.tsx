@@ -45,7 +45,7 @@ const Sidebar: Component<Props> = (props) => {
   };
 
   const navItems = [
-    { href: "/", label: "Mission Control" },
+    { href: "/", label: "Boards" },
   ];
 
   // ---- Drag-to-resize logic ------------------------------------------------

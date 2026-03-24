@@ -16,12 +16,18 @@ import HelpOverlay from "./HelpOverlay";
 // View context helpers
 // ---------------------------------------------------------------------------
 
-type ViewContext = "triage" | "board" | "agents" | "mission-control" | "other";
+type ViewContext = "triage" | "agents" | "mission-control" | "other";
 
 function getViewContext(pathname: string): ViewContext {
-  if (pathname === "/" || pathname === "/mission-control") return "mission-control";
+  if (
+    pathname === "/" ||
+    pathname === "/mission-control" ||
+    pathname === "/board" ||
+    /\/projects\/[^/]+\/board$/.test(pathname)
+  ) {
+    return "mission-control";
+  }
   if (pathname.startsWith("/triage")) return "triage";
-  if (pathname.startsWith("/board")) return "board";
   if (pathname.startsWith("/agents")) return "agents";
   return "other";
 }
@@ -93,7 +99,7 @@ const KeyboardManager: ParentComponent = (props) => {
           navigate("/triage");
           break;
         case "goto-board":
-          navigate("/board");
+          navigate("/");
           break;
         case "goto-agents":
           navigate("/agents");

@@ -292,6 +292,29 @@ impl PipelineConfigStore {
         }
     }
 
+    /// Clone the full in-memory pipeline config (for seeding another store).
+    pub async fn snapshot_config(&self) -> PipelineConfig {
+        self.config.read().await.clone()
+    }
+
+    /// In-memory store from an explicit [`PipelineConfig`] (no file backing).
+    pub fn from_pipeline_config(cfg: PipelineConfig) -> Self {
+        Self {
+            config: RwLock::new(cfg),
+            config_path: None,
+        }
+    }
+
+    /// Display name from config (`PipelineConfig::name`).
+    pub async fn pipeline_display_name(&self) -> String {
+        self.config.read().await.name.clone()
+    }
+
+    /// Set `PipelineConfig::name` (board title in the UI).
+    pub async fn set_display_name(&self, name: String) {
+        self.config.write().await.name = name;
+    }
+
     // -- writes --------------------------------------------------------------
 
     /// Replace stages (and optionally columns) from an API body.
@@ -498,10 +521,7 @@ pub async fn delete_stage(
 // Router builder
 // ---------------------------------------------------------------------------
 
-use axum::extract::Extension as AxumExtension;
 use axum::{routing::get, Router};
-
-use crate::projects::runtime::ProjectRuntimeRegistry;
 
 /// Build the `/api/pipeline` sub-router.
 pub fn pipeline_router(state: Arc<PipelineConfigStore>) -> Router {
@@ -512,88 +532,6 @@ pub fn pipeline_router(state: Arc<PipelineConfigStore>) -> Router {
             axum::routing::delete(delete_stage).patch(patch_stage),
         )
         .with_state(state)
-}
-
-// ---------------------------------------------------------------------------
-// Project-scoped pipeline handlers
-// ---------------------------------------------------------------------------
-
-/// GET /api/projects/:pid/pipeline/stages
-#[instrument(skip_all)]
-pub async fn get_project_pipeline_stages(
-    Path(project_id): Path<String>,
-    AxumExtension(registry): AxumExtension<Arc<ProjectRuntimeRegistry>>,
-) -> impl IntoResponse {
-    let runtime = match registry.get(&project_id).await {
-        Some(r) => r,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: format!("project not found: {project_id}"),
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    let body = runtime.pipeline_config.get_stages_response().await;
-    (StatusCode::OK, Json(body)).into_response()
-}
-
-/// PUT /api/projects/:pid/pipeline/stages
-#[instrument(skip_all)]
-pub async fn put_project_pipeline_stages(
-    Path(project_id): Path<String>,
-    AxumExtension(registry): AxumExtension<Arc<ProjectRuntimeRegistry>>,
-    Json(body): Json<StagesResponse>,
-) -> impl IntoResponse {
-    let runtime = match registry.get(&project_id).await {
-        Some(r) => r,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: format!("project not found: {project_id}"),
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    match runtime.pipeline_config.set_stages_response(body).await {
-        Ok(()) => {
-            let body = runtime.pipeline_config.get_stages_response().await;
-            (StatusCode::OK, Json(body)).into_response()
-        }
-        Err(e) => (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response(),
-    }
-}
-
-/// PATCH /api/projects/:pid/pipeline/stages/:sid
-#[instrument(skip_all)]
-pub async fn patch_project_pipeline_stage(
-    Path((project_id, stage_id)): Path<(String, String)>,
-    AxumExtension(registry): AxumExtension<Arc<ProjectRuntimeRegistry>>,
-    Json(patch): Json<StagePatch>,
-) -> impl IntoResponse {
-    let runtime = match registry.get(&project_id).await {
-        Some(r) => r,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(ErrorResponse {
-                    error: format!("project not found: {project_id}"),
-                }),
-            )
-                .into_response();
-        }
-    };
-
-    match runtime.pipeline_config.patch_stage(&stage_id, patch).await {
-        Ok(stage) => (StatusCode::OK, Json(stage)).into_response(),
-        Err(e) => (StatusCode::NOT_FOUND, Json(ErrorResponse { error: e })).into_response(),
-    }
 }
 
 // ---------------------------------------------------------------------------

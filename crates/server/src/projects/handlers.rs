@@ -8,24 +8,28 @@
 //!   DELETE /api/projects/:id   — archive (soft-delete) a project
 
 use crate::agents::handlers::{delete_project_agent, get_project_agent, list_project_agents};
-use crate::pipeline::handlers::{
-    get_project_pipeline_stages, patch_project_pipeline_stage, put_project_pipeline_stages,
-};
+use crate::pipeline::handlers::{PipelineConfigStore, StagePatch, StagesResponse};
 use axum::{
-    extract::{Path, State},
+    extract::{Extension, Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::get,
+    routing::{delete, get, patch, put},
     Json, Router,
 };
 use chrono::Utc;
 use molt_hub_core::model::ProjectId;
 use molt_hub_core::project::{Project, ProjectStatus, ProjectValidationError};
+use molt_hub_harness::supervisor::Supervisor;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, instrument, warn};
+
+use super::runtime::{
+    ensure_project_runtime, BoardSummary, MultiBoardPipelineStore, ProjectRuntime,
+    ProjectRuntimeRegistry,
+};
 
 // ---------------------------------------------------------------------------
 // Request / response types
@@ -306,6 +310,8 @@ pub async fn list_projects(State(state): State<Arc<ProjectConfigStore>>) -> impl
 #[instrument(skip_all)]
 pub async fn create_project(
     State(state): State<Arc<ProjectConfigStore>>,
+    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
     Json(body): Json<CreateProjectRequest>,
 ) -> impl IntoResponse {
     match state
@@ -313,6 +319,13 @@ pub async fn create_project(
         .await
     {
         Ok(project) => {
+            let pid = project.id.to_string();
+            let runtime = Arc::new(ProjectRuntime {
+                project_id: pid.clone(),
+                supervisor: Arc::clone(&supervisor),
+                boards: Arc::new(MultiBoardPipelineStore::new()),
+            });
+            registry.insert(pid, runtime).await;
             info!(id = %project.id, name = %project.name, "project created");
             (StatusCode::CREATED, Json(ProjectResponse::from(&project))).into_response()
         }
@@ -390,6 +403,261 @@ pub async fn archive_project(
 }
 
 // ---------------------------------------------------------------------------
+// Boards + project-scoped pipeline stages
+// ---------------------------------------------------------------------------
+
+async fn project_exists_or_default(projects: &ProjectConfigStore, project_id: &str) -> bool {
+    project_id == "default" || projects.get(project_id).await.is_some()
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateBoardRequest {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+#[derive(Serialize)]
+struct BoardsListBody {
+    boards: Vec<BoardSummary>,
+}
+
+/// GET /api/projects/:pid/boards
+#[instrument(skip_all)]
+pub async fn list_project_boards(
+    Path(project_id): Path<String>,
+    State(projects): State<Arc<ProjectConfigStore>>,
+    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
+) -> impl IntoResponse {
+    if !project_exists_or_default(&projects, &project_id).await {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("project '{}' not found", project_id),
+            }),
+        )
+            .into_response();
+    }
+    let rt = ensure_project_runtime(&project_id, &registry, &supervisor).await;
+    let boards = rt.boards.list_summaries().await;
+    (StatusCode::OK, Json(BoardsListBody { boards })).into_response()
+}
+
+/// POST /api/projects/:pid/boards
+#[instrument(skip_all)]
+pub async fn post_project_board(
+    Path(project_id): Path<String>,
+    State(projects): State<Arc<ProjectConfigStore>>,
+    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
+    Json(body): Json<CreateBoardRequest>,
+) -> impl IntoResponse {
+    if !project_exists_or_default(&projects, &project_id).await {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("project '{}' not found", project_id),
+            }),
+        )
+            .into_response();
+    }
+    let rt = ensure_project_runtime(&project_id, &registry, &supervisor).await;
+    match rt.boards.create_board(&body.id, body.name).await {
+        Ok(()) => {
+            let boards = rt.boards.list_summaries().await;
+            (StatusCode::CREATED, Json(BoardsListBody { boards })).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response(),
+    }
+}
+
+/// DELETE /api/projects/:pid/boards/:bid
+#[instrument(skip_all)]
+pub async fn delete_project_board(
+    Path((project_id, board_id)): Path<(String, String)>,
+    State(projects): State<Arc<ProjectConfigStore>>,
+    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
+) -> impl IntoResponse {
+    if !project_exists_or_default(&projects, &project_id).await {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("project '{}' not found", project_id),
+            }),
+        )
+            .into_response();
+    }
+    let rt = ensure_project_runtime(&project_id, &registry, &supervisor).await;
+    match rt.boards.delete_board(&board_id).await {
+        Ok(()) => {
+            let boards = rt.boards.list_summaries().await;
+            (StatusCode::OK, Json(BoardsListBody { boards })).into_response()
+        }
+        Err(e) => {
+            let status = if e.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            (status, Json(ErrorResponse { error: e })).into_response()
+        }
+    }
+}
+
+async fn board_pipeline_store(
+    project_id: &str,
+    board_id: &str,
+    projects: &ProjectConfigStore,
+    registry: &ProjectRuntimeRegistry,
+    supervisor: &Arc<Supervisor>,
+) -> Result<Arc<PipelineConfigStore>, (StatusCode, Json<ErrorResponse>)> {
+    if !project_exists_or_default(projects, project_id).await {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("project '{project_id}' not found"),
+            }),
+        ));
+    }
+    let rt = ensure_project_runtime(project_id, registry, supervisor).await;
+    let Some(store) = rt.boards.get_store(board_id).await else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: format!("board '{board_id}' not found"),
+            }),
+        ));
+    };
+    Ok(store)
+}
+
+/// GET /api/projects/:pid/boards/:bid/stages
+#[instrument(skip_all)]
+pub async fn get_project_board_stages(
+    Path((project_id, board_id)): Path<(String, String)>,
+    State(projects): State<Arc<ProjectConfigStore>>,
+    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
+) -> impl IntoResponse {
+    match board_pipeline_store(&project_id, &board_id, &projects, &registry, &supervisor).await {
+        Ok(store) => {
+            let body = store.get_stages_response().await;
+            (StatusCode::OK, Json(body)).into_response()
+        }
+        Err(e) => e.into_response(),
+    }
+}
+
+/// PUT /api/projects/:pid/boards/:bid/stages
+#[instrument(skip_all)]
+pub async fn put_project_board_stages(
+    Path((project_id, board_id)): Path<(String, String)>,
+    State(projects): State<Arc<ProjectConfigStore>>,
+    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
+    Json(body): Json<StagesResponse>,
+) -> impl IntoResponse {
+    let store =
+        match board_pipeline_store(&project_id, &board_id, &projects, &registry, &supervisor).await
+        {
+            Ok(s) => s,
+            Err(e) => return e.into_response(),
+        };
+    match store.set_stages_response(body).await {
+        Ok(()) => {
+            let body = store.get_stages_response().await;
+            (StatusCode::OK, Json(body)).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response(),
+    }
+}
+
+/// PATCH /api/projects/:pid/boards/:bid/stages/:sid
+#[instrument(skip_all)]
+pub async fn patch_project_board_stage(
+    Path((project_id, board_id, stage_id)): Path<(String, String, String)>,
+    State(projects): State<Arc<ProjectConfigStore>>,
+    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
+    Json(patch): Json<StagePatch>,
+) -> impl IntoResponse {
+    let store =
+        match board_pipeline_store(&project_id, &board_id, &projects, &registry, &supervisor).await
+        {
+            Ok(s) => s,
+            Err(e) => return e.into_response(),
+        };
+    match store.patch_stage(&stage_id, patch).await {
+        Ok(stage) => (StatusCode::OK, Json(stage)).into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(ErrorResponse { error: e })).into_response(),
+    }
+}
+
+/// GET /api/projects/:pid/pipeline/stages — legacy; same as board `default`.
+#[instrument(skip_all)]
+pub async fn get_project_pipeline_stages(
+    Path(project_id): Path<String>,
+    State(projects): State<Arc<ProjectConfigStore>>,
+    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
+) -> impl IntoResponse {
+    match board_pipeline_store(&project_id, "default", &projects, &registry, &supervisor).await {
+        Ok(store) => {
+            let body = store.get_stages_response().await;
+            (StatusCode::OK, Json(body)).into_response()
+        }
+        Err(e) => e.into_response(),
+    }
+}
+
+/// PUT /api/projects/:pid/pipeline/stages
+#[instrument(skip_all)]
+pub async fn put_project_pipeline_stages(
+    Path(project_id): Path<String>,
+    State(projects): State<Arc<ProjectConfigStore>>,
+    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
+    Json(body): Json<StagesResponse>,
+) -> impl IntoResponse {
+    let store =
+        match board_pipeline_store(&project_id, "default", &projects, &registry, &supervisor).await
+        {
+            Ok(s) => s,
+            Err(e) => return e.into_response(),
+        };
+    match store.set_stages_response(body).await {
+        Ok(()) => {
+            let body = store.get_stages_response().await;
+            (StatusCode::OK, Json(body)).into_response()
+        }
+        Err(e) => (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response(),
+    }
+}
+
+/// PATCH /api/projects/:pid/pipeline/stages/:sid
+#[instrument(skip_all)]
+pub async fn patch_project_pipeline_stage(
+    Path((project_id, stage_id)): Path<(String, String)>,
+    State(projects): State<Arc<ProjectConfigStore>>,
+    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
+    Json(patch): Json<StagePatch>,
+) -> impl IntoResponse {
+    let store =
+        match board_pipeline_store(&project_id, "default", &projects, &registry, &supervisor).await
+        {
+            Ok(s) => s,
+            Err(e) => return e.into_response(),
+        };
+    match store.patch_stage(&stage_id, patch).await {
+        Ok(stage) => (StatusCode::OK, Json(stage)).into_response(),
+        Err(e) => (StatusCode::NOT_FOUND, Json(ErrorResponse { error: e })).into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Router builder
 // ---------------------------------------------------------------------------
 
@@ -414,14 +682,28 @@ pub fn project_router(state: Arc<ProjectConfigStore>) -> Router {
             "/:pid/agents/:aid",
             get(get_project_agent).delete(delete_project_agent),
         )
-        // Project-scoped pipeline routes
+        // Named boards
+        .route(
+            "/:pid/boards",
+            get(list_project_boards).post(post_project_board),
+        )
+        .route("/:pid/boards/:bid", delete(delete_project_board))
+        .route(
+            "/:pid/boards/:bid/stages",
+            get(get_project_board_stages).put(put_project_board_stages),
+        )
+        .route(
+            "/:pid/boards/:bid/stages/:sid",
+            patch(patch_project_board_stage),
+        )
+        // Legacy pipeline routes (default board)
         .route(
             "/:pid/pipeline/stages",
             get(get_project_pipeline_stages).put(put_project_pipeline_stages),
         )
         .route(
             "/:pid/pipeline/stages/:sid",
-            axum::routing::patch(patch_project_pipeline_stage),
+            patch(patch_project_pipeline_stage),
         )
         .with_state(state)
 }
@@ -435,9 +717,24 @@ mod tests {
     use super::*;
     use axum::{
         body::Body,
+        extract::Extension,
         http::{Method, Request, Response},
+        Router,
     };
+    use molt_hub_harness::adapter::AgentEvent;
+    use molt_hub_harness::supervisor::{Supervisor, SupervisorConfig};
+    use tokio::sync::broadcast;
     use tower::util::ServiceExt;
+
+    fn test_extensions() -> (
+        Extension<Arc<ProjectRuntimeRegistry>>,
+        Extension<Arc<Supervisor>>,
+    ) {
+        let registry = Arc::new(ProjectRuntimeRegistry::new());
+        let (tx, _rx) = broadcast::channel::<AgentEvent>(4);
+        let supervisor = Arc::new(Supervisor::new(SupervisorConfig::default(), tx));
+        (Extension(registry), Extension(supervisor))
+    }
 
     fn test_app() -> impl tower::Service<
         Request<Body>,
@@ -446,8 +743,11 @@ mod tests {
         Future: Send,
     > + Clone {
         let state = Arc::new(ProjectConfigStore::in_memory());
+        let (ext_reg, ext_sup) = test_extensions();
         Router::new()
             .nest("/api/projects", project_router(state))
+            .layer(ext_reg)
+            .layer(ext_sup)
             .into_service::<Body>()
     }
 
@@ -459,8 +759,11 @@ mod tests {
         Error = std::convert::Infallible,
         Future: Send,
     > + Clone {
+        let (ext_reg, ext_sup) = test_extensions();
         Router::new()
             .nest("/api/projects", project_router(state))
+            .layer(ext_reg)
+            .layer(ext_sup)
             .into_service::<Body>()
     }
 

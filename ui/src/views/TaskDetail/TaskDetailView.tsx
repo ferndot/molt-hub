@@ -69,7 +69,7 @@ const TaskDetailView: Component = () => {
             <div class={styles.container}>
               {/* Header */}
               <div class={styles.header}>
-                <a href="/board" class={styles.backBtn} data-testid="back-btn">
+                <a href="/" class={styles.backBtn} data-testid="back-btn">
                   <TbOutlineArrowLeft size={14} style={{ "vertical-align": "middle" }} /> Board
                 </a>
                 <span class={styles.taskTitle}>{t().title}</span>

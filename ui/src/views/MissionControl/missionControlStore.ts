@@ -50,8 +50,11 @@ const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
 // ---------------------------------------------------------------------------
 
 function mergeItems(): MissionControlItem[] {
+  const allowedStages = new Set(boardState.stages);
   const { state: triageState } = useTriageStore();
-  const items: MissionControlItem[] = boardState.tasks.map((task) => {
+  const items: MissionControlItem[] = boardState.tasks
+    .filter((task) => allowedStages.has(task.stage))
+    .map((task) => {
     const triageMatch = triageState.items.find((ti) => ti.taskId === task.id);
     if (triageMatch) {
       return {

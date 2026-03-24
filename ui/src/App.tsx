@@ -1,5 +1,5 @@
 import type { Component } from "solid-js";
-import { lazy, Suspense, createEffect, onCleanup, onMount } from "solid-js";
+import { createEffect, onCleanup, onMount } from "solid-js";
 import { Router, Route } from "@solidjs/router";
 import { loadProjects, projectState } from "./stores/projectStore";
 import { initBoardStages, handleBoardWsMessage } from "./views/Board/boardStore";
@@ -12,21 +12,13 @@ import AgentsView from "./views/Agents/AgentsView";
 import BoardView from "./views/Board/BoardView";
 import SettingsView from "./views/Settings/SettingsView";
 
-const MissionControlView = lazy(() => import("./views/MissionControl/MissionControlView"));
-
 // ---------------------------------------------------------------------------
 // Route views
 // ---------------------------------------------------------------------------
 
 const TriagePage: Component = () => <TriageView />;
 
-const BoardPage: Component = () => <BoardView />;
-
-const MissionControlPage: Component = () => (
-  <Suspense fallback={<div style={{ padding: "2rem", color: "var(--text-muted)" }}>Loading...</div>}>
-    <MissionControlView />
-  </Suspense>
-);
+const WorkboardPage: Component = () => <BoardView />;
 
 const AgentsPage: Component = () => <AgentsView />;
 
@@ -54,16 +46,16 @@ const App: Component = () => {
 
   return (
     <Router root={AppLayout}>
-      <Route path="/" component={MissionControlPage} />
-      <Route path="/mission-control" component={MissionControlPage} />
+      <Route path="/" component={WorkboardPage} />
+      <Route path="/mission-control" component={WorkboardPage} />
       <Route path="/triage" component={TriagePage} />
-      <Route path="/board" component={BoardPage} />
+      <Route path="/board" component={WorkboardPage} />
       <Route path="/agents" component={AgentsPage} />
       <Route path="/agents/:id" component={AgentDetailView} />
       <Route path="/tasks/:id" component={TaskDetailView} />
       <Route path="/settings" component={SettingsPage} />
       {/* Project-scoped routes */}
-      <Route path="/projects/:pid/board" component={BoardPage} />
+      <Route path="/projects/:pid/board" component={WorkboardPage} />
       <Route path="/projects/:pid/triage" component={TriagePage} />
       <Route path="/projects/:pid/settings" component={SettingsPage} />
     </Router>

@@ -34,7 +34,7 @@ use crate::integrations::oauth::JiraOAuthService;
 use crate::integrations::oauth_redirect::{github_redirect_uri, jira_redirect_uri};
 use crate::pipeline::handlers::{pipeline_router, PipelineState};
 use crate::projects::handlers::{project_router, ProjectConfigStore};
-use crate::projects::runtime::{ProjectRuntime, ProjectRuntimeRegistry};
+use crate::projects::runtime::{MultiBoardPipelineStore, ProjectRuntime, ProjectRuntimeRegistry};
 use crate::settings::{typed_settings_router, SettingsFileStore, TypedSettingsState};
 use crate::system::pick_repo_folder;
 use crate::ws::{ws_handler, ConnectionManager};
@@ -118,10 +118,14 @@ pub async fn build_router(
     // ---- Project runtime registry ------------------------------------------
     let registry = Arc::new(ProjectRuntimeRegistry::new());
     {
+        let default_cfg = pipeline_state.snapshot_config().await;
+        let boards = Arc::new(MultiBoardPipelineStore::with_default_from_config(
+            default_cfg,
+        ));
         let default_runtime = Arc::new(ProjectRuntime {
             project_id: "default".to_owned(),
             supervisor: Arc::clone(&supervisor),
-            pipeline_config: Arc::clone(&pipeline_state),
+            boards,
         });
         registry.insert("default".to_owned(), default_runtime).await;
     }
@@ -181,10 +185,7 @@ pub async fn build_router(
     let mut router = Router::new()
         .route("/ws", get(ws_handler))
         .route("/api/health", get(api_health))
-        .route(
-            "/api/system/pick-repo-folder",
-            post(pick_repo_folder),
-        )
+        .route("/api/system/pick-repo-folder", post(pick_repo_folder))
         .nest_service("/api/pipeline", pipeline)
         .nest_service("/api/agents", agents)
         .nest_service("/api/audit", audit)
@@ -210,6 +211,7 @@ pub async fn build_router(
     let router = router
         .fallback_service(ServeDir::new(dist_dir).fallback(ServeFile::new(index_html)))
         .layer(axum::Extension(Arc::clone(&registry)))
+        .layer(axum::Extension(Arc::clone(&supervisor)))
         .with_state(Arc::clone(&manager));
 
     (router, manager, supervisor, audit_handle)

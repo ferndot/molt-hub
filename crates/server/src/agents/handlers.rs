@@ -29,7 +29,8 @@ use molt_hub_harness::cli::CliAdapter;
 use molt_hub_harness::supervisor::{SteerMessage, SteerPriority, Supervisor, SupervisorError};
 use molt_hub_harness::worktree::{validate_repo, WorktreeConfig, WorktreeManager};
 
-use crate::projects::runtime::ProjectRuntimeRegistry;
+use crate::projects::handlers::ProjectConfigStore;
+use crate::projects::runtime::{ensure_project_runtime, ProjectRuntimeRegistry};
 
 use super::output_buffer::AgentOutputBuffer;
 use super::worktree_registry::{WorktreeManagerCache, WorktreeRegistry};
@@ -528,23 +529,23 @@ pub fn agent_router(state: Arc<AgentState>) -> Router {
 // ---------------------------------------------------------------------------
 
 /// GET /api/projects/:pid/agents — list agents belonging to a specific project.
-#[instrument(skip(registry))]
+#[instrument(skip(registry, projects, supervisor))]
 pub async fn list_project_agents(
     Path(project_id): Path<String>,
+    State(projects): State<Arc<ProjectConfigStore>>,
     Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
 ) -> impl IntoResponse {
-    let runtime = match registry.get(&project_id).await {
-        Some(r) => r,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(MessageResponse {
-                    message: format!("project not found: {project_id}"),
-                }),
-            )
-                .into_response();
-        }
-    };
+    if project_id != "default" && projects.get(&project_id).await.is_none() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(MessageResponse {
+                message: format!("project not found: {project_id}"),
+            }),
+        )
+            .into_response();
+    }
+    let runtime = ensure_project_runtime(&project_id, &registry, &supervisor).await;
 
     let agents = runtime.supervisor.list_agents().await;
     let responses: Vec<AgentResponse> = agents
@@ -565,23 +566,23 @@ pub async fn list_project_agents(
 }
 
 /// DELETE /api/projects/:pid/agents/:aid — terminate an agent under a project.
-#[instrument(skip(registry))]
+#[instrument(skip(registry, projects, supervisor))]
 pub async fn delete_project_agent(
     Path((project_id, agent_id_str)): Path<(String, String)>,
+    State(projects): State<Arc<ProjectConfigStore>>,
     Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
 ) -> impl IntoResponse {
-    let runtime = match registry.get(&project_id).await {
-        Some(r) => r,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(MessageResponse {
-                    message: format!("project not found: {project_id}"),
-                }),
-            )
-                .into_response();
-        }
-    };
+    if project_id != "default" && projects.get(&project_id).await.is_none() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(MessageResponse {
+                message: format!("project not found: {project_id}"),
+            }),
+        )
+            .into_response();
+    }
+    let runtime = ensure_project_runtime(&project_id, &registry, &supervisor).await;
 
     let ulid = match ulid::Ulid::from_string(&agent_id_str) {
         Ok(u) => u,
@@ -614,23 +615,23 @@ pub async fn delete_project_agent(
 }
 
 /// GET /api/projects/:pid/agents/:aid — get status of a specific agent under a project.
-#[instrument(skip(registry))]
+#[instrument(skip(registry, projects, supervisor))]
 pub async fn get_project_agent(
     Path((project_id, agent_id_str)): Path<(String, String)>,
+    State(projects): State<Arc<ProjectConfigStore>>,
     Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
 ) -> impl IntoResponse {
-    let runtime = match registry.get(&project_id).await {
-        Some(r) => r,
-        None => {
-            return (
-                StatusCode::NOT_FOUND,
-                Json(MessageResponse {
-                    message: format!("project not found: {project_id}"),
-                }),
-            )
-                .into_response();
-        }
-    };
+    if project_id != "default" && projects.get(&project_id).await.is_none() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(MessageResponse {
+                message: format!("project not found: {project_id}"),
+            }),
+        )
+            .into_response();
+    }
+    let runtime = ensure_project_runtime(&project_id, &registry, &supervisor).await;
 
     let ulid = match ulid::Ulid::from_string(&agent_id_str) {
         Ok(u) => u,

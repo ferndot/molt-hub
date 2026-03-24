@@ -55,6 +55,17 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+async function del<T = void>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`);
+  if (res.status === 204 || res.headers.get("content-length") === "0") {
+    return undefined as T;
+  }
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("application/json")) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
 /** Backend returns a JSON array; older clients expected `{ entries }`. */
 function normalizeAuditRows(raw: unknown): AuditEntry[] {
   const list = Array.isArray(raw)
@@ -148,6 +159,39 @@ export const api = {
       fields,
     ),
 
+  /** Named boards per project (`default` is always present). */
+  listProjectBoards: (projectId: string) =>
+    get<{ boards: BoardSummary[] }>(`/projects/${projectId}/boards`),
+  createProjectBoard: (projectId: string, body: { id: string; name?: string }) =>
+    post<{ boards: BoardSummary[] }>(`/projects/${projectId}/boards`, body),
+  deleteProjectBoard: (projectId: string, boardId: string) =>
+    del<{ boards: BoardSummary[] }>(
+      `/projects/${projectId}/boards/${encodeURIComponent(boardId)}`,
+    ),
+  getProjectBoardStages: (projectId: string, boardId: string) =>
+    get<{ stages: PipelineStage[] }>(
+      `/projects/${projectId}/boards/${encodeURIComponent(boardId)}/stages`,
+    ),
+  updateProjectBoardStages: (
+    projectId: string,
+    boardId: string,
+    body: unknown,
+  ) =>
+    put<{ stages: PipelineStage[] }>(
+      `/projects/${projectId}/boards/${encodeURIComponent(boardId)}/stages`,
+      body,
+    ),
+  patchProjectBoardStage: (
+    projectId: string,
+    boardId: string,
+    stageId: string,
+    fields: Partial<PipelineStage>,
+  ) =>
+    patch<PipelineStage>(
+      `/projects/${projectId}/boards/${encodeURIComponent(boardId)}/stages/${encodeURIComponent(stageId)}`,
+      fields,
+    ),
+
   // Agents
   getAgents: () => get<AgentsListResponse>("/agents"),
   spawnAgent: (req: unknown) =>
@@ -198,6 +242,11 @@ export const api = {
 // ---------------------------------------------------------------------------
 // Shared types
 // ---------------------------------------------------------------------------
+
+export interface BoardSummary {
+  id: string;
+  name: string;
+}
 
 export interface PipelineStage {
   id: string;

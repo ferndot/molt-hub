@@ -1,18 +1,123 @@
-//! Per-project runtime state — supervisor, pipeline config, and event store.
+//! Per-project runtime state — supervisor, multi-board pipeline config, and event store.
 //!
 //! [`ProjectRuntime`] holds the live state for a single project.
 //! [`ProjectRuntimeRegistry`] is an in-memory map of `project_id → runtime`
 //! and is injected into Axum handlers via `axum::Extension`.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dashmap::DashMap;
-
 use molt_hub_harness::supervisor::Supervisor;
+use tokio::sync::RwLock;
 
 use crate::pipeline::handlers::PipelineConfigStore;
+
+// ---------------------------------------------------------------------------
+// Multi-board store (per project)
+// ---------------------------------------------------------------------------
+
+/// Named kanban boards, each backed by an in-memory [`PipelineConfigStore`].
+pub struct MultiBoardPipelineStore {
+    boards: RwLock<HashMap<String, Arc<PipelineConfigStore>>>,
+}
+
+impl MultiBoardPipelineStore {
+    /// One board with id `default` using built-in stage defaults.
+    pub fn new() -> Self {
+        let mut m = HashMap::new();
+        m.insert(
+            "default".to_string(),
+            Arc::new(PipelineConfigStore::in_memory()),
+        );
+        Self {
+            boards: RwLock::new(m),
+        }
+    }
+
+    /// Start with `default` seeded from an existing config snapshot (e.g. global pipeline file).
+    pub fn with_default_from_config(cfg: molt_hub_core::config::PipelineConfig) -> Self {
+        let mut m = HashMap::new();
+        m.insert(
+            "default".to_string(),
+            Arc::new(PipelineConfigStore::from_pipeline_config(cfg)),
+        );
+        Self {
+            boards: RwLock::new(m),
+        }
+    }
+
+    fn normalize_id(id: &str) -> Result<String, String> {
+        let t = id.trim();
+        if t.is_empty() {
+            return Err("board id must not be empty".into());
+        }
+        if !t
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        {
+            return Err("board id must be alphanumeric, underscore, or hyphen".into());
+        }
+        Ok(t.to_string())
+    }
+
+    pub async fn list_summaries(&self) -> Vec<BoardSummary> {
+        let g = self.boards.read().await;
+        let mut out: Vec<BoardSummary> = Vec::new();
+        for (id, store) in g.iter() {
+            out.push(BoardSummary {
+                id: id.clone(),
+                name: store.pipeline_display_name().await,
+            });
+        }
+        out.sort_by(|a, b| a.id.cmp(&b.id));
+        out
+    }
+
+    pub async fn get_store(&self, board_id: &str) -> Option<Arc<PipelineConfigStore>> {
+        self.boards.read().await.get(board_id).cloned()
+    }
+
+    pub async fn create_board(&self, id: &str, name: Option<String>) -> Result<(), String> {
+        let id = Self::normalize_id(id)?;
+        let mut g = self.boards.write().await;
+        if g.contains_key(&id) {
+            return Err(format!("board '{id}' already exists"));
+        }
+        let store = PipelineConfigStore::in_memory();
+        if let Some(n) = name {
+            let trimmed = n.trim();
+            if !trimmed.is_empty() {
+                store.set_display_name(trimmed.to_string()).await;
+            }
+        }
+        g.insert(id, Arc::new(store));
+        Ok(())
+    }
+
+    pub async fn delete_board(&self, board_id: &str) -> Result<(), String> {
+        let id = Self::normalize_id(board_id)?;
+        if id == "default" {
+            return Err("cannot delete the default board".into());
+        }
+        let mut g = self.boards.write().await;
+        if g.len() <= 1 {
+            return Err("cannot delete the last board".into());
+        }
+        g.remove(&id)
+            .ok_or_else(|| format!("board '{id}' not found"))?;
+        Ok(())
+    }
+}
+
+/// Wire shape for `GET /api/projects/:pid/boards`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct BoardSummary {
+    pub id: String,
+    pub name: String,
+}
 
 // ---------------------------------------------------------------------------
 // Config
@@ -64,8 +169,8 @@ pub struct ProjectRuntime {
     pub project_id: String,
     /// Supervisor managing agents spawned under this project.
     pub supervisor: Arc<Supervisor>,
-    /// Pipeline stage configuration for this project.
-    pub pipeline_config: Arc<PipelineConfigStore>,
+    /// Named pipeline / kanban boards for this project.
+    pub boards: Arc<MultiBoardPipelineStore>,
 }
 
 // ---------------------------------------------------------------------------
@@ -88,6 +193,29 @@ impl Default for ProjectRuntimeRegistry {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Return an existing [`ProjectRuntime`] or register a new one.
+///
+/// **Call only after** verifying `project_id == "default"` or the project exists in
+/// [`ProjectConfigStore`], otherwise bogus runtimes may be created.
+pub async fn ensure_project_runtime(
+    project_id: &str,
+    registry: &ProjectRuntimeRegistry,
+    supervisor: &Arc<Supervisor>,
+) -> Arc<ProjectRuntime> {
+    if let Some(r) = registry.get(project_id).await {
+        return r;
+    }
+    let runtime = Arc::new(ProjectRuntime {
+        project_id: project_id.to_string(),
+        supervisor: Arc::clone(supervisor),
+        boards: Arc::new(MultiBoardPipelineStore::new()),
+    });
+    registry
+        .insert(project_id.to_string(), Arc::clone(&runtime))
+        .await;
+    runtime
 }
 
 impl ProjectRuntimeRegistry {
@@ -178,11 +306,11 @@ mod tests {
     fn make_runtime(id: &str) -> Arc<ProjectRuntime> {
         let (tx, _rx) = broadcast::channel::<AgentEvent>(64);
         let supervisor = Arc::new(Supervisor::new(SupervisorConfig::default(), tx));
-        let pipeline_config = Arc::new(PipelineConfigStore::in_memory());
+        let boards = Arc::new(MultiBoardPipelineStore::new());
         Arc::new(ProjectRuntime {
             project_id: id.to_string(),
             supervisor,
-            pipeline_config,
+            boards,
         })
     }
 
