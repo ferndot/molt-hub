@@ -78,7 +78,7 @@ const BoardList: Component<Props> = (props) => {
                 class={styles.boardItem}
                 classList={{ [styles.active]: rowActive(board.id) }}
                 onClick={() => void openBoard(board.id)}
-                title={`${board.name} (${board.id})`}
+                title={board.name}
               >
                 <span class={styles.boardIcon} />
               </button>
@@ -97,7 +97,6 @@ const BoardList: Component<Props> = (props) => {
               <span class={styles.boardIcon} />
               <div class={styles.boardInfo}>
                 <div class={styles.boardName}>{board.name}</div>
-                <div class={styles.boardId}>{board.id}</div>
               </div>
             </button>
           )}

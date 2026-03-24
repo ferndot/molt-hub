@@ -99,14 +99,6 @@
   line-height: 1.3;
 }
 
-.boardId {
-  font-size: 0.6875rem;
-  color: var(--sidebar-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .searchWrapper {
   padding: 0 0.75rem 0.5rem;
 }

@@ -26,17 +26,26 @@ const BoardsView: Component = () => {
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [templateStages, setTemplateStages] = createSignal<PipelineStage[]>([]);
+  const [boardApiError, setBoardApiError] = createSignal<string | null>(null);
 
   onMount(() => {
-    void refreshBoardList();
     void (async () => {
+      let listErr: string | null = null;
+      try {
+        await refreshBoardList();
+      } catch (e) {
+        listErr = e instanceof Error ? e.message : String(e);
+      }
+      let tmplErr: string | null = null;
       try {
         const res = await api.getBoardTemplate();
         const stages = [...(res.stages ?? [])].sort((a, b) => a.order - b.order);
         setTemplateStages(stages);
-      } catch {
+      } catch (e) {
         setTemplateStages([]);
+        tmplErr = e instanceof Error ? e.message : String(e);
       }
+      setBoardApiError(listErr ?? tmplErr);
     })();
   });
 
@@ -102,6 +111,14 @@ const BoardsView: Component = () => {
         />
       </div>
 
+      <Show when={boardApiError()}>
+        {(msg) => (
+          <p class={styles.staleBanner} role="alert">
+            {msg()}
+          </p>
+        )}
+      </Show>
+
       <Show when={templateStages().length > 0}>
         <div class={styles.templatePanel} role="region" aria-label="New board template">
           <div class={styles.templateTitle}>New boards start with these columns</div>
@@ -162,7 +179,6 @@ const BoardsView: Component = () => {
               <div class={styles.boardCard}>
                 <div class={styles.cardMain}>
                   <div class={styles.cardTitle}>{board.name}</div>
-                  <div class={styles.cardId}>{board.id}</div>
                 </div>
                 <div class={styles.cardActions}>
                   <button

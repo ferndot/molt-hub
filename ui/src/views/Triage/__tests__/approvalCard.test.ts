@@ -76,6 +76,7 @@ describe("ApprovalCard logic", () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 500,
+      text: () => Promise.resolve(""),
     });
 
     const { api } = await import("../../../lib/api");
@@ -88,6 +89,7 @@ describe("ApprovalCard logic", () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 422,
+      text: () => Promise.resolve(""),
     });
 
     const { api } = await import("../../../lib/api");

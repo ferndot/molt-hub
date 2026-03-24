@@ -16,9 +16,43 @@ function jsonHeaders(): HeadersInit {
   return { "Content-Type": "application/json" };
 }
 
+async function readErrorDetail(res: Response): Promise<string | null> {
+  const text = await res.text();
+  if (!text.trim()) return null;
+  try {
+    const j = JSON.parse(text) as { error?: unknown };
+    if (typeof j.error === "string" && j.error.length > 0) return j.error;
+  } catch {
+    /* not JSON */
+  }
+  return text.length > 240 ? `${text.slice(0, 240)}…` : text;
+}
+
+function formatFetchError(
+  method: string,
+  path: string,
+  res: Response,
+  detail: string | null,
+): string {
+  if (detail) {
+    return `${method} ${path} failed: ${res.status} — ${detail}`;
+  }
+  if (res.status === 404) {
+    return (
+      `${method} ${path} failed: 404. ` +
+      "The server has no handler for this path (often an outdated `molt-hub serve` on port 13401). " +
+      "Stop it and restart from a fresh build: `cargo run --bin molt-hub -- serve` or `./dev.sh`."
+    );
+  }
+  return `${method} ${path} failed: ${res.status}`;
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`);
-  if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`);
+  if (!res.ok) {
+    const detail = await readErrorDetail(res);
+    throw new Error(formatFetchError("GET", path, res, detail));
+  }
   return res.json() as Promise<T>;
 }
 
@@ -28,7 +62,10 @@ async function put<T>(path: string, body: unknown): Promise<T> {
     headers: jsonHeaders(),
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`PUT ${path} failed: ${res.status}`);
+  if (!res.ok) {
+    const detail = await readErrorDetail(res);
+    throw new Error(formatFetchError("PUT", path, res, detail));
+  }
   return res.json() as Promise<T>;
 }
 
@@ -38,7 +75,10 @@ async function post<T>(path: string, body?: unknown): Promise<T> {
     headers: jsonHeaders(),
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
-  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`);
+  if (!res.ok) {
+    const detail = await readErrorDetail(res);
+    throw new Error(formatFetchError("POST", path, res, detail));
+  }
   return res.json() as Promise<T>;
 }
 
@@ -48,13 +88,19 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
     headers: jsonHeaders(),
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`PATCH ${path} failed: ${res.status}`);
+  if (!res.ok) {
+    const detail = await readErrorDetail(res);
+    throw new Error(formatFetchError("PATCH", path, res, detail));
+  }
   return res.json() as Promise<T>;
 }
 
 async function del<T = void>(path: string): Promise<T> {
   const res = await fetch(`${BASE}${path}`, { method: "DELETE" });
-  if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`);
+  if (!res.ok) {
+    const detail = await readErrorDetail(res);
+    throw new Error(formatFetchError("DELETE", path, res, detail));
+  }
   if (res.status === 204 || res.headers.get("content-length") === "0") {
     return undefined as T;
   }

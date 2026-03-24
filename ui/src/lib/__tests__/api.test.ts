@@ -29,6 +29,15 @@ describe("api client", () => {
       ok: status >= 200 && status < 300,
       status,
       json: () => Promise.resolve(data),
+      text: () => Promise.resolve(JSON.stringify(data)),
+    });
+  }
+
+  function mockErrorResponse(status: number, bodyText = "") {
+    return mockFetch.mockResolvedValueOnce({
+      ok: false,
+      status,
+      text: () => Promise.resolve(bodyText),
     });
   }
 
@@ -197,7 +206,19 @@ describe("api client", () => {
   // ---- Error handling ----
 
   it("throws on non-ok response", async () => {
-    mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+    mockErrorResponse(500, "");
     await expect(api.getSettings()).rejects.toThrow("GET /settings failed: 500");
+  });
+
+  it("includes server error JSON on non-ok response", async () => {
+    mockErrorResponse(404, JSON.stringify({ error: "project 'x' not found" }));
+    await expect(api.listBoards()).rejects.toThrow(
+      "GET /projects/default/boards failed: 404 — project 'x' not found",
+    );
+  });
+
+  it("hints stale backend on 404 with empty body", async () => {
+    mockErrorResponse(404, "");
+    await expect(api.listBoards()).rejects.toThrow(/outdated `molt-hub serve`/);
   });
 });
