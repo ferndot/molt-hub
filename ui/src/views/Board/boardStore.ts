@@ -85,7 +85,7 @@ function runBoardStoreOp<T>(fn: () => Promise<T>): Promise<T> {
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch stages for a project board. Returns null on failure.
+ * Fetch stages for a board. Returns null on failure.
  */
 export async function fetchBoardStages(
   boardId: string,
@@ -191,7 +191,7 @@ export function refreshBoardList(): Promise<void> {
 }
 
 /**
- * Switch the visible board; persists per project. Does not clear tasks.
+ * Switch the visible board; persists selection in localStorage. Does not clear tasks.
  */
 export function setActiveBoard(boardId: string): Promise<void> {
   return runBoardStoreOp(() => applySetActiveBoard(boardId));
