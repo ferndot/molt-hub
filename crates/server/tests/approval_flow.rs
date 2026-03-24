@@ -123,6 +123,7 @@ fn make_approval_pipeline(stage_name: &str, required_approvers: Vec<String>) -> 
         version: 1,
         stages: vec![StageDefinition {
             name: stage_name.to_string(),
+            label: None,
             instructions: None,
             instructions_template: None,
             requires_approval: true,
@@ -131,6 +132,9 @@ fn make_approval_pipeline(stage_name: &str, required_approvers: Vec<String>) -> 
             terminal: false,
             hooks: vec![],
             transition_rules: vec![],
+            color: None,
+            order: 0,
+            wip_limit: None,
         }],
         integrations: vec![],
             columns: vec![],
