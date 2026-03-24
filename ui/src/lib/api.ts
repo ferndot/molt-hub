@@ -132,8 +132,11 @@ export const api = {
     get<{ stages: PipelineStage[]; columns?: unknown }>(
       `${WS_PROJECT}/board-template`,
     ),
-  createBoard: (body: { id: string; name?: string }) =>
-    post<{ boards: BoardSummary[] }>(`${WS_PROJECT}/boards`, body),
+  createBoard: (body: { name: string }) =>
+    post<{ boards: BoardSummary[]; boardId: string }>(
+      `${WS_PROJECT}/boards`,
+      body,
+    ),
   deleteBoard: (boardId: string) =>
     del<{ boards: BoardSummary[] }>(
       `${WS_PROJECT}/boards/${encodeURIComponent(boardId)}`,

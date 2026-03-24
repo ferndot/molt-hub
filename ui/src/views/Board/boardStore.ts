@@ -242,15 +242,17 @@ export function setActiveBoard(boardId: string): Promise<void> {
   return runBoardStoreOp(() => applySetActiveBoard(boardId));
 }
 
-/** Create a new board (empty default stages on the server). */
-export function createBoard(id: string, name?: string): Promise<void> {
+/** Create a new board; server assigns a ULID. Returns the new board id. */
+export function createBoard(displayName: string): Promise<string> {
   return runBoardStoreOp(async () => {
-    const res = await api.createBoard({
-      id: id.trim(),
-      ...(name?.trim() ? { name: name.trim() } : {}),
-    });
+    const res = await api.createBoard({ name: displayName.trim() });
+    const id = res.boardId;
+    if (!id) {
+      throw new Error("Server did not return boardId");
+    }
     setBoardState("boards", res.boards ?? []);
-    await applySetActiveBoard(id.trim());
+    await applySetActiveBoard(id);
+    return id;
   });
 }
 

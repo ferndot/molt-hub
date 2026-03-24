@@ -13,6 +13,7 @@ use dashmap::DashMap;
 use molt_hub_core::config::PipelineConfig;
 use molt_hub_harness::supervisor::Supervisor;
 use tokio::sync::RwLock;
+use ulid::Ulid;
 
 use crate::pipeline::handlers::PipelineConfigStore;
 
@@ -75,21 +76,18 @@ impl MultiBoardPipelineStore {
         self.boards.read().await.get(board_id).cloned()
     }
 
-    pub async fn create_board(&self, id: &str, name: Option<String>) -> Result<(), String> {
-        let id = Self::normalize_id(id)?;
+    /// Create a board with a new ULID key and the given display name (`PipelineConfig::name`).
+    pub async fn create_board(&self, display_name: &str) -> Result<String, String> {
+        let title = display_name.trim();
+        if title.is_empty() {
+            return Err("board name must not be empty".into());
+        }
+        let id = Ulid::new().to_string();
         let mut g = self.boards.write().await;
-        if g.contains_key(&id) {
-            return Err(format!("board '{id}' already exists"));
-        }
         let store = PipelineConfigStore::from_pipeline_config(self.new_board_template.clone());
-        if let Some(n) = name {
-            let trimmed = n.trim();
-            if !trimmed.is_empty() {
-                store.set_display_name(trimmed.to_string()).await;
-            }
-        }
-        g.insert(id, Arc::new(store));
-        Ok(())
+        store.set_display_name(title.to_string()).await;
+        g.insert(id.clone(), Arc::new(store));
+        Ok(id)
     }
 
     pub async fn delete_board(&self, board_id: &str) -> Result<(), String> {

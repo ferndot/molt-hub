@@ -22,8 +22,7 @@ import styles from "./BoardsView.module.css";
 const BoardsView: Component = () => {
   const navigate = useNavigate();
   const [query, setQuery] = createSignal("");
-  const [newId, setNewId] = createSignal("");
-  const [newName, setNewName] = createSignal("");
+  const [newBoardName, setNewBoardName] = createSignal("");
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [templateStages, setTemplateStages] = createSignal<PipelineStage[]>([]);
@@ -57,19 +56,17 @@ const BoardsView: Component = () => {
   };
 
   const handleCreate = async () => {
-    const id = newId().trim();
-    if (!id) {
-      setError("Board id is required.");
+    const name = newBoardName().trim();
+    if (!name) {
+      setError("Board name is required.");
       return;
     }
     setError(null);
     setBusy(true);
     try {
-      const name = newName().trim();
-      await createBoard(id, name || undefined);
-      setNewId("");
-      setNewName("");
-      navigate(boardKanbanPath(id.trim()));
+      const id = await createBoard(name);
+      setNewBoardName("");
+      navigate(boardKanbanPath(id));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -77,12 +74,12 @@ const BoardsView: Component = () => {
     }
   };
 
-  const handleDelete = async (boardId: string) => {
-    if (!confirm(`Delete board "${boardId}"? This cannot be undone.`)) return;
+  const handleDelete = async (board: { id: string; name: string }) => {
+    if (!confirm(`Delete board "${board.name}"? This cannot be undone.`)) return;
     setError(null);
     setBusy(true);
     try {
-      await deleteBoard(boardId);
+      await deleteBoard(board.id);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -122,29 +119,16 @@ const BoardsView: Component = () => {
       </Show>
 
       <div class={styles.createPanel}>
-        <div class={styles.field}>
-          <label class={styles.fieldLabel} for="board-new-id">
-            Id
-          </label>
-          <input
-            id="board-new-id"
-            class={styles.fieldInput}
-            placeholder="e.g. release"
-            value={newId()}
-            onInput={(e) => setNewId(e.currentTarget.value)}
-            disabled={busy()}
-          />
-        </div>
-        <div class={styles.field}>
+        <div class={`${styles.field} ${styles.fieldGrow}`}>
           <label class={styles.fieldLabel} for="board-new-name">
-            Display name (optional)
+            Board name
           </label>
           <input
             id="board-new-name"
             class={styles.fieldInput}
-            placeholder="Release train"
-            value={newName()}
-            onInput={(e) => setNewName(e.currentTarget.value)}
+            placeholder="e.g. Release train"
+            value={newBoardName()}
+            onInput={(e) => setNewBoardName(e.currentTarget.value)}
             disabled={busy()}
           />
         </div>
@@ -190,7 +174,7 @@ const BoardsView: Component = () => {
                   <button
                     type="button"
                     class={styles.deleteBtn}
-                    onClick={() => void handleDelete(board.id)}
+                    onClick={() => void handleDelete(board)}
                     disabled={busy()}
                   >
                     Delete

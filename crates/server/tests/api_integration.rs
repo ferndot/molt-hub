@@ -57,18 +57,28 @@ async fn board_template_and_new_board_stages_round_trip() {
                 .uri("/api/projects/default/boards")
                 .header("content-type", "application/json")
                 .body(Body::from(
-                    serde_json::json!({ "id": "main", "name": "Main" }).to_string(),
+                    serde_json::json!({ "name": "Main" }).to_string(),
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
     assert_eq!(create.status(), StatusCode::CREATED);
+    let create_bytes = axum::body::to_bytes(create.into_body(), 1_000_000)
+        .await
+        .unwrap();
+    let created: serde_json::Value = serde_json::from_slice(&create_bytes).unwrap();
+    let board_id = created["boardId"]
+        .as_str()
+        .expect("POST boards should return boardId");
 
     let resp = app
         .oneshot(
             Request::builder()
-                .uri("/api/projects/default/boards/main/stages")
+                .uri(format!(
+                    "/api/projects/default/boards/{}/stages",
+                    board_id
+                ))
                 .body(Body::empty())
                 .unwrap(),
         )

@@ -21,9 +21,9 @@ test.describe("Smoke", () => {
 
   test("can navigate to Board view", async ({ page }) => {
     await page.goto("/boards");
-    await page.getByPlaceholder("e.g. release").fill("e2e-smoke");
+    await page.getByPlaceholder("e.g. Release train").fill("e2e-smoke");
     await page.getByRole("button", { name: "Create board" }).click();
-    await expect(page).toHaveURL(/\/boards\/e2e-smoke$/);
+    await expect(page).toHaveURL(/\/boards\/[^/]+$/);
     await expect(page.getByText("Backlog")).toBeVisible({ timeout: 10_000 });
   });
 
@@ -39,9 +39,9 @@ test.describe("Smoke", () => {
 
   test("Board shows columns", async ({ page }) => {
     await page.goto("/boards");
-    await page.getByPlaceholder("e.g. release").fill("e2e-columns");
+    await page.getByPlaceholder("e.g. Release train").fill("e2e-columns");
     await page.getByRole("button", { name: "Create board" }).click();
-    await expect(page).toHaveURL(/\/boards\/e2e-columns$/);
+    await expect(page).toHaveURL(/\/boards\/[^/]+$/);
     const columns = page.locator("[class*='column'], [class*='Column']");
     await expect(columns.first()).toBeVisible({ timeout: 10_000 });
   });

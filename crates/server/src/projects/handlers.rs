@@ -435,15 +435,22 @@ async fn project_exists_or_default(projects: &ProjectConfigStore, project_id: &s
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateBoardRequest {
-    pub id: String,
-    #[serde(default)]
-    pub name: Option<String>,
+    /// Display name for the board (server assigns a ULID as the stable id).
+    pub name: String,
 }
 
 #[derive(Serialize)]
 struct BoardsListBody {
     boards: Vec<BoardSummary>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CreateBoardResponse {
+    boards: Vec<BoardSummary>,
+    board_id: String,
 }
 
 /// GET /api/projects/:pid/boards
@@ -487,10 +494,17 @@ pub async fn post_project_board(
             .into_response();
     }
     let rt = ensure_project_runtime(&project_id, &registry, &supervisor).await;
-    match rt.boards.create_board(&body.id, body.name).await {
-        Ok(()) => {
+    match rt.boards.create_board(&body.name).await {
+        Ok(board_id) => {
             let boards = rt.boards.list_summaries().await;
-            (StatusCode::CREATED, Json(BoardsListBody { boards })).into_response()
+            (
+                StatusCode::CREATED,
+                Json(CreateBoardResponse {
+                    boards,
+                    board_id,
+                }),
+            )
+                .into_response()
         }
         Err(e) => (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })).into_response(),
     }
