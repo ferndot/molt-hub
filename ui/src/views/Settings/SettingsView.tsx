@@ -7,6 +7,7 @@
 
 import type { JSX } from "solid-js";
 import { createSignal, onMount, Show, For, type Component } from "solid-js";
+import { open as openNativeDialog } from "@tauri-apps/plugin-dialog";
 import {
   TbOutlinePalette,
   TbOutlinePlug,
@@ -220,13 +221,21 @@ const ProjectsPanel: Component = () => {
       return;
     }
     try {
-      const { open } = await import("@tauri-apps/plugin-dialog");
-      const chosen = await open({ directory: true, multiple: false });
+      // Static import: a dynamic `import()` before `open()` yields and can drop the
+      // user-activation chain, so WebKit/macOS may refuse to show the folder picker.
+      const chosen = await openNativeDialog({
+        directory: true,
+        multiple: false,
+        title: "Choose Git repository folder",
+      });
       if (typeof chosen === "string") {
         setRepoPath(chosen);
       }
-    } catch {
-      // dialog unavailable — user can type path manually
+    } catch (err) {
+      console.error("folder dialog failed", err);
+      setFormError(
+        "Could not open the folder picker. Enter the repository path manually.",
+      );
     }
   };
 
