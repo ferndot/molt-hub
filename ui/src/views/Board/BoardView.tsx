@@ -16,7 +16,7 @@ import GitHubImport from "../Settings/GitHubImport";
 import JiraImport from "../Settings/JiraImport";
 import { settingsState } from "../Settings/settingsStore";
 import { api } from "../../lib/api";
-import { getSortedStages } from "./boardStore";
+import { boardState, getSortedStages } from "./boardStore";
 import ColumnEditor from "./ColumnEditor";
 import mcStyles from "../MissionControl/MissionControlView.module.css";
 import styles from "./BoardView.module.css";
@@ -32,6 +32,12 @@ const BoardView: Component = () => {
 
   const sortedStages = () => getSortedStages();
   const firstStageId = () => sortedStages()[0]?.id;
+
+  const activeBoardTitle = () => {
+    const id = boardState.activeBoardId;
+    const b = boardState.boards.find((x) => x.id === id);
+    return b?.name ?? id;
+  };
 
   const onAddManualIssue = async () => {
     const stageId = firstStageId();
@@ -50,9 +56,29 @@ const BoardView: Component = () => {
 
   return (
     <div class={mcStyles.container}>
-      <div class={mcStyles.header}>
-        <h2 class={mcStyles.title}>Boards</h2>
-        <div class={styles.boardToolbar}>
+      <div class={`${mcStyles.header} ${styles.boardPageHeader}`}>
+        <div class={styles.headerLeft}>
+          <h2 class={`${mcStyles.title} ${styles.boardTitleBar}`}>
+            {activeBoardTitle()}
+          </h2>
+          <Show when={mc.totalAttentionCount() > 0}>
+            <span class={mcStyles.attentionBadge}>
+              {mc.totalAttentionCount()} need attention
+            </span>
+          </Show>
+        </div>
+        <div class={styles.headerActions}>
+          <button
+            type="button"
+            class={mcStyles.filterToggle}
+            classList={{ [mcStyles.filterToggleActive]: mc.globalFilterActive() }}
+            onClick={mc.toggleGlobalFilter}
+            title={mc.globalFilterActive() ? "Show all tasks" : "Focus on tasks needing attention"}
+          >
+            {mc.globalFilterActive()
+              ? <><TbOutlineEye size={14} /> Show All</>
+              : <><TbOutlineFocus size={14} /> Focus</>}
+          </button>
           <button
             type="button"
             class={`${styles.iconBtn}${editorOpen() ? ` ${styles.iconBtnActive}` : ""}`}
@@ -64,21 +90,6 @@ const BoardView: Component = () => {
             <TbOutlineSettings size={16} />
           </button>
         </div>
-        <Show when={mc.totalAttentionCount() > 0}>
-          <span class={mcStyles.attentionBadge}>
-            {mc.totalAttentionCount()} need attention
-          </span>
-        </Show>
-        <button
-          class={mcStyles.filterToggle}
-          classList={{ [mcStyles.filterToggleActive]: mc.globalFilterActive() }}
-          onClick={mc.toggleGlobalFilter}
-          title={mc.globalFilterActive() ? "Show all tasks" : "Focus on tasks needing attention"}
-        >
-          {mc.globalFilterActive()
-            ? <><TbOutlineEye size={14} /> Show All</>
-            : <><TbOutlineFocus size={14} /> Focus</>}
-        </button>
       </div>
 
       <ColumnEditor open={editorOpen()} onOpenChange={setEditorOpen} />
