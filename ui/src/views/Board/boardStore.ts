@@ -116,8 +116,9 @@ export const [boardState, setBoardState] =
 export async function initBoardStages(): Promise<void> {
   const fetched = await fetchPipelineStages();
   if (fetched) {
-    setBoardState("stages", fetched.map((s) => s.id));
-    setBoardState("pipelineStages", fetched);
+    const sorted = [...fetched].sort((a, b) => a.order - b.order);
+    setBoardState("stages", sorted.map((s) => s.id));
+    setBoardState("pipelineStages", sorted);
   }
   setBoardState("stagesLoaded", true);
 }
