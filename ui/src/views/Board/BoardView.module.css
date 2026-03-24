@@ -174,31 +174,6 @@
   text-align: left;
 }
 
-.addIssueInstructions {
-  font-size: 0.75rem;
-  line-height: 1.45;
-  color: var(--text-secondary);
-  margin-bottom: 0.625rem;
-}
-
-.addIssueLead {
-  margin: 0 0 0.4rem;
-  color: var(--text-primary);
-}
-
-.addIssueList {
-  margin: 0;
-  padding-left: 1.1rem;
-}
-
-.addIssueList li {
-  margin-bottom: 0.25rem;
-}
-
-.addIssueList li:last-child {
-  margin-bottom: 0;
-}
-
 .addIssueFieldLabel {
   display: block;
   font-size: 0.6875rem;

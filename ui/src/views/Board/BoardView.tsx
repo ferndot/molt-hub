@@ -227,23 +227,6 @@ const BoardView: Component = () => {
                             }
                           >
                             <div class={styles.addIssuePanel}>
-                              <div class={styles.addIssueInstructions}>
-                                <p class={styles.addIssueLead}>
-                                  New tasks land in this column. Use the box below to describe the work.
-                                </p>
-                                <ul class={styles.addIssueList}>
-                                  <li>
-                                    <strong>First line</strong> becomes the task title (keep it short and actionable).
-                                  </li>
-                                  <li>
-                                    <strong>Additional lines</strong> become the description: context, acceptance criteria, links, or notes for whoever picks it up.
-                                  </li>
-                                  <li>
-                                    Submit with <strong>Create</strong> or{" "}
-                                    <strong>Ctrl+Enter</strong> (⌘+Enter on Mac).
-                                  </li>
-                                </ul>
-                              </div>
                               <label class={styles.addIssueFieldLabel} for="add-issue-body">
                                 Issue
                               </label>
@@ -251,7 +234,7 @@ const BoardView: Component = () => {
                                 id="add-issue-body"
                                 class={styles.addIssueTextarea}
                                 rows={6}
-                                placeholder={`Example:\nFix login redirect on Safari\n\nRepro: …\nExpected: …`}
+                                placeholder="Title on first line; more detail below. ⌘/Ctrl+Enter to create."
                                 value={addIssueBody()}
                                 onInput={(e) => setAddIssueBody(e.currentTarget.value)}
                                 disabled={addIssueBusy()}
