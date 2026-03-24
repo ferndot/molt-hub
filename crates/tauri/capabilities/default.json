@@ -4,6 +4,7 @@
   "description": "Default capabilities for Molt Hub",
   "windows": ["main"],
   "permissions": [
+    "allow-oauth-auth-start-url",
     "core:event:default",
     "deep-link:default",
     "dialog:default",

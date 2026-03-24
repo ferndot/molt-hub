@@ -71,6 +71,45 @@ async function parseOAuthAuthJson(response: Response): Promise<{ url: string } |
   return { url };
 }
 
+/**
+ * OAuth start URL: in the Tauri shell, use native HTTP (`invoke`) so WKWebView never
+ * mis-handles `/api/*` (e.g. SPA HTML with 200). Browser / Vitest keep using `fetch`.
+ */
+async function getOAuthAuthorizationUrl(provider: "jira" | "github"): Promise<string> {
+  if (isTauriShell()) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const url = await invoke<string>("oauth_auth_start_url", { provider });
+    if (typeof url !== "string" || url.length === 0) {
+      throw new Error(oauthApiMissingHint());
+    }
+    try {
+      new URL(url);
+    } catch {
+      throw new Error(oauthApiMissingHint());
+    }
+    return url;
+  }
+
+  const path =
+    provider === "jira"
+      ? "/api/integrations/jira/auth"
+      : "/api/integrations/github/auth";
+  const response = await fetch(path);
+  if (!response.ok) {
+    const ct = response.headers.get("content-type") ?? "";
+    if (!ct.includes("application/json")) {
+      throw new Error(oauthApiMissingHint());
+    }
+    const text = await response.text();
+    throw new Error(text || `HTTP ${response.status}`);
+  }
+  const parsed = await parseOAuthAuthJson(response);
+  if (!parsed) {
+    throw new Error(oauthApiMissingHint());
+  }
+  return parsed.url;
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -439,23 +478,8 @@ export function setConnectionTestStatus(status: ConnectionTestStatus): void {
  */
 export async function connectJira(): Promise<void> {
   try {
-    const response = await fetch("/api/integrations/jira/auth");
-    if (!response.ok) {
-      const ct = response.headers.get("content-type") ?? "";
-      if (!ct.includes("application/json")) {
-        setJiraConnected(false, "", "", oauthApiMissingHint());
-        return;
-      }
-      const text = await response.text();
-      setJiraConnected(false, "", "", text || `HTTP ${response.status}`);
-      return;
-    }
-    const parsed = await parseOAuthAuthJson(response);
-    if (!parsed) {
-      setJiraConnected(false, "", "", oauthApiMissingHint());
-      return;
-    }
-    await openExternalUrl(parsed.url);
+    const url = await getOAuthAuthorizationUrl("jira");
+    await openExternalUrl(url);
     // Start polling for when the user completes OAuth in the other tab
     startJiraStatusPolling();
   } catch (err) {
@@ -581,35 +605,8 @@ export async function handleOAuthCallback(code: string): Promise<void> {
  */
 export async function connectGitHub(): Promise<void> {
   try {
-    const response = await fetch("/api/integrations/github/auth");
-    if (!response.ok) {
-      const ct = response.headers.get("content-type") ?? "";
-      if (!ct.includes("application/json")) {
-        setSettingsState(
-          produce((s) => {
-            s.githubConfig.lastError = oauthApiMissingHint();
-          }),
-        );
-        return;
-      }
-      const text = await response.text();
-      setSettingsState(
-        produce((s) => {
-          s.githubConfig.lastError = text || `HTTP ${response.status}`;
-        }),
-      );
-      return;
-    }
-    const parsed = await parseOAuthAuthJson(response);
-    if (!parsed) {
-      setSettingsState(
-        produce((s) => {
-          s.githubConfig.lastError = oauthApiMissingHint();
-        }),
-      );
-      return;
-    }
-    await openExternalUrl(parsed.url);
+    const url = await getOAuthAuthorizationUrl("github");
+    await openExternalUrl(url);
     // Start polling for when the user completes OAuth in the other tab
     startGithubStatusPolling();
   } catch (err) {

@@ -33,6 +33,36 @@ fn local_api_port() -> u16 {
         .unwrap_or(SERVER_PORT)
 }
 
+/// Fetch OAuth authorization URL via native HTTP (not the WebView `fetch`).
+/// WKWebView can return the SPA shell for `/api/*` in some setups; reqwest always hits Axum.
+#[tauri::command]
+fn oauth_auth_start_url(provider: String) -> Result<String, String> {
+    let port = local_api_port();
+    let path = match provider.as_str() {
+        "jira" => "/api/integrations/jira/auth",
+        "github" => "/api/integrations/github/auth",
+        _ => return Err(format!("unknown OAuth provider: {provider}")),
+    };
+    let url = format!("http://127.0.0.1:{port}{path}");
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let resp = client.get(&url).send().map_err(|e| e.to_string())?;
+    if !resp.status().is_success() {
+        return Err(format!("API returned HTTP {}", resp.status()));
+    }
+    let text = resp.text().map_err(|e| e.to_string())?;
+    let v: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|e| format!("API did not return JSON ({e})"))?;
+    let u = v
+        .get("url")
+        .and_then(|x| x.as_str())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| "JSON missing non-empty \"url\"".to_string())?;
+    Ok(u.to_string())
+}
+
 /// Forward `molthub://oauth/jira|github?…` to the local HTTP OAuth callback (PKCE verifier lives there).
 fn forward_oauth_deep_links(urls: Vec<Url>) {
     let port = local_api_port();
@@ -98,6 +128,7 @@ fn main() {
         .init();
 
     tauri::Builder::default()
+        .invoke_handler(tauri::generate_handler![oauth_auth_start_url])
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {
