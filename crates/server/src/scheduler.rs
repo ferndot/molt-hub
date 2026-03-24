@@ -599,6 +599,7 @@ mod tests {
         pipeline: Arc<PipelineConfig>,
     ) {
         let config = TaskActorConfig {
+            project_id: "default".to_owned(),
             task_id: task_id.clone(),
             session_id: session_id.clone(),
             initial_stage: "work".to_string(),
@@ -786,6 +787,7 @@ mod tests {
 
         // Spawn actor and advance to AwaitingApproval.
         let config = TaskActorConfig {
+            project_id: "default".to_owned(),
             task_id: task_id.clone(),
             session_id: session_id.clone(),
             initial_stage: "work".to_string(),

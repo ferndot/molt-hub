@@ -29,6 +29,7 @@ use crate::integrations::jira_oauth_handlers::{jira_oauth_router, JiraOAuthState
 use crate::integrations::oauth::JiraOAuthService;
 use crate::pipeline::handlers::{pipeline_router, PipelineState};
 use crate::projects::handlers::{project_router, ProjectConfigStore};
+use crate::projects::runtime::{ProjectRuntime, ProjectRuntimeRegistry};
 use crate::settings::{typed_settings_router, SettingsFileStore, TypedSettingsState};
 use crate::ws::{ws_handler, ConnectionManager};
 use crate::ws_broadcast::{broadcast_metrics, MetricsPayload};
@@ -94,6 +95,18 @@ pub async fn build_router(
     // ---- SQLite event store ------------------------------------------------
     let event_store_state = init_event_store().await;
 
+    // ---- Project runtime registry ------------------------------------------
+    let registry = Arc::new(ProjectRuntimeRegistry::new());
+    if let Some(ref es_state) = event_store_state {
+        let default_runtime = Arc::new(ProjectRuntime::new(
+            "default",
+            Arc::clone(&supervisor),
+            Arc::clone(&pipeline_state),
+            Arc::clone(&es_state.store),
+        ));
+        registry.insert(default_runtime).await;
+    }
+
     // Project store (YAML-backed)
     let project_state = Arc::new(ProjectConfigStore::load_default());
 
@@ -144,6 +157,7 @@ pub async fn build_router(
 
     let router = router
         .fallback_service(ServeDir::new(dist_dir).fallback(ServeFile::new(index_html)))
+        .layer(axum::Extension(Arc::clone(&registry)))
         .with_state(Arc::clone(&manager));
 
     (router, manager, supervisor, audit_handle)

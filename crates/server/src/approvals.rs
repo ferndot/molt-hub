@@ -687,6 +687,7 @@ mod tests {
         let pipeline = make_pipeline_with_approval("review");
 
         let config = TaskActorConfig {
+            project_id: "default".to_owned(),
             task_id: task_id.clone(),
             session_id: session_id.clone(),
             initial_stage: "review".to_string(),

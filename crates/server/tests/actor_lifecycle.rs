@@ -149,6 +149,7 @@ fn make_registry(store: Arc<MemoryEventStore>) -> TaskRegistry<MemoryEventStore>
 
 fn make_config(task_id: TaskId, stage: &str, pipeline: Arc<PipelineConfig>) -> TaskActorConfig {
     TaskActorConfig {
+        project_id: "default".to_owned(),
         task_id,
         session_id: SessionId::new(),
         initial_stage: stage.to_string(),

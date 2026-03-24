@@ -53,9 +53,10 @@ pub struct BoardUpdate {
     pub summary: Option<String>,
 }
 
-/// Broadcast a board task update to all clients subscribed to `board:*`.
+/// Broadcast a board task update to all clients subscribed to `project:{pid}:board:update`.
 pub fn broadcast_board_update(
     manager: &ConnectionManager,
+    project_id: &str,
     task_id: &str,
     stage: &str,
     status: &str,
@@ -69,12 +70,14 @@ pub fn broadcast_board_update(
         agent_name: None,
         summary: None,
     };
-    broadcast_json(manager, "board:update", &payload);
+    let topic = format!("project:{project_id}:board:update");
+    broadcast_json(manager, &topic, &payload);
 }
 
 /// Broadcast a full board update payload (allows setting all optional fields).
-pub fn broadcast_board_update_full(manager: &ConnectionManager, payload: &BoardUpdate) {
-    broadcast_json(manager, "board:update", payload);
+pub fn broadcast_board_update_full(manager: &ConnectionManager, project_id: &str, payload: &BoardUpdate) {
+    let topic = format!("project:{project_id}:board:update");
+    broadcast_json(manager, &topic, payload);
 }
 
 // ---------------------------------------------------------------------------
@@ -96,14 +99,16 @@ pub struct TriageItemPayload {
     pub summary: String,
 }
 
-/// Broadcast a new triage item to clients subscribed to `triage:*`.
-pub fn broadcast_triage_new(manager: &ConnectionManager, item: &TriageItemPayload) {
-    broadcast_json(manager, "triage:new", item);
+/// Broadcast a new triage item to clients subscribed to `project:{pid}:triage:new`.
+pub fn broadcast_triage_new(manager: &ConnectionManager, project_id: &str, item: &TriageItemPayload) {
+    let topic = format!("project:{project_id}:triage:new");
+    broadcast_json(manager, &topic, item);
 }
 
-/// Broadcast a triage item resolution to clients subscribed to `triage:*`.
-pub fn broadcast_triage_resolved(manager: &ConnectionManager, item_id: &str) {
-    broadcast_json(manager, "triage:resolved", &serde_json::json!({ "id": item_id }));
+/// Broadcast a triage item resolution to clients subscribed to `project:{pid}:triage:resolved`.
+pub fn broadcast_triage_resolved(manager: &ConnectionManager, project_id: &str, item_id: &str) {
+    let topic = format!("project:{project_id}:triage:resolved");
+    broadcast_json(manager, &topic, &serde_json::json!({ "id": item_id }));
 }
 
 // ---------------------------------------------------------------------------
@@ -238,9 +243,9 @@ mod tests {
         let id = ConnectionId::new();
         let (tx, rx) = mpsc::unbounded_channel();
         manager.register(id, tx);
-        manager.subscribe(id, "board:update");
-        manager.subscribe(id, "triage:new");
-        manager.subscribe(id, "triage:resolved");
+        manager.subscribe(id, "project:default:board:update");
+        manager.subscribe(id, "project:default:triage:new");
+        manager.subscribe(id, "project:default:triage:resolved");
         manager.subscribe(id, "health:metrics");
         manager.subscribe(id, "metrics:update");
         manager.subscribe(id, "settings:changed");
@@ -259,11 +264,11 @@ mod tests {
     #[test]
     fn broadcast_board_update_sends_event() {
         let (manager, mut rx) = setup();
-        broadcast_board_update(&manager, "task-1", "in-progress", "running");
+        broadcast_board_update(&manager, "default", "task-1", "in-progress", "running");
         let msg = rx.try_recv().expect("should receive message");
         match msg {
             ServerMessage::Event { topic, payload } => {
-                assert_eq!(topic, "board:update");
+                assert_eq!(topic, "project:default:board:update");
                 assert_eq!(payload["task_id"], "task-1");
                 assert_eq!(payload["stage"], "in-progress");
                 assert_eq!(payload["status"], "running");
@@ -286,11 +291,11 @@ mod tests {
             created_at: "2026-01-01T00:00:00Z".into(),
             summary: "Needs review".into(),
         };
-        broadcast_triage_new(&manager, &item);
+        broadcast_triage_new(&manager, "default", &item);
         let msg = rx.try_recv().expect("should receive message");
         match msg {
             ServerMessage::Event { topic, payload } => {
-                assert_eq!(topic, "triage:new");
+                assert_eq!(topic, "project:default:triage:new");
                 assert_eq!(payload["id"], "ti-1");
             }
             other => panic!("expected Event, got {:?}", other),

@@ -150,6 +150,7 @@ async fn spawn_actor_awaiting_approval(
     let pipeline = make_approval_pipeline(stage, approvers);
 
     let config = TaskActorConfig {
+        project_id: "default".to_owned(),
         task_id: task_id.clone(),
         session_id: session_id.clone(),
         initial_stage: stage.to_string(),
