@@ -50,5 +50,8 @@ npm-debug.log*
 # TypeScript
 *.tsbuildinfo
 
+# Beads issue tracker
+.beads/
+
 # Personal
 TODO.md
