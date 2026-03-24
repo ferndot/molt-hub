@@ -3,6 +3,7 @@ import { Show, createSignal } from "solid-js";
 import { A, useLocation } from "@solidjs/router";
 import { TbOutlineLayoutDashboard, TbOutlineRobot, TbOutlineSettings } from "solid-icons/tb";
 import { attentionCount } from "./attentionStore";
+import { ProjectSwitcher } from "../components/ProjectSwitcher";
 import AgentList from "./AgentList";
 import {
   settingsState,
@@ -89,6 +90,9 @@ const Sidebar: Component<Props> = (props) => {
     >
       {/* Traffic light area — pure drag region */}
       <div class={styles.trafficLightSpacer} />
+
+      {/* Project switcher — only shown when multiple projects exist */}
+      <ProjectSwitcher />
 
       {/* Nav links */}
       <nav class={styles.nav}>

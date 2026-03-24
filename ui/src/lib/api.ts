@@ -51,6 +51,11 @@ async function patch<T>(path: string, body: unknown): Promise<T> {
 // Public API surface
 // ---------------------------------------------------------------------------
 
+export const projectApi = {
+  agents: (pid: string) => `/api/projects/${pid}/agents`,
+  pipelineStages: (pid: string) => `/api/projects/${pid}/pipeline/stages`,
+};
+
 export const api = {
   // Settings
   getSettings: () => get<Record<string, unknown>>("/settings"),

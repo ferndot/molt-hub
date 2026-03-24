@@ -211,6 +211,18 @@ export function useWebSocket() {
 }
 
 // ---------------------------------------------------------------------------
+// Project topic helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Build a project-namespaced WS topic string.
+ * e.g. projectTopic("proj-123", "board:update") → "project:proj-123:board:update"
+ */
+export function projectTopic(projectId: string, topic: string): string {
+  return `project:${projectId}:${topic}`;
+}
+
+// ---------------------------------------------------------------------------
 // Format helpers (used in tests)
 // ---------------------------------------------------------------------------
 
