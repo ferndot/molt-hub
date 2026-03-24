@@ -12,6 +12,7 @@ import { Show, For, onMount, onCleanup } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { TbOutlineArrowLeft } from "solid-icons/tb";
 import { task, events, loading, error, loadTask, clearTask } from "./taskDetailStore";
+import { boardKanbanPath, boardState } from "../Board/boardStore";
 import { PRIORITY_COLORS } from "../Board/TaskCard";
 import type { Priority } from "../../types/domain";
 import styles from "./TaskDetailView.module.css";
@@ -69,7 +70,11 @@ const TaskDetailView: Component = () => {
             <div class={styles.container}>
               {/* Header */}
               <div class={styles.header}>
-                <a href="/board" class={styles.backBtn} data-testid="back-btn">
+                <a
+                  href={boardKanbanPath(boardState.activeBoardId)}
+                  class={styles.backBtn}
+                  data-testid="back-btn"
+                >
                   <TbOutlineArrowLeft size={14} style={{ "vertical-align": "middle" }} /> Board
                 </a>
                 <span class={styles.taskTitle}>{t().title}</span>

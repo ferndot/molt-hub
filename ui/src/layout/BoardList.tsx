@@ -1,15 +1,16 @@
 import { createSignal, For, Show, type Component } from "solid-js";
 import { A, useLocation, useNavigate } from "@solidjs/router";
-import { boardState, setActiveBoard } from "../views/Board/boardStore";
+import {
+  boardKanbanPath,
+  boardState,
+  parseBoardIdFromKanbanPath,
+  setActiveBoard,
+} from "../views/Board/boardStore";
 import { attentionCount } from "./attentionStore";
 import styles from "./BoardList.module.css";
 
 interface Props {
   collapsed?: boolean;
-}
-
-function isBoardViewPath(pathname: string): boolean {
-  return pathname === "/board";
 }
 
 const BoardList: Component<Props> = (props) => {
@@ -29,11 +30,11 @@ const BoardList: Component<Props> = (props) => {
 
   const openBoard = async (boardId: string) => {
     await setActiveBoard(boardId);
-    navigate("/board");
+    navigate(boardKanbanPath(boardId));
   };
 
   const rowActive = (boardId: string) =>
-    isBoardViewPath(location.pathname) && boardState.activeBoardId === boardId;
+    parseBoardIdFromKanbanPath(location.pathname) === boardId;
 
   return (
     <div class={styles.section} classList={{ [styles.collapsed]: props.collapsed }}>

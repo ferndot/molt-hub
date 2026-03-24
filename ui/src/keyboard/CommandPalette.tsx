@@ -10,6 +10,7 @@ import { createSignal, createMemo, For, Show } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { Dialog } from "@kobalte/core/dialog";
 import { TbOutlineCommand } from "solid-icons/tb";
+import { boardKanbanPath, boardState } from "../views/Board/boardStore";
 import { filterCommands, type Command } from "./commands";
 import styles from "./CommandPalette.module.css";
 
@@ -35,7 +36,7 @@ const CommandPalette: Component<Props> = (props) => {
         navigate("/triage");
         break;
       case "goto-board":
-        navigate("/board");
+        navigate(boardKanbanPath(boardState.activeBoardId));
         break;
       case "goto-boards-list":
         navigate("/boards");

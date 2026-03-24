@@ -12,16 +12,17 @@ function isActive(currentPath: string, href: string): boolean {
 describe("Sidebar nav active state", () => {
   it("exact path match is active", () => {
     expect(isActive("/triage", "/triage")).toBe(true);
-    expect(isActive("/board", "/board")).toBe(true);
+    expect(isActive("/boards", "/boards")).toBe(true);
     expect(isActive("/agents", "/agents")).toBe(true);
   });
 
   it("non-matching path is not active", () => {
-    expect(isActive("/board", "/triage")).toBe(false);
-    expect(isActive("/triage", "/board")).toBe(false);
+    expect(isActive("/boards/default", "/triage")).toBe(false);
+    expect(isActive("/triage", "/boards")).toBe(false);
   });
 
   it("sub-path is active for parent nav item", () => {
+    expect(isActive("/boards/default", "/boards")).toBe(true);
     // /agents/:id should keep /agents nav item active
     expect(isActive("/agents/agent-001", "/agents")).toBe(true);
   });
@@ -29,7 +30,7 @@ describe("Sidebar nav active state", () => {
   it("root path / does not match sub-routes", () => {
     // The root "/" link should only match exactly "/"
     expect(isActive("/triage", "/")).toBe(false);
-    expect(isActive("/board", "/")).toBe(false);
+    expect(isActive("/boards/default", "/")).toBe(false);
   });
 
   it("active route at / matches exactly", () => {

@@ -7,7 +7,7 @@ import { test, expect } from "@playwright/test";
 test.describe("Smoke", () => {
   test("app loads and shows the sidebar", async ({ page }) => {
     await page.goto("/");
-    await expect(page).toHaveURL(/\/board$/);
+    await expect(page).toHaveURL(/\/boards\/[^/]+$/);
     await expect(page.locator("nav")).toBeVisible();
     await expect(page.getByText("Boards", { exact: true })).toBeVisible();
   });
@@ -20,7 +20,7 @@ test.describe("Smoke", () => {
   });
 
   test("can navigate to Board view", async ({ page }) => {
-    await page.goto("/board");
+    await page.goto("/boards/default");
     // Board view should render column headers.
     await expect(page.getByText("Backlog")).toBeVisible({ timeout: 10_000 });
   });
@@ -36,7 +36,7 @@ test.describe("Smoke", () => {
   });
 
   test("Board shows columns", async ({ page }) => {
-    await page.goto("/board");
+    await page.goto("/boards/default");
     // Default pipeline stages should render as columns.
     const columns = page.locator("[class*='column'], [class*='Column']");
     await expect(columns.first()).toBeVisible({ timeout: 10_000 });

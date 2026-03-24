@@ -8,6 +8,11 @@
 import type { ParentComponent } from "solid-js";
 import { createSignal, onMount, onCleanup } from "solid-js";
 import { useNavigate, useLocation } from "@solidjs/router";
+import {
+  boardKanbanPath,
+  boardState,
+  parseBoardIdFromKanbanPath,
+} from "../views/Board/boardStore";
 import { processChord, createChordState, type ChordState } from "./chords";
 import CommandPalette from "./CommandPalette";
 import HelpOverlay from "./HelpOverlay";
@@ -19,7 +24,7 @@ import HelpOverlay from "./HelpOverlay";
 type ViewContext = "triage" | "agents" | "board" | "other";
 
 function getViewContext(pathname: string): ViewContext {
-  if (pathname === "/board") {
+  if (parseBoardIdFromKanbanPath(pathname) != null) {
     return "board";
   }
   if (pathname.startsWith("/triage")) return "triage";
@@ -94,7 +99,7 @@ const KeyboardManager: ParentComponent = (props) => {
           navigate("/triage");
           break;
         case "goto-board":
-          navigate("/board");
+          navigate(boardKanbanPath(boardState.activeBoardId));
           break;
         case "goto-agents":
           navigate("/agents");

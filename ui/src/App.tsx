@@ -2,7 +2,11 @@ import type { Component } from "solid-js";
 import { createEffect, onCleanup, onMount } from "solid-js";
 import { Router, Route, Navigate } from "@solidjs/router";
 import { WORKSPACE_ID } from "./lib/workspace";
-import { initBoardStages, handleBoardWsMessage } from "./views/Board/boardStore";
+import {
+  handleBoardWsMessage,
+  homeRedirectBoardPath,
+  initBoardStages,
+} from "./views/Board/boardStore";
 import { subscribe, projectTopic } from "./lib/ws";
 import AppLayout from "./layout/AppLayout";
 import TriageView from "./views/Triage/TriageView";
@@ -10,7 +14,7 @@ import AgentDetailView from "./views/AgentDetail/AgentDetailView";
 import TaskDetailView from "./views/TaskDetail/TaskDetailView";
 import AgentsView from "./views/Agents/AgentsView";
 import BoardsView from "./views/Boards/BoardsView";
-import BoardView from "./views/Board/BoardView";
+import BoardPage from "./views/Board/BoardPage";
 import SettingsView from "./views/Settings/SettingsView";
 
 // ---------------------------------------------------------------------------
@@ -19,9 +23,9 @@ import SettingsView from "./views/Settings/SettingsView";
 
 const TriagePage: Component = () => <TriageView />;
 
-const WorkboardPage: Component = () => <BoardView />;
-
-const RedirectToBoard: Component = () => <Navigate href="/board" />;
+const RedirectHome: Component = () => (
+  <Navigate href={homeRedirectBoardPath()} />
+);
 
 const AgentsPage: Component = () => <AgentsView />;
 
@@ -46,9 +50,10 @@ const App: Component = () => {
 
   return (
     <Router root={AppLayout}>
-      <Route path="/" component={RedirectToBoard} />
+      <Route path="/" component={RedirectHome} />
+      <Route path="/board" component={RedirectHome} />
       <Route path="/triage" component={TriagePage} />
-      <Route path="/board" component={WorkboardPage} />
+      <Route path="/boards/:id" component={BoardPage} />
       <Route path="/boards" component={BoardsPage} />
       <Route path="/agents" component={AgentsPage} />
       <Route path="/agents/:id" component={AgentDetailView} />

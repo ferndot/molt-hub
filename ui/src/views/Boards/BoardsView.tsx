@@ -9,6 +9,7 @@ import {
 import { useNavigate } from "@solidjs/router";
 import { TbOutlineLayoutDashboard } from "solid-icons/tb";
 import {
+  boardKanbanPath,
   boardState,
   createBoard,
   deleteBoard,
@@ -41,7 +42,7 @@ const BoardsView: Component = () => {
 
   const openBoard = async (boardId: string) => {
     await setActiveBoard(boardId);
-    navigate("/board");
+    navigate(boardKanbanPath(boardId));
   };
 
   const handleCreate = async () => {
@@ -57,6 +58,7 @@ const BoardsView: Component = () => {
       await createBoard(id, name || undefined);
       setNewId("");
       setNewName("");
+      navigate(boardKanbanPath(id.trim()));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {

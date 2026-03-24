@@ -43,6 +43,8 @@ export interface BoardState {
   boards: BoardSummary[];
   /** Selected pipeline / kanban board id. */
   activeBoardId: string;
+  /** True after the first `initBoardStages` board-list fetch (for URL validation). */
+  boardsSynced: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +68,42 @@ const DEFAULT_PIPELINE_STAGES: PipelineStage[] = [
 ];
 
 const BOARD_STORAGE_KEY = "molt:active-board";
+
+/** Kanban URL for a board (single path segment, encoded). */
+export function boardKanbanPath(boardId: string): string {
+  return `/boards/${encodeURIComponent(boardId)}`;
+}
+
+/**
+ * Returns board id if pathname is exactly `/boards/:id` (one segment), else null.
+ */
+export function parseBoardIdFromKanbanPath(pathname: string): string | null {
+  if (!pathname.startsWith("/boards/")) return null;
+  const rest = pathname.slice("/boards/".length);
+  if (!rest || rest.includes("/")) return null;
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return null;
+  }
+}
+
+/** Home / legacy `/board` redirect target from URL (if already on a kanban path) or localStorage. */
+export function homeRedirectBoardPath(): string {
+  const fromPath = parseBoardIdFromKanbanPath(window.location.pathname);
+  if (fromPath) return boardKanbanPath(fromPath);
+  const raw = localStorage.getItem(BOARD_STORAGE_KEY);
+  if (raw) return boardKanbanPath(raw);
+  return boardKanbanPath("default");
+}
+
+function preferredInitialBoardId(boards: BoardSummary[]): string {
+  const fromUrl = parseBoardIdFromKanbanPath(window.location.pathname);
+  if (fromUrl && boards.some((b) => b.id === fromUrl)) return fromUrl;
+  const stored = localStorage.getItem(BOARD_STORAGE_KEY);
+  if (stored && boards.some((b) => b.id === stored)) return stored;
+  return boards[0].id;
+}
 
 /**
  * Serialize board-list and active-board updates. `initBoardStages` runs on mount;
@@ -110,6 +148,7 @@ const initialState: BoardState = {
   tasks: [],
   boards: [{ id: "default", name: "Default" }],
   activeBoardId: "default",
+  boardsSynced: false,
 };
 
 export const [boardState, setBoardState] =
@@ -148,6 +187,7 @@ export function initBoardStages(): Promise<void> {
   return runBoardStoreOp(async () => {
     setBoardState("tasks", []);
     setBoardState("stagesLoaded", false);
+    setBoardState("boardsSynced", false);
 
     let boards: BoardSummary[] = [];
     try {
@@ -161,12 +201,9 @@ export function initBoardStages(): Promise<void> {
     }
     setBoardState("boards", boards);
 
-    const stored = localStorage.getItem(BOARD_STORAGE_KEY);
-    const pick =
-      stored && boards.some((b) => b.id === stored)
-        ? stored
-        : boards[0].id;
+    const pick = preferredInitialBoardId(boards);
     await applySetActiveBoard(pick);
+    setBoardState("boardsSynced", true);
   });
 }
 
