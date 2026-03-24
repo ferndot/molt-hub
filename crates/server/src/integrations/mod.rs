@@ -10,3 +10,4 @@ pub mod jira_client;
 pub mod jira_oauth_handlers;
 pub mod oauth;
 pub mod oauth_handlers;
+pub mod oauth_redirect;

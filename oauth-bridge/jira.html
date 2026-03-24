@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Return to Molt Hub</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        max-width: 32rem;
+        margin: 3rem auto;
+        padding: 0 1rem;
+        line-height: 1.5;
+      }
+      code {
+        font-size: 0.9em;
+      }
+    </style>
+  </head>
+  <body>
+    <p>Redirecting to Molt Hub…</p>
+    <p id="fallback" hidden>
+      If nothing happens, open the app manually — it must be running.
+    </p>
+    <script>
+      (function () {
+        var scheme =
+          new URLSearchParams(location.search).get("scheme") || "molthub";
+        var p = new URLSearchParams(location.search);
+        var code = p.get("code");
+        var state = p.get("state");
+        var err = p.get("error");
+        var desc = p.get("error_description") || "";
+        var q = new URLSearchParams();
+        if (err) {
+          q.set("error", err);
+          if (desc) q.set("error_description", desc);
+        } else if (code && state) {
+          q.set("code", code);
+          q.set("state", state);
+        } else {
+          document.body.innerHTML =
+            "<p>Missing OAuth parameters. Close this tab and try connecting again from Molt Hub.</p>";
+          return;
+        }
+        var target = scheme + "://oauth/jira?" + q.toString();
+        location.replace(target);
+        setTimeout(function () {
+          document.getElementById("fallback").hidden = false;
+        }, 2500);
+      })();
+    </script>
+  </body>
+</html>

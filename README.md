@@ -21,7 +21,7 @@ and approval workflows so you stay in control of what your agents ship.
 # 1. Install frontend dependencies
 cd ui && npm install && cd ..
 
-# 2. Run the API server (serves the UI on http://localhost:3000)
+# 2. Run the API server (serves the UI on http://localhost:13401)
 cargo run --bin molt-hub -- serve
 
 # 3. Or run as a native desktop app
@@ -112,10 +112,11 @@ cargo build --release --bin molt-hub
 - **Tauri CLI** (installed automatically via `cargo tauri`)
 - macOS: Xcode Command Line Tools (`xcode-select --install`)
 
-> **OAuth in release builds:** Jira and GitHub OAuth both use `tauri-plugin-opener`
-> to open the authorization URL in the system browser. The callback is received
-> by the embedded server on `localhost:13401` — no special deep-link registration
-> is required.
+> **OAuth:** The app opens the provider in the system browser (`tauri-plugin-opener`).
+> **Debug** uses `http://127.0.0.1:13401/...` callbacks. **Release** uses HTTPS URLs
+> from [`oauth-bridge/redirect-uris.json`](oauth-bridge/redirect-uris.json) (see
+> [`oauth-bridge/README.md`](oauth-bridge/README.md)); the bridge pages hand off to
+> **`molthub://`** and the desktop shell forwards to the local API.
 
 ## License
 

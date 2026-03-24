@@ -27,6 +27,35 @@ async function openExternalUrl(url: string): Promise<void> {
   }
 }
 
+/**
+ * Parse `{ url: string }` from a successful auth response.
+ * Avoids `Response#json()`: Safari/WebKit throws a vague DOMException
+ * ("The string did not match the expected pattern.") when the body is HTML
+ * or not JSON (e.g. dev proxy miss or SPA fallback).
+ */
+async function parseOAuthAuthJson(response: Response): Promise<{ url: string } | null> {
+  const text = await response.text();
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!data || typeof data !== "object" || !("url" in data)) {
+    return null;
+  }
+  const url = (data as { url: unknown }).url;
+  if (typeof url !== "string" || url.length === 0) {
+    return null;
+  }
+  try {
+    new URL(url);
+  } catch {
+    return null;
+  }
+  return { url };
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -406,8 +435,17 @@ export async function connectJira(): Promise<void> {
       setJiraConnected(false, "", "", text || `HTTP ${response.status}`);
       return;
     }
-    const data = (await response.json()) as { url: string };
-    await openExternalUrl(data.url);
+    const parsed = await parseOAuthAuthJson(response);
+    if (!parsed) {
+      setJiraConnected(
+        false,
+        "",
+        "",
+        "Invalid response from server. Start the backend on port 13401 (e.g. ./dev.sh or molt-hub serve) and try again.",
+      );
+      return;
+    }
+    await openExternalUrl(parsed.url);
     // Start polling for when the user completes OAuth in the other tab
     startJiraStatusPolling();
   } catch (err) {
@@ -552,8 +590,17 @@ export async function connectGitHub(): Promise<void> {
       );
       return;
     }
-    const data = (await response.json()) as { url: string };
-    await openExternalUrl(data.url);
+    const parsed = await parseOAuthAuthJson(response);
+    if (!parsed) {
+      setSettingsState(
+        produce((s) => {
+          s.githubConfig.lastError =
+            "Invalid response from server. Start the backend on port 13401 (e.g. ./dev.sh or molt-hub serve) and try again.";
+        }),
+      );
+      return;
+    }
+    await openExternalUrl(parsed.url);
     // Start polling for when the user completes OAuth in the other tab
     startGithubStatusPolling();
   } catch (err) {

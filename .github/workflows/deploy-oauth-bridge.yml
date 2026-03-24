@@ -1,0 +1,50 @@
+# Deploy static OAuth bridge pages to GitHub Pages.
+#
+# Repo setup (once):
+#   Settings → Pages → Build and deployment → Source: GitHub Actions
+#
+# Published URLs (project site):
+#   https://<owner>.github.io/<repo>/oauth-bridge/jira.html
+#   https://<owner>.github.io/<repo>/oauth-bridge/github.html
+
+name: Deploy OAuth bridge
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "oauth-bridge/**"
+      - ".github/workflows/deploy-oauth-bridge.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages-oauth-bridge
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lay out site (keep /oauth-bridge/ path)
+        run: |
+          mkdir -p _site/oauth-bridge
+          cp oauth-bridge/*.html _site/oauth-bridge/
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

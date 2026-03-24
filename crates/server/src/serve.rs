@@ -22,7 +22,8 @@ use crate::agents::output_buffer::shared_output_buffer;
 use crate::audit::{audit_router, start_audit_writer, AuditHandle, AuditState};
 use crate::events::handlers::{events_router, tasks_router, EventStoreState};
 use crate::credentials::KeyringStore;
-use crate::integrations::github_oauth::{GITHUB_CALLBACK_URL, GITHUB_CLIENT_SECRET};
+use crate::integrations::github_oauth::GITHUB_CLIENT_SECRET;
+use crate::integrations::oauth_redirect::{github_redirect_uri, jira_redirect_uri};
 use crate::integrations::github_oauth::GithubOAuthService;
 use crate::integrations::github_oauth_handlers::{github_oauth_router, GithubOAuthState};
 use crate::integrations::jira_oauth_handlers::{jira_oauth_router, JiraOAuthState};
@@ -126,15 +127,16 @@ pub async fn build_router(
         Arc::new(KeyringStore::new());
 
     // GitHub OAuth — secret embedded at compile time via GITHUB_CLIENT_SECRET env var
+    let github_callback = github_redirect_uri();
     let github_oauth_svc = match GITHUB_CLIENT_SECRET {
-        Some(secret) => GithubOAuthService::with_secret(GITHUB_CALLBACK_URL, secret.to_owned()),
-        None => GithubOAuthService::new(GITHUB_CALLBACK_URL),
+        Some(secret) => GithubOAuthService::with_secret(&github_callback, secret.to_owned()),
+        None => GithubOAuthService::new(&github_callback),
     };
     let github_oauth_state = Arc::new(GithubOAuthState::new(github_oauth_svc, Arc::clone(&credential_store)));
     let github_oauth = github_oauth_router(github_oauth_state);
 
     // Jira OAuth — PKCE only, no client secret required
-    let jira_oauth_svc = JiraOAuthService::new("http://localhost:13401/api/integrations/jira/oauth/callback");
+    let jira_oauth_svc = JiraOAuthService::new(&jira_redirect_uri());
     let jira_oauth_state = Arc::new(JiraOAuthState::new(jira_oauth_svc, Arc::clone(&credential_store)));
     let jira_oauth = jira_oauth_router(jira_oauth_state);
 

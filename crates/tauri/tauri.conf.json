@@ -38,5 +38,12 @@
     "security": {
       "csp": "default-src 'self'; connect-src 'self' ws://localhost:13401 http://localhost:13401; style-src 'self' 'unsafe-inline'"
     }
+  },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["molthub"]
+      }
+    }
   }
 }
