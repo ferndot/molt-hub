@@ -1,8 +1,8 @@
 //! Claude SDK adapter — AgentAdapter implementation backed by the Claude CLI.
 //!
-//! Spawns `claude --print --output-format stream-json` as a subprocess, pipes
-//! instructions via `--prompt` flag or stdin, and parses the structured JSON
-//! event stream from stdout.
+//! Spawns `claude --print --output-format stream-json` as a subprocess, passes
+//! the initial query as a positional argument (print-mode prompt), and parses
+//! the structured JSON event stream from stdout. Follow-up input uses stdin.
 
 use std::io;
 use std::sync::Arc;
@@ -125,10 +125,10 @@ impl ClaudeInternalState {
 ///
 /// The adapter invokes:
 /// ```text
-/// claude --print --output-format stream-json [--model <model>] [--prompt <instructions>]
+/// claude --print --output-format stream-json [--model <model>] [<initial query>]
 /// ```
-/// Instructions are passed via the `--prompt` flag when present. The adapter
-/// also supports sending follow-up input through stdin for interactive steering.
+/// Non-empty `SpawnConfig::instructions` are passed as the trailing positional
+/// query (see Claude Code CLI print mode). Follow-up input uses stdin.
 #[derive(Debug, Clone)]
 pub struct ClaudeAdapter {
     /// Path to the `claude` binary (defaults to `"claude"` on `$PATH`).
@@ -187,9 +187,10 @@ impl ClaudeAdapter {
             .arg("--model")
             .arg(&model);
 
-        // Pass instructions via --prompt flag for non-interactive invocation.
+        // Print mode: the user message is a positional argument, not `--prompt`
+        // (that flag does not exist on Claude Code CLI; `-p` is `--print`).
         if !config.instructions.is_empty() {
-            cmd.arg("--prompt").arg(&config.instructions);
+            cmd.arg(&config.instructions);
         }
 
         cmd.current_dir(&config.working_dir)
@@ -735,31 +736,31 @@ mod tests {
     }
 
     #[test]
-    fn test_build_command_includes_prompt_flag() {
+    fn test_build_command_includes_positional_query() {
         let adapter = ClaudeAdapter::new();
         let config = make_spawn_config();
         let cmd = adapter.build_command(&config);
         let dbg = format!("{:?}", cmd);
         assert!(
-            dbg.contains("--prompt"),
-            "expected --prompt flag for non-empty instructions"
+            !dbg.contains("--prompt"),
+            "Claude Code CLI has no --prompt; query must be positional"
         );
         assert!(
             dbg.contains("say hello"),
-            "expected instructions in --prompt arg"
+            "expected instructions as positional arg"
         );
     }
 
     #[test]
-    fn test_build_command_no_prompt_flag_when_empty() {
+    fn test_build_command_no_positional_query_when_empty() {
         let adapter = ClaudeAdapter::new();
         let mut config = make_spawn_config();
         config.instructions = String::new();
         let cmd = adapter.build_command(&config);
         let dbg = format!("{:?}", cmd);
         assert!(
-            !dbg.contains("--prompt"),
-            "should not include --prompt when instructions are empty"
+            !dbg.contains("say hello"),
+            "should not include instruction text when instructions are empty"
         );
     }
 
