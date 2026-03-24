@@ -11,6 +11,7 @@ path = "src/main.rs"
 [dependencies]
 molt-hub-server = { path = "../server" }
 tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
 axum = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }

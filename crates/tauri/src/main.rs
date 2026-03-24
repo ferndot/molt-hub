@@ -36,6 +36,7 @@ fn main() {
         .init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // In release mode, spawn the embedded Axum server.
             // In debug mode, assume `npm run dev` and `cargo run --bin molt-hub` are
