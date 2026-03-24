@@ -1,6 +1,6 @@
 //! Atlassian OAuth 2.0 (3LO) with PKCE via [`oauth2`].
 //!
-//! Configuration matches [`super::oauth_clients`] (same precedence as GitHub; secrets never from compile-time).
+//! OAuth app credentials: only [`super::oauth_clients`] (`oauth-clients.json`).
 
 use oauth2::basic::{BasicClient, BasicErrorResponse, BasicTokenResponse};
 use oauth2::TokenResponse as _;
@@ -13,13 +13,13 @@ use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::oauth_clients::jira_client_credentials;
+use super::oauth_clients::{jira_client_credentials, DEFAULT_JIRA_OAUTH_CLIENT_ID};
 
 const ATLASSIAN_AUTH_URL: &str = "https://auth.atlassian.com/authorize";
 const ATLASSIAN_TOKEN_URL: &str = "https://auth.atlassian.com/oauth/token";
 
-/// Upstream Atlassian OAuth client ID when no env / compile-time override is set.
-pub const DEFAULT_JIRA_CLIENT_ID: &str = "3yQWy34WyjCn0wtOfawofBTMmtK3gUgs";
+/// Default Jira (Atlassian) OAuth client id (same as [`DEFAULT_JIRA_OAUTH_CLIENT_ID`]).
+pub const DEFAULT_JIRA_CLIENT_ID: &str = DEFAULT_JIRA_OAUTH_CLIENT_ID;
 
 fn auth_url() -> AuthUrl {
     AuthUrl::new(ATLASSIAN_AUTH_URL.to_string()).expect("static URL")
@@ -50,7 +50,7 @@ pub enum OAuthError {
     AuthServerError { error: String, description: String },
     #[error("parse error: {0}")]
     ParseError(String),
-    #[error("client secret not configured — set env vars or oauth-clients.json (see oauth_clients module)")]
+    #[error("client secret not configured — set jira.client_secret in oauth-clients.json")]
     MissingClientSecret,
 }
 
@@ -103,14 +103,12 @@ pub struct JiraOAuthService {
 }
 
 impl JiraOAuthService {
-    /// Build from the registered OAuth callback URL (HTTPS bridge) and current process environment.
+    /// Build from the registered OAuth callback URL (HTTPS bridge) and `oauth-clients.json`.
     pub fn from_redirect_uri(redirect_uri: &str) -> Self {
-        let (client_id, client_secret) =
-            jira_client_credentials(DEFAULT_JIRA_CLIENT_ID, option_env!("JIRA_CLIENT_ID"));
+        let (client_id, client_secret) = jira_client_credentials();
         if client_secret.is_none() {
             tracing::warn!(
-                "Jira OAuth: no client secret. Set MOLTHUB_JIRA_CLIENT_SECRET / JIRA_CLIENT_SECRET \
-                 or add jira.client_secret to oauth-clients.json (see integrations::oauth_clients)."
+                "Jira OAuth: add jira.client_secret to oauth-clients.json (see integrations::oauth_clients)"
             );
         }
         Self::with_credentials(redirect_uri, client_id, client_secret)
@@ -119,8 +117,7 @@ impl JiraOAuthService {
     /// Explicit credentials (tests).
     pub fn with_client_secret(redirect_uri: &str, client_secret: String) -> Self {
         let secret = client_secret.trim().to_owned();
-        let (client_id, _) =
-            jira_client_credentials(DEFAULT_JIRA_CLIENT_ID, option_env!("JIRA_CLIENT_ID"));
+        let (client_id, _) = jira_client_credentials();
         Self::with_credentials(
             redirect_uri,
             client_id,

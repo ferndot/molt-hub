@@ -1,20 +1,6 @@
-//! Shared OAuth helpers (PKCE CSRF, env reads, success HTML).
+//! Shared OAuth helpers (PKCE CSRF, success HTML).
 //!
-//! OAuth **app** client id + secret resolution lives in [`super::oauth_clients`] (env, optional JSON
-//! file, compile-time client id only — never compile-time secrets).
-
-/// Read the first non-empty trimmed value from the given environment variable names.
-pub fn first_env_trimmed(keys: &[&'static str]) -> Option<String> {
-    for key in keys {
-        if let Ok(v) = std::env::var(key) {
-            let t = v.trim().to_owned();
-            if !t.is_empty() {
-                return Some(t);
-            }
-        }
-    }
-    None
-}
+//! OAuth **app** credentials: [`super::oauth_clients`] only (`oauth-clients.json`).
 
 /// Cryptographically random CSRF `state` for OAuth authorize → callback correlation.
 pub fn random_oauth_state() -> String {

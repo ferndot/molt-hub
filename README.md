@@ -112,9 +112,15 @@ cargo build --release --bin molt-hub
 - **Tauri CLI** (installed automatically via `cargo tauri`)
 - macOS: Xcode Command Line Tools (`xcode-select --install`)
 
-> **OAuth:** Uses HTTPS pages from [`oauth-bridge/redirect-uris.json`](oauth-bridge/redirect-uris.json) (see [`oauth-bridge/README.md`](oauth-bridge/README.md)). **Desktop:** bridge → **`molthub://`** → local API. **Browser dev:** use **Finish in browser (local API)** on the bridge page while `molt-hub serve` is running. **GitHub:** **`MOLTHUB_GITHUB_CLIENT_SECRET`** or **`GITHUB_CLIENT_SECRET`**. **Jira (Atlassian 3LO):** **`MOLTHUB_JIRA_CLIENT_SECRET`** or **`JIRA_CLIENT_SECRET`** (required for the token exchange; same OAuth app as the client ID). Optional: `MOLTHUB_*_REDIRECT_URI`, `MOLTHUB_JIRA_CLIENT_ID`.
+> **OAuth:** Uses HTTPS pages from [`oauth-bridge/redirect-uris.json`](oauth-bridge/redirect-uris.json) (see [`oauth-bridge/README.md`](oauth-bridge/README.md)). **Desktop:** bridge → **`molthub://`** → local API. **Browser dev:** use **Finish in browser (local API)** on the bridge page while `molt-hub serve` is running. **GitHub/Jira OAuth app credentials** live in **one file only** — `oauth-clients.json` next to your per-user config (created on first run with default public client IDs; add `client_secret` for each provider you use). Optional redirect overrides: `MOLTHUB_*_REDIRECT_URI`.
 >
-> **`.env`:** Put a `.env` file in the repo root (or any parent of the process working directory). `molt-hub` and the desktop app load it on startup and do **not** override variables already set in your shell. See [`.env.example`](.env.example).
+> | Platform | `oauth-clients.json` (and optional `.env` for other settings) |
+> |----------|------|
+> | macOS | `~/Library/Application Support/molt-hub/` |
+> | Linux | `~/.config/molt-hub/` (or `$XDG_CONFIG_HOME/molt-hub/`) |
+> | Windows | `%APPDATA%\molt-hub\` |
+>
+> After you connect Jira/GitHub, **access tokens** are stored in the **OS credential store** (keychain / equivalent), not in `oauth-clients.json`. See [`.env.example`](.env.example). For apps you distribute broadly, a **small backend** that holds the client secret is the usual hardening step; a local JSON file is still extractable if malware runs as the same user.
 
 ## License
 

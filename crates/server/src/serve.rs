@@ -73,7 +73,7 @@ fn default_events_db_path() -> PathBuf {
 pub async fn build_router(
     dist_dir: PathBuf,
 ) -> (Router, Arc<ConnectionManager>, Arc<Supervisor>, AuditHandle) {
-    // After `load_dotenv_files()` in `main`, pick up optional `oauth-clients.json` / `MOLTHUB_OAUTH_CLIENTS_FILE`.
+    // After `load_dotenv_files()` in `main`, load or create `oauth-clients.json` (see `oauth_clients`).
     warm_oauth_clients_cache();
 
     let manager = Arc::new(ConnectionManager::new());

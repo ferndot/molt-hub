@@ -1,31 +1,27 @@
-//! OAuth **app** credentials (client id + client secret) for GitHub and Jira.
+//! OAuth **app** credentials (GitHub + Jira) from a single JSON file.
 //!
-//! # Practices this follows
+//! The only supported source is:
 //!
-//! - **Client secret is never compiled into the binary.** Embedding secrets in release artifacts is
-//!   extractable; use process env, launcher-injected env, or a user-local JSON file instead.
-//! - **Client id is public** (it appears in authorize URLs). Optional compile-time defaults via
-//!   `option_env!` are acceptable for upstream dev convenience; production forks should set env or file.
-//! - **Precedence** (highest first): environment variables → [`MOLTHUB_OAUTH_CLIENTS_FILE`] or
-//!   config-dir `oauth-clients.json` → optional compile-time client id → baked-in default client id.
-//! - **User config file** lives next to `.env` under the OS config directory (`oauth-clients.json`);
-//!   keep it **mode 600** on Unix so other users cannot read your client secret.
+//! **`{dirs::config_dir()}/molt-hub/oauth-clients.json`**
 //!
-//! [`MOLTHUB_OAUTH_CLIENTS_FILE`]: env
+//! On first run (non-test builds), if that file is missing, it is created with default public
+//! client IDs and empty `client_secret` fields — add secrets for the providers you use, then restart.
+//! Use **mode 600** on Unix so other users cannot read the file.
 
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use serde::Deserialize;
-use tracing::warn;
-
-use super::oauth_common::first_env_trimmed;
-
-/// Env var: absolute path to a JSON file (see [`OAuthClientsFile`]).
-pub const ENV_OAUTH_CLIENTS_FILE: &str = "MOLTHUB_OAUTH_CLIENTS_FILE";
+use tracing::{info, warn};
 
 /// Default filename under `dirs::config_dir()/molt-hub/`.
 pub const OAUTH_CLIENTS_FILENAME: &str = "oauth-clients.json";
+
+/// Built-in GitHub OAuth app id (public); override in JSON if you use your own app.
+pub const DEFAULT_GITHUB_OAUTH_CLIENT_ID: &str = "Iv23lip4ZuqkEmT9Z2U0";
+
+/// Built-in Atlassian 3LO client id (public); override in JSON if you use your own app.
+pub const DEFAULT_JIRA_OAUTH_CLIENT_ID: &str = "3yQWy34WyjCn0wtOfawofBTMmtK3gUgs";
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct OAuthClientsFile {
@@ -47,46 +43,86 @@ fn trim_opt(s: Option<String>) -> Option<String> {
     s.map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
 }
 
+/// Canonical path for the OAuth clients file (may not exist yet).
+pub fn oauth_clients_json_path() -> Option<PathBuf> {
+    Some(
+        dirs::config_dir()?
+            .join("molt-hub")
+            .join(OAUTH_CLIENTS_FILENAME),
+    )
+}
+
 fn cached_clients_file() -> Option<&'static OAuthClientsFile> {
     static CACHE: OnceLock<Option<OAuthClientsFile>> = OnceLock::new();
     CACHE.get_or_init(try_load_oauth_clients_file).as_ref()
 }
 
-/// Parse and cache `oauth-clients.json` once. Call after [`crate::env_bootstrap::load_dotenv_files`]
-/// so `MOLTHUB_OAUTH_CLIENTS_FILE` from `.env` is visible.
+/// Load (and on first run, create) `oauth-clients.json`. Call after [`crate::env_bootstrap::load_dotenv_files`].
 pub fn warm_oauth_clients_cache() {
     let _ = cached_clients_file();
 }
 
 fn try_load_oauth_clients_file() -> Option<OAuthClientsFile> {
-    let path = oauth_clients_path()?;
+    let path = oauth_clients_json_path()?;
+    #[cfg(not(test))]
+    {
+        if let Err(e) = ensure_oauth_clients_file(&path) {
+            warn!(
+                path = %path.display(),
+                error = %e,
+                "could not create oauth-clients.json template"
+            );
+        }
+    }
+    if !path.is_file() {
+        return None;
+    }
     match load_oauth_clients_from_path(&path) {
-        Ok(f) => Some(f),
+        Ok(mut f) => {
+            if f.github.client_id.is_none() {
+                f.github.client_id = Some(DEFAULT_GITHUB_OAUTH_CLIENT_ID.to_string());
+            }
+            if f.jira.client_id.is_none() {
+                f.jira.client_id = Some(DEFAULT_JIRA_OAUTH_CLIENT_ID.to_string());
+            }
+            Some(f)
+        }
         Err(e) => {
-            warn!(path = %path.display(), error = %e, "failed to load OAuth clients file");
+            warn!(path = %path.display(), error = %e, "invalid oauth-clients.json");
             None
         }
     }
 }
 
-fn oauth_clients_path() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var(ENV_OAUTH_CLIENTS_FILE) {
-        let t = p.trim();
-        if !t.is_empty() {
-            return Some(PathBuf::from(t));
+#[cfg(not(test))]
+fn ensure_oauth_clients_file(path: &Path) -> std::io::Result<()> {
+    if path.is_file() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let template = serde_json::json!({
+        "github": {
+            "client_id": DEFAULT_GITHUB_OAUTH_CLIENT_ID,
+            "client_secret": ""
+        },
+        "jira": {
+            "client_id": DEFAULT_JIRA_OAUTH_CLIENT_ID,
+            "client_secret": ""
         }
-    }
-    let base = dirs::config_dir()?
-        .join("molt-hub")
-        .join(OAUTH_CLIENTS_FILENAME);
-    if base.is_file() {
-        Some(base)
-    } else {
-        None
-    }
+    });
+    let body = serde_json::to_string_pretty(&template)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+    std::fs::write(path, body)?;
+    info!(
+        path = %path.display(),
+        "created oauth-clients.json; add client_secret for GitHub and/or Jira, then restart"
+    );
+    Ok(())
 }
 
-/// Load and parse `oauth-clients.json`. Used at startup and in tests.
+/// Load and parse `oauth-clients.json` (tests and tooling).
 pub fn load_oauth_clients_from_path(path: &Path) -> Result<OAuthClientsFile, String> {
     #[cfg(unix)]
     warn_if_permissions_too_open(path);
@@ -112,7 +148,7 @@ fn warn_if_permissions_too_open(path: &Path) {
         warn!(
             path = %path.display(),
             mode = format!("{mode:o}"),
-            "oauth clients file is readable by group or others; use chmod 600 (secrets may be exposed)"
+            "oauth-clients.json should be user-only (chmod 600)"
         );
     }
 }
@@ -120,55 +156,32 @@ fn warn_if_permissions_too_open(path: &Path) {
 #[cfg(not(unix))]
 fn warn_if_permissions_too_open(_path: &Path) {}
 
-fn file_github() -> &'static OAuthProviderEntry {
-    static EMPTY: OAuthProviderEntry = OAuthProviderEntry {
-        client_id: None,
-        client_secret: None,
-    };
-    cached_clients_file().map(|f| &f.github).unwrap_or(&EMPTY)
+/// GitHub OAuth app `client_id` and optional `client_secret` from the JSON file.
+pub fn github_client_credentials() -> (String, Option<String>) {
+    if let Some(f) = cached_clients_file() {
+        let id = f
+            .github
+            .client_id
+            .clone()
+            .unwrap_or_else(|| DEFAULT_GITHUB_OAUTH_CLIENT_ID.to_string());
+        (id, f.github.client_secret.clone())
+    } else {
+        (DEFAULT_GITHUB_OAUTH_CLIENT_ID.to_string(), None)
+    }
 }
 
-fn file_jira() -> &'static OAuthProviderEntry {
-    static EMPTY: OAuthProviderEntry = OAuthProviderEntry {
-        client_id: None,
-        client_secret: None,
-    };
-    cached_clients_file().map(|f| &f.jira).unwrap_or(&EMPTY)
-}
-
-/// Resolve GitHub OAuth app client id and optional client secret.
-pub fn github_client_credentials(
-    default_client_id: &'static str,
-    compile_client_id: Option<&'static str>,
-) -> (String, Option<String>) {
-    let file = file_github();
-    let client_id = first_env_trimmed(&["MOLTHUB_GITHUB_CLIENT_ID", "GITHUB_CLIENT_ID"])
-        .or_else(|| file.client_id.clone())
-        .or_else(|| compile_client_id.map(str::to_owned))
-        .unwrap_or_else(|| default_client_id.to_owned());
-
-    let client_secret =
-        first_env_trimmed(&["MOLTHUB_GITHUB_CLIENT_SECRET", "GITHUB_CLIENT_SECRET"])
-            .or_else(|| file.client_secret.clone());
-
-    (client_id, client_secret)
-}
-
-/// Resolve Jira (Atlassian 3LO) client id and optional client secret.
-pub fn jira_client_credentials(
-    default_client_id: &'static str,
-    compile_client_id: Option<&'static str>,
-) -> (String, Option<String>) {
-    let file = file_jira();
-    let client_id = first_env_trimmed(&["MOLTHUB_JIRA_CLIENT_ID", "JIRA_CLIENT_ID"])
-        .or_else(|| file.client_id.clone())
-        .or_else(|| compile_client_id.map(str::to_owned))
-        .unwrap_or_else(|| default_client_id.to_owned());
-
-    let client_secret = first_env_trimmed(&["MOLTHUB_JIRA_CLIENT_SECRET", "JIRA_CLIENT_SECRET"])
-        .or_else(|| file.client_secret.clone());
-
-    (client_id, client_secret)
+/// Jira (Atlassian 3LO) `client_id` and optional `client_secret` from the JSON file.
+pub fn jira_client_credentials() -> (String, Option<String>) {
+    if let Some(f) = cached_clients_file() {
+        let id = f
+            .jira
+            .client_id
+            .clone()
+            .unwrap_or_else(|| DEFAULT_JIRA_OAUTH_CLIENT_ID.to_string());
+        (id, f.jira.client_secret.clone())
+    } else {
+        (DEFAULT_JIRA_OAUTH_CLIENT_ID.to_string(), None)
+    }
 }
 
 #[cfg(test)]

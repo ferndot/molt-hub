@@ -4,8 +4,8 @@
 //! 1. **User config** — [`dirs::config_dir`]`/molt-hub/.env` (stable for desktop apps regardless of cwd).
 //! 2. **Working tree** — first `.env` found walking up from [`std::env::current_dir`] (developer convenience).
 //!
-//! OAuth **app** secrets can also live in `molt-hub/oauth-clients.json` next to that `.env`; the
-//! server loads that file when the router is built (see `integrations::oauth_clients`).
+//! GitHub/Jira OAuth **app** credentials live only in `molt-hub/oauth-clients.json` under this same
+//! config directory (created on first run; see `integrations::oauth_clients`).
 
 use std::path::{Path, PathBuf};
 
