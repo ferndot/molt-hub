@@ -21,6 +21,12 @@
         text-decoration: none;
         border-radius: 8px;
         font-weight: 600;
+        border: none;
+        cursor: pointer;
+        font-size: 1rem;
+      }
+      .btn-secondary {
+        background: #374151;
       }
       .btn:focus {
         outline: 2px solid #93c5fd;
@@ -34,20 +40,40 @@
         font-size: 0.9rem;
         margin-top: 1.25rem;
       }
+      .stack {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+      }
     </style>
   </head>
   <body>
     <h1 style="font-size: 1.25rem">Jira authorized</h1>
-    <p>Open Molt Hub to finish connecting. Most browsers block jumping to a desktop app unless you use a link or button (not an automatic redirect).</p>
     <p>
-      <a id="openlink" class="btn" href="#" autofocus>Open Molt Hub</a>
+      <strong>Desktop app:</strong> use the button below so Molt Hub can receive the callback
+      (<code>molthub://</code>).
     </p>
+    <div class="stack">
+      <a id="openlink" class="btn" href="#" autofocus>Open Molt Hub</a>
+      <a id="browserlink" class="btn btn-secondary" href="#">Finish in browser (local API)</a>
+    </div>
     <p id="fallback" class="muted" hidden>
-      If the button does nothing, the <code>molthub://</code> handler may not be registered.
-      On macOS, open the built app from <code>target/debug/bundle/macos/</code> (or install it) at least once, then try again — see the project <code>oauth-bridge/README.md</code>.
+      If the desktop button does nothing, the <code>molthub://</code> handler may not be registered.
+      Use <strong>Finish in browser</strong> while <code>molt-hub serve</code> runs on your API port,
+      or see <code>oauth-bridge/README.md</code>.
     </p>
     <script>
       (function () {
+        var STORAGE_KEY = "moltHubLocalApiOrigin";
+        var DEFAULT_API = "http://127.0.0.1:13401";
+        function localApiOrigin() {
+          try {
+            var o = localStorage.getItem(STORAGE_KEY);
+            if (o && o.trim().length > 0) return o.trim().replace(/\/$/, "");
+          } catch (e) {}
+          return DEFAULT_API;
+        }
         var scheme =
           new URLSearchParams(location.search).get("scheme") || "molthub";
         var p = new URLSearchParams(location.search);
@@ -67,9 +93,12 @@
             "<p>Missing OAuth parameters. Close this tab and try connecting again from Molt Hub.</p>";
           return;
         }
-        var target = scheme + "://oauth/jira?" + q.toString();
-        var link = document.getElementById("openlink");
-        link.href = target;
+        var appTarget = scheme + "://oauth/jira?" + q.toString();
+        var apiOrigin = localApiOrigin();
+        var browserTarget =
+          apiOrigin + "/api/integrations/jira/oauth/callback?" + q.toString();
+        document.getElementById("openlink").href = appTarget;
+        document.getElementById("browserlink").href = browserTarget;
         setTimeout(function () {
           document.getElementById("fallback").hidden = false;
         }, 4000);

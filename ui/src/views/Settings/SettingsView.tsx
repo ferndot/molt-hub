@@ -466,7 +466,11 @@ const GitHubPanel: Component<{ onBack: () => void }> = (props) => {
       <Show when={!isConnected()}>
         <div class={styles.oauthSection}>
           <p class={styles.oauthDescription}>
-            Connect your GitHub account via OAuth to import issues and pull requests.
+            Connect your GitHub account via OAuth to import issues and pull requests. The server
+            needs <code>MOLTHUB_GITHUB_CLIENT_SECRET</code> or <code>GITHUB_CLIENT_SECRET</code> in
+            the environment for the token step. After authorizing in the browser, use{" "}
+            <strong>Finish in browser (local API)</strong> on the bridge page if you are not using
+            the desktop app.
           </p>
           <div class={styles.connectedRow}>
             <span class={`${styles.statusBadge} ${styles.statusIdle}`}>

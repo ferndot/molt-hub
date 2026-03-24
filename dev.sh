@@ -5,8 +5,13 @@ set -euo pipefail
 # Starts the Axum backend and Vite frontend with color-coded output.
 # Pass --desktop to also launch the Tauri desktop shell.
 
-CARGO="/Users/fdot/.cargo/bin/cargo"
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+
+if ! command -v cargo >/dev/null 2>&1; then
+  echo "error: cargo not found in PATH (install Rust via https://rustup.rs)" >&2
+  exit 1
+fi
+CARGO="cargo"
 DESKTOP=false
 
 for arg in "$@"; do

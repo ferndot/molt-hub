@@ -6,6 +6,22 @@
   height: 100%;
 }
 
+.onboarding {
+  margin: 1rem 1.5rem 0;
+  padding: 1rem 1.25rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.onboarding a {
+  color: var(--priority-p1, #3b82f6);
+  font-weight: 500;
+}
+
 .header {
   display: flex;
   align-items: center;

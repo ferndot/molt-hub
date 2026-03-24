@@ -9,6 +9,7 @@ import { useMissionControl } from "./missionControlStore";
 import MissionColumn from "./MissionColumn";
 import JiraImport from "../Settings/JiraImport";
 import { settingsState } from "../Settings/settingsStore";
+import { projectState } from "../../stores/projectStore";
 import styles from "./MissionControlView.module.css";
 
 // ---------------------------------------------------------------------------
@@ -40,6 +41,14 @@ const MissionControlView: Component = () => {
             : <><TbOutlineFocus size={14} /> Focus</>}
         </button>
       </div>
+
+      <Show when={projectState.loaded && projectState.projects.length === 0}>
+        <div class={styles.onboarding} data-testid="mc-onboarding">
+          <strong>No project yet.</strong> Add one under{" "}
+          <a href="/settings">Settings → Projects</a> with a name and the path to a Git repo on
+          disk. Integrations (Jira, GitHub) and repo-scoped features use the active project.
+        </div>
+      </Show>
 
       {/* Board columns */}
       <div class={styles.body}>

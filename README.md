@@ -112,10 +112,7 @@ cargo build --release --bin molt-hub
 - **Tauri CLI** (installed automatically via `cargo tauri`)
 - macOS: Xcode Command Line Tools (`xcode-select --install`)
 
-> **OAuth:** The app opens the provider in the system browser (`tauri-plugin-opener`).
-> **OAuth** uses HTTPS bridge URLs from [`oauth-bridge/redirect-uris.json`](oauth-bridge/redirect-uris.json)
-> (see [`oauth-bridge/README.md`](oauth-bridge/README.md)); the bridge hands off to **`molthub://`**
-> and the desktop shell forwards to the local API. Optional env: `MOLTHUB_*_REDIRECT_URI`.
+> **OAuth:** Uses HTTPS pages from [`oauth-bridge/redirect-uris.json`](oauth-bridge/redirect-uris.json) (see [`oauth-bridge/README.md`](oauth-bridge/README.md)). **Desktop:** bridge → **`molthub://`** → local API. **Browser dev:** use **Finish in browser (local API)** on the bridge page while `molt-hub serve` is running. **GitHub:** set **`MOLTHUB_GITHUB_CLIENT_SECRET`** or **`GITHUB_CLIENT_SECRET`** so token exchange succeeds (not compile-time only). Optional: `MOLTHUB_*_REDIRECT_URI`, `MOLTHUB_JIRA_CLIENT_ID`.
 
 ## License
 

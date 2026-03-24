@@ -27,7 +27,6 @@ use crate::events::handlers::{events_router, tasks_router, EventStoreState};
 use crate::integrations::github_app::GithubAppCredentials;
 use crate::integrations::github_handlers::{github_integrations_router, GithubAppState};
 use crate::integrations::github_oauth::GithubOAuthService;
-use crate::integrations::github_oauth::GITHUB_CLIENT_SECRET;
 use crate::integrations::github_oauth_handlers::GithubOAuthState;
 use crate::integrations::handlers::{jira_integrations_router, JiraAppState};
 use crate::integrations::jira_oauth_handlers::{jira_oauth_router, JiraOAuthState};
@@ -47,6 +46,24 @@ use crate::ws_broadcast::{broadcast_metrics, MetricsPayload};
 /// `GET /api/health` — confirms Axum is serving (not a foreign process or SPA fallback).
 async fn api_health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "ok": true }))
+}
+
+/// GitHub OAuth token exchange requires a client secret. Prefer runtime env (no rebuild):
+/// `MOLTHUB_GITHUB_CLIENT_SECRET`, then `GITHUB_CLIENT_SECRET`, then compile-time
+/// `GITHUB_CLIENT_SECRET` if set when the binary was built.
+fn github_oauth_client_secret() -> Option<String> {
+    for key in ["MOLTHUB_GITHUB_CLIENT_SECRET", "GITHUB_CLIENT_SECRET"] {
+        if let Ok(v) = std::env::var(key) {
+            let t = v.trim().to_owned();
+            if !t.is_empty() {
+                return Some(t);
+            }
+        }
+    }
+    option_env!("GITHUB_CLIENT_SECRET")
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(std::string::ToString::to_string)
 }
 
 /// Resolve the default event store database path: `~/.config/molt-hub/events.db`.
@@ -140,11 +157,17 @@ pub async fn build_router(
     let credential_store: Arc<dyn crate::credentials::CredentialStore> =
         Arc::new(KeyringStore::new());
 
-    // GitHub OAuth — secret embedded at compile time via GITHUB_CLIENT_SECRET env var
+    // GitHub OAuth — client secret from runtime or compile-time env (see `github_oauth_client_secret`)
     let github_callback = github_redirect_uri();
-    let github_oauth_svc = match GITHUB_CLIENT_SECRET {
-        Some(secret) => GithubOAuthService::with_secret(&github_callback, secret.to_owned()),
-        None => GithubOAuthService::new(&github_callback),
+    let github_oauth_svc = match github_oauth_client_secret() {
+        Some(secret) => GithubOAuthService::with_secret(&github_callback, secret),
+        None => {
+            warn!(
+                "GitHub OAuth: no client secret configured. Token exchange will fail until you set \
+                 MOLTHUB_GITHUB_CLIENT_SECRET or GITHUB_CLIENT_SECRET (or rebuild with GITHUB_CLIENT_SECRET)."
+            );
+            GithubOAuthService::new(&github_callback)
+        }
     };
     let github_app_creds = match GithubAppCredentials::try_from_env() {
         Ok(c) => c,
