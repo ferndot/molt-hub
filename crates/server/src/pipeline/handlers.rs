@@ -4,6 +4,7 @@
 //!   GET    /api/pipeline/stages      — return all pipeline stages as JSON
 //!   PUT    /api/pipeline/stages      — replace all stages
 //!   POST   /api/pipeline/stages      — add a single new stage
+//!   PATCH  /api/pipeline/stages/:id  — partially update a single stage
 //!   DELETE /api/pipeline/stages/:id  — remove a stage by ID
 
 use axum::{
@@ -35,6 +36,44 @@ pub struct StageResponse {
     pub timeout_seconds: Option<u64>,
     #[serde(default)]
     pub terminal: bool,
+    /// Hex color for the column header (e.g. "#6366f1").
+    #[serde(default)]
+    pub color: Option<String>,
+    /// Display order (0-indexed).
+    #[serde(default)]
+    pub order: u32,
+}
+
+/// Partial update payload for PATCH /api/pipeline/stages/:id.
+///
+/// All fields are optional; only supplied fields are applied.
+/// For nullable fields (`wip_limit`, `timeout_seconds`, `color`), the outer
+/// `Option` distinguishes "not supplied" (`None`) from "explicitly set to null"
+/// (`Some(None)`).
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct StagePatch {
+    pub label: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub wip_limit: Option<Option<u32>>,
+    pub requires_approval: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub timeout_seconds: Option<Option<u64>>,
+    pub terminal: Option<bool>,
+    #[serde(default, deserialize_with = "deserialize_double_option")]
+    pub color: Option<Option<String>>,
+    pub order: Option<u32>,
+}
+
+/// Deserialize a double-option: absent key → `None`, explicit `null` → `Some(None)`,
+/// value present → `Some(Some(v))`.
+fn deserialize_double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    // If serde calls this function the key was present in JSON.
+    // `Option::deserialize` yields `None` for `null`, `Some(v)` for a value.
+    Ok(Some(Option::deserialize(deserializer)?))
 }
 
 /// Top-level response for GET /api/pipeline/stages.
@@ -182,6 +221,41 @@ impl PipelineConfigStore {
         Ok(())
     }
 
+    /// Partially update a single stage by ID, applying only supplied fields.
+    pub async fn patch_stage(&self, id: &str, patch: StagePatch) -> Result<StageResponse, String> {
+        let mut guard = self.stages.write().await;
+        let stage = guard
+            .iter_mut()
+            .find(|s| s.id == id)
+            .ok_or_else(|| format!("stage with id '{}' not found", id))?;
+
+        if let Some(label) = patch.label {
+            stage.label = label;
+        }
+        if let Some(wip_limit) = patch.wip_limit {
+            stage.wip_limit = wip_limit;
+        }
+        if let Some(requires_approval) = patch.requires_approval {
+            stage.requires_approval = requires_approval;
+        }
+        if let Some(timeout_seconds) = patch.timeout_seconds {
+            stage.timeout_seconds = timeout_seconds;
+        }
+        if let Some(terminal) = patch.terminal {
+            stage.terminal = terminal;
+        }
+        if let Some(color) = patch.color {
+            stage.color = color;
+        }
+        if let Some(order) = patch.order {
+            stage.order = order;
+        }
+
+        let updated = stage.clone();
+        self.persist(&guard)?;
+        Ok(updated)
+    }
+
     // -- persistence ---------------------------------------------------------
 
     fn persist(&self, stages: &[StageResponse]) -> Result<(), String> {
@@ -210,6 +284,8 @@ impl PipelineConfigStore {
                 requires_approval: false,
                 timeout_seconds: None,
                 terminal: false,
+                color: Some("#94a3b8".into()),
+                order: 0,
             },
             StageResponse {
                 id: "in-progress".into(),
@@ -218,6 +294,8 @@ impl PipelineConfigStore {
                 requires_approval: false,
                 timeout_seconds: None,
                 terminal: false,
+                color: Some("#6366f1".into()),
+                order: 1,
             },
             StageResponse {
                 id: "code-review".into(),
@@ -226,6 +304,8 @@ impl PipelineConfigStore {
                 requires_approval: true,
                 timeout_seconds: None,
                 terminal: false,
+                color: Some("#f59e0b".into()),
+                order: 2,
             },
             StageResponse {
                 id: "testing".into(),
@@ -234,6 +314,8 @@ impl PipelineConfigStore {
                 requires_approval: false,
                 timeout_seconds: None,
                 terminal: false,
+                color: Some("#10b981".into()),
+                order: 3,
             },
             StageResponse {
                 id: "deployed".into(),
@@ -242,6 +324,8 @@ impl PipelineConfigStore {
                 requires_approval: false,
                 timeout_seconds: None,
                 terminal: true,
+                color: Some("#22c55e".into()),
+                order: 4,
             },
         ]
     }
@@ -312,6 +396,26 @@ pub async fn post_stage(
     }
 }
 
+/// PATCH /api/pipeline/stages/:id — partially update a single stage
+#[instrument(skip_all)]
+pub async fn patch_stage(
+    State(state): State<Arc<PipelineConfigStore>>,
+    Path(stage_id): Path<String>,
+    Json(patch): Json<StagePatch>,
+) -> impl IntoResponse {
+    match state.patch_stage(&stage_id, patch).await {
+        Ok(stage) => {
+            info!(stage_id, "pipeline stage patched");
+            (StatusCode::OK, Json(stage)).into_response()
+        }
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse { error: e }),
+        )
+            .into_response(),
+    }
+}
+
 /// DELETE /api/pipeline/stages/:id — remove a stage
 #[instrument(skip_all)]
 pub async fn delete_stage(
@@ -347,7 +451,7 @@ pub fn pipeline_router(state: Arc<PipelineConfigStore>) -> Router {
         )
         .route(
             "/stages/:id",
-            axum::routing::delete(delete_stage),
+            axum::routing::delete(delete_stage).patch(patch_stage),
         )
         .with_state(state)
 }
@@ -439,6 +543,31 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn get_stages_include_display_fields() {
+        let app = test_app();
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/api/pipeline/stages")
+            .body(Body::empty())
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        let body = json_body(resp).await;
+        let stages = body["stages"].as_array().unwrap();
+
+        // Backlog defaults
+        assert_eq!(stages[0]["color"], "#94a3b8");
+        assert_eq!(stages[0]["order"], 0);
+
+        // In Progress defaults
+        assert_eq!(stages[1]["color"], "#6366f1");
+        assert_eq!(stages[1]["order"], 1);
+
+        // Deployed defaults
+        assert_eq!(stages[4]["color"], "#22c55e");
+        assert_eq!(stages[4]["order"], 4);
+    }
+
+    #[tokio::test]
     async fn get_stages_custom_state() {
         let state = Arc::new(PipelineConfigStore::in_memory_with(vec![
             StageResponse {
@@ -448,6 +577,8 @@ mod tests {
                 requires_approval: false,
                 timeout_seconds: None,
                 terminal: false,
+                color: Some("#ff0000".into()),
+                order: 0,
             },
             StageResponse {
                 id: "done".into(),
@@ -456,6 +587,8 @@ mod tests {
                 requires_approval: false,
                 timeout_seconds: None,
                 terminal: true,
+                color: None,
+                order: 1,
             },
         ]));
         let app = Router::new()
@@ -473,8 +606,10 @@ mod tests {
         assert_eq!(stages.len(), 2);
         assert_eq!(stages[0]["id"], "todo");
         assert_eq!(stages[0]["wip_limit"], 5);
+        assert_eq!(stages[0]["color"], "#ff0000");
         assert_eq!(stages[1]["id"], "done");
         assert!(stages[1]["wip_limit"].is_null());
+        assert!(stages[1]["color"].is_null());
     }
 
     #[tokio::test]
@@ -487,6 +622,25 @@ mod tests {
             ids,
             vec!["backlog", "in-progress", "code-review", "testing", "deployed"]
         );
+    }
+
+    #[tokio::test]
+    async fn default_stages_have_colors_and_orders() {
+        let state = PipelineConfigStore::in_memory();
+        let stages = state.get_stages().await;
+
+        let expected = vec![
+            ("backlog", "#94a3b8", 0u32),
+            ("in-progress", "#6366f1", 1),
+            ("code-review", "#f59e0b", 2),
+            ("testing", "#10b981", 3),
+            ("deployed", "#22c55e", 4),
+        ];
+        for (stage, (id, color, order)) in stages.iter().zip(expected.iter()) {
+            assert_eq!(stage.id, *id);
+            assert_eq!(stage.color.as_deref(), Some(*color));
+            assert_eq!(stage.order, *order);
+        }
     }
 
     // -- PUT tests -----------------------------------------------------------
@@ -518,6 +672,33 @@ mod tests {
         assert_eq!(stages.len(), 2);
         assert_eq!(stages[0].id, "a");
         assert_eq!(stages[1].id, "b");
+    }
+
+    #[tokio::test]
+    async fn put_stages_preserves_display_fields() {
+        let state = Arc::new(PipelineConfigStore::in_memory());
+        let app = Router::new()
+            .nest("/api/pipeline", pipeline_router(Arc::clone(&state)))
+            .into_service::<Body>();
+
+        let new_stages = serde_json::json!({
+            "stages": [
+                {"id": "x", "label": "X", "color": "#abcdef", "order": 7}
+            ]
+        });
+
+        let req = Request::builder()
+            .method(Method::PUT)
+            .uri("/api/pipeline/stages")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&new_stages).unwrap()))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let stages = state.get_stages().await;
+        assert_eq!(stages[0].color.as_deref(), Some("#abcdef"));
+        assert_eq!(stages[0].order, 7);
     }
 
     #[tokio::test]
@@ -582,6 +763,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn post_stage_with_display_fields() {
+        let state = Arc::new(PipelineConfigStore::in_memory());
+        let app = Router::new()
+            .nest("/api/pipeline", pipeline_router(Arc::clone(&state)))
+            .into_service::<Body>();
+
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/api/pipeline/stages")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r##"{"id":"qa","label":"QA","color":"#e11d48","order":5}"##,
+            ))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CREATED);
+
+        let stages = state.get_stages().await;
+        let qa = stages.iter().find(|s| s.id == "qa").unwrap();
+        assert_eq!(qa.color.as_deref(), Some("#e11d48"));
+        assert_eq!(qa.order, 5);
+    }
+
+    #[tokio::test]
     async fn post_stage_rejects_duplicate_id() {
         let state = Arc::new(PipelineConfigStore::in_memory());
         let app = Router::new()
@@ -598,6 +803,163 @@ mod tests {
             .unwrap();
         let resp = app.oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CONFLICT);
+    }
+
+    // -- PATCH tests ---------------------------------------------------------
+
+    #[tokio::test]
+    async fn patch_stage_updates_color() {
+        let state = Arc::new(PipelineConfigStore::in_memory());
+        let app = Router::new()
+            .nest("/api/pipeline", pipeline_router(Arc::clone(&state)))
+            .into_service::<Body>();
+
+        let req = Request::builder()
+            .method(Method::PATCH)
+            .uri("/api/pipeline/stages/backlog")
+            .header("content-type", "application/json")
+            .body(Body::from(r##"{"color":"#ff5500"}"##))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = json_body(resp).await;
+        assert_eq!(body["id"], "backlog");
+        assert_eq!(body["color"], "#ff5500");
+
+        // Verify persisted
+        let stages = state.get_stages().await;
+        let backlog = stages.iter().find(|s| s.id == "backlog").unwrap();
+        assert_eq!(backlog.color.as_deref(), Some("#ff5500"));
+    }
+
+    #[tokio::test]
+    async fn patch_stage_updates_order() {
+        let state = Arc::new(PipelineConfigStore::in_memory());
+        let app = Router::new()
+            .nest("/api/pipeline", pipeline_router(Arc::clone(&state)))
+            .into_service::<Body>();
+
+        let req = Request::builder()
+            .method(Method::PATCH)
+            .uri("/api/pipeline/stages/in-progress")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"order":99}"#))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let stages = state.get_stages().await;
+        let stage = stages.iter().find(|s| s.id == "in-progress").unwrap();
+        assert_eq!(stage.order, 99);
+    }
+
+    #[tokio::test]
+    async fn patch_stage_updates_label() {
+        let state = Arc::new(PipelineConfigStore::in_memory());
+        let app = Router::new()
+            .nest("/api/pipeline", pipeline_router(Arc::clone(&state)))
+            .into_service::<Body>();
+
+        let req = Request::builder()
+            .method(Method::PATCH)
+            .uri("/api/pipeline/stages/backlog")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"label":"TODO"}"#))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let stages = state.get_stages().await;
+        let backlog = stages.iter().find(|s| s.id == "backlog").unwrap();
+        assert_eq!(backlog.label, "TODO");
+    }
+
+    #[tokio::test]
+    async fn patch_stage_updates_multiple_fields() {
+        let state = Arc::new(PipelineConfigStore::in_memory());
+        let app = Router::new()
+            .nest("/api/pipeline", pipeline_router(Arc::clone(&state)))
+            .into_service::<Body>();
+
+        let req = Request::builder()
+            .method(Method::PATCH)
+            .uri("/api/pipeline/stages/testing")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                r##"{"label":"QA Testing","color":"#dc2626","order":10,"wip_limit":3}"##,
+            ))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let stages = state.get_stages().await;
+        let stage = stages.iter().find(|s| s.id == "testing").unwrap();
+        assert_eq!(stage.label, "QA Testing");
+        assert_eq!(stage.color.as_deref(), Some("#dc2626"));
+        assert_eq!(stage.order, 10);
+        assert_eq!(stage.wip_limit, Some(3));
+    }
+
+    #[tokio::test]
+    async fn patch_stage_clears_color_with_null() {
+        let state = Arc::new(PipelineConfigStore::in_memory());
+        let app = Router::new()
+            .nest("/api/pipeline", pipeline_router(Arc::clone(&state)))
+            .into_service::<Body>();
+
+        let req = Request::builder()
+            .method(Method::PATCH)
+            .uri("/api/pipeline/stages/backlog")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"color":null}"#))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let stages = state.get_stages().await;
+        let backlog = stages.iter().find(|s| s.id == "backlog").unwrap();
+        assert_eq!(backlog.color, None);
+    }
+
+    #[tokio::test]
+    async fn patch_stage_not_found() {
+        let state = Arc::new(PipelineConfigStore::in_memory());
+        let app = Router::new()
+            .nest("/api/pipeline", pipeline_router(state))
+            .into_service::<Body>();
+
+        let req = Request::builder()
+            .method(Method::PATCH)
+            .uri("/api/pipeline/stages/nonexistent")
+            .header("content-type", "application/json")
+            .body(Body::from(r##"{"color":"#000000"}"##))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn patch_stage_empty_body_is_noop() {
+        let state = Arc::new(PipelineConfigStore::in_memory());
+        let original = state.get_stages().await;
+        let app = Router::new()
+            .nest("/api/pipeline", pipeline_router(Arc::clone(&state)))
+            .into_service::<Body>();
+
+        let req = Request::builder()
+            .method(Method::PATCH)
+            .uri("/api/pipeline/stages/backlog")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{}"#))
+            .unwrap();
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let stages = state.get_stages().await;
+        let backlog = stages.iter().find(|s| s.id == "backlog").unwrap();
+        let orig_backlog = original.iter().find(|s| s.id == "backlog").unwrap();
+        assert_eq!(backlog, orig_backlog);
     }
 
     // -- DELETE tests --------------------------------------------------------
@@ -659,6 +1021,8 @@ mod tests {
                 requires_approval: true,
                 timeout_seconds: Some(3600),
                 terminal: false,
+                color: Some("#8b5cf6".into()),
+                order: 5,
             })
             .await
             .unwrap();
@@ -673,6 +1037,8 @@ mod tests {
         assert_eq!(extra.wip_limit, Some(10));
         assert!(extra.requires_approval);
         assert_eq!(extra.timeout_seconds, Some(3600));
+        assert_eq!(extra.color.as_deref(), Some("#8b5cf6"));
+        assert_eq!(extra.order, 5);
     }
 
     #[tokio::test]
@@ -704,6 +1070,8 @@ mod tests {
                     requires_approval: false,
                     timeout_seconds: None,
                     terminal: true,
+                    color: Some("#000000".into()),
+                    order: 0,
                 },
             ])
             .await
@@ -713,6 +1081,32 @@ mod tests {
         let stages = store2.get_stages().await;
         assert_eq!(stages.len(), 1);
         assert_eq!(stages[0].id, "only");
+        assert_eq!(stages[0].color.as_deref(), Some("#000000"));
+    }
+
+    #[tokio::test]
+    async fn yaml_roundtrip_patch_and_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pipeline.yaml");
+
+        let store = PipelineConfigStore::from_file(path.clone());
+        store
+            .patch_stage(
+                "backlog",
+                StagePatch {
+                    color: Some(Some("#ffffff".into())),
+                    order: Some(42),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        let store2 = PipelineConfigStore::from_file(path);
+        let stages = store2.get_stages().await;
+        let backlog = stages.iter().find(|s| s.id == "backlog").unwrap();
+        assert_eq!(backlog.color.as_deref(), Some("#ffffff"));
+        assert_eq!(backlog.order, 42);
     }
 
     #[tokio::test]

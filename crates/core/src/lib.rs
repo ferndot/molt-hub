@@ -9,6 +9,7 @@ pub mod events;
 pub mod integrations;
 pub mod machine;
 pub mod model;
+pub mod project;
 pub mod summaries;
 pub mod templates;
 pub mod transitions;

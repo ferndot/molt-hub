@@ -200,6 +200,7 @@ mod tests {
         Task {
             id: TaskId(Ulid::new()),
             pipeline_id: PipelineId(Ulid::new()),
+            project_id: None,
             title: "My Task".to_string(),
             description: "A detailed description.".to_string(),
             current_stage: "planning".to_string(),

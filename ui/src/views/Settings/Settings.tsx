@@ -10,7 +10,7 @@ import { createSignal, Show, For, type Component } from "solid-js";
 import { TbOutlinePalette, TbOutlinePlug, TbOutlineSquareRotated, TbOutlineBrandGithub, TbOutlineArrowLeft } from "solid-icons/tb";
 import {
   settingsState,
-  initiateOAuth,
+  connectJira,
   disconnectJira,
   connectGitHub,
   disconnectGitHub,
@@ -120,20 +120,34 @@ const IntegrationsPanel: Component<{ onSelect: (id: SectionId) => void }> = (pro
 
 const JiraPanel: Component<{ onBack: () => void }> = (props) => {
   const isConnected = () => settingsState.jiraConfig.connected;
+  const [connecting, setConnecting] = createSignal(false);
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    await connectJira();
+    setConnecting(false);
+  };
 
   return (
     <div>
-      <button class={styles.backBtn} onClick={props.onBack}><TbOutlineArrowLeft size={14} style={{ "vertical-align": "middle" }} /> Integrations</button>
+      <button class={styles.backBtn} onClick={props.onBack}>
+        <TbOutlineArrowLeft size={14} style={{ "vertical-align": "middle" }} /> Integrations
+      </button>
       <h3 class={styles.sectionTitle}>Jira Integration</h3>
 
       <Show when={!isConnected()}>
         <div class={styles.oauthSection}>
           <p class={styles.oauthDescription}>
             Connect your Atlassian account to import issues and sync with Jira.
+            You will be redirected to Atlassian to authorize access.
           </p>
           <div class={styles.buttonRow}>
-            <button class={styles.btnPrimary} onClick={() => initiateOAuth()}>
-              Connect to Jira
+            <button
+              class={styles.btnPrimary}
+              disabled={connecting()}
+              onClick={handleConnect}
+            >
+              {connecting() ? "Connecting…" : "Connect to Jira"}
             </button>
           </div>
           <Show when={settingsState.jiraConfig.lastError}>
@@ -179,15 +193,9 @@ const GitHubPanel: Component<{ onBack: () => void }> = (props) => {
   const [connecting, setConnecting] = createSignal(false);
 
   const handleConnect = async () => {
-    const t = token().trim();
-    const o = owner().trim();
-    if (!t || !o) return;
     setConnecting(true);
-    await connectGitHub(t, o);
+    await connectGitHub();
     setConnecting(false);
-    if (settingsState.githubConfig.connected) {
-      setToken("");
-    }
   };
 
   return (

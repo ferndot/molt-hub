@@ -22,7 +22,7 @@ export type Theme = "light" | "dark" | "system";
 
 export type AttentionLevel = "p0" | "p0p1" | "all";
 
-export type AgentAdapter = "claude-code" | "mock";
+export type AgentAdapter = "claude-code";
 
 export interface NotificationConfig {
   attentionLevel: AttentionLevel;
@@ -55,36 +55,6 @@ export interface AppearanceConfig {
   colorblindMode: boolean;
 }
 
-export interface ColumnBehavior {
-  wipLimit: number | null;
-  autoAssign: boolean;
-  autoTransition: string | null;
-  requireApproval: boolean;
-}
-
-export interface ColumnHooks {
-  onEnter: string[];
-  onExit: string[];
-  onStall: string[];
-}
-
-export interface KanbanColumn {
-  /** Unique stable identifier */
-  id: string;
-  /** Display title */
-  title: string;
-  /** Glob / comma-separated pattern of stage names this column captures */
-  stageMatch: string;
-  /** Accent color (hex or CSS color) */
-  color: string;
-  /** Display order (ascending) */
-  order: number;
-  /** Column behavior settings */
-  behavior: ColumnBehavior;
-  /** Column lifecycle hooks */
-  hooks: ColumnHooks;
-}
-
 export interface SidebarWidths {
   /** Left navigation sidebar width in pixels */
   navSidebar: number;
@@ -99,34 +69,8 @@ export interface SettingsState {
   appearance: AppearanceConfig;
   notifications: NotificationConfig;
   agentDefaults: AgentDefaultsConfig;
-  kanbanColumns: KanbanColumn[];
   sidebarWidths: SidebarWidths;
 }
-
-// ---------------------------------------------------------------------------
-// Default column definitions matching boardStore STAGES
-// ---------------------------------------------------------------------------
-
-const defaultBehavior: ColumnBehavior = {
-  wipLimit: null,
-  autoAssign: false,
-  autoTransition: null,
-  requireApproval: false,
-};
-
-const defaultHooks: ColumnHooks = {
-  onEnter: [],
-  onExit: [],
-  onStall: [],
-};
-
-export const DEFAULT_KANBAN_COLUMNS: KanbanColumn[] = [
-  { id: "col-backlog",     title: "Backlog",      stageMatch: "backlog",      color: "#6b7280", order: 0, behavior: { ...defaultBehavior }, hooks: { ...defaultHooks } },
-  { id: "col-in-progress", title: "In Progress",  stageMatch: "in-progress",  color: "#3b82f6", order: 1, behavior: { ...defaultBehavior }, hooks: { ...defaultHooks } },
-  { id: "col-code-review", title: "Code Review",  stageMatch: "code-review",  color: "#f59e0b", order: 2, behavior: { ...defaultBehavior, requireApproval: true }, hooks: { ...defaultHooks } },
-  { id: "col-testing",     title: "Testing",      stageMatch: "testing",      color: "#8b5cf6", order: 3, behavior: { ...defaultBehavior }, hooks: { ...defaultHooks } },
-  { id: "col-deployed",    title: "Deployed",     stageMatch: "deployed",     color: "#10b981", order: 4, behavior: { ...defaultBehavior }, hooks: { ...defaultHooks } },
-];
 
 // ---------------------------------------------------------------------------
 // Store
@@ -135,7 +79,7 @@ export const DEFAULT_KANBAN_COLUMNS: KanbanColumn[] = [
 export const STORAGE_KEY = "molt-hub-settings";
 
 /** Keys that are persisted to localStorage (excludes transient state) */
-type PersistedState = Pick<SettingsState, "appearance" | "notifications" | "agentDefaults" | "kanbanColumns" | "sidebarWidths"> & {
+type PersistedState = Pick<SettingsState, "appearance" | "notifications" | "agentDefaults" | "sidebarWidths"> & {
   jiraConfig: Pick<JiraConfig, "baseUrl" | "connected" | "siteName" | "cloudId">;
   githubConfig?: Pick<GitHubConfig, "connected" | "owner">;
 };
@@ -151,7 +95,6 @@ export function loadPersistedSettings(): Partial<SettingsState> {
     if (parsed.appearance) result.appearance = parsed.appearance;
     if (parsed.notifications) result.notifications = parsed.notifications;
     if (parsed.agentDefaults) result.agentDefaults = parsed.agentDefaults;
-    if (parsed.kanbanColumns) result.kanbanColumns = parsed.kanbanColumns;
     if (parsed.sidebarWidths) result.sidebarWidths = parsed.sidebarWidths;
     if (parsed.jiraConfig) {
       result.jiraConfig = {
@@ -180,7 +123,6 @@ export function persistSettings(state: SettingsState): void {
       appearance: state.appearance,
       notifications: state.notifications,
       agentDefaults: state.agentDefaults,
-      kanbanColumns: state.kanbanColumns,
       sidebarWidths: state.sidebarWidths,
       jiraConfig: {
         baseUrl: state.jiraConfig.baseUrl,
@@ -225,7 +167,6 @@ const defaultState: SettingsState = {
     timeoutMinutes: 30,
     adapter: "claude-code",
   },
-  kanbanColumns: DEFAULT_KANBAN_COLUMNS,
   sidebarWidths: {
     navSidebar: 240,
     inboxSidebar: 320,
@@ -276,7 +217,6 @@ export async function saveToBackend(state: SettingsState): Promise<void> {
       appearance: state.appearance,
       notifications: state.notifications,
       agentDefaults: state.agentDefaults,
-      kanbanColumns: state.kanbanColumns,
       sidebarWidths: state.sidebarWidths,
       jiraConfig: {
         baseUrl: state.jiraConfig.baseUrl,
@@ -318,7 +258,6 @@ export async function loadFromBackend(): Promise<Partial<SettingsState> | null> 
     if (data.appearance) result.appearance = data.appearance;
     if (data.notifications) result.notifications = data.notifications;
     if (data.agentDefaults) result.agentDefaults = data.agentDefaults;
-    if (data.kanbanColumns) result.kanbanColumns = data.kanbanColumns;
     if (data.sidebarWidths) result.sidebarWidths = data.sidebarWidths;
     if (data.jiraConfig) {
       result.jiraConfig = { lastError: null, ...data.jiraConfig };
@@ -436,25 +375,28 @@ export function setConnectionTestStatus(status: ConnectionTestStatus): void {
 }
 
 /**
- * Initiate OAuth flow: fetch the authorization URL from the backend,
- * then redirect the browser to Atlassian's consent screen.
+ * Initiate Jira OAuth: fetch the authorization URL from the backend,
+ * then open it in a new window/tab so the user can authorize.
+ * Starts polling for connection status so the UI updates once the
+ * callback completes in the other tab.
  */
-export async function initiateOAuth(): Promise<void> {
+export async function connectJira(): Promise<void> {
   try {
-    const response = await fetch("/api/integrations/jira/oauth/authorize");
+    const response = await fetch("/api/integrations/jira/auth");
     if (!response.ok) {
+      const ct = response.headers.get("content-type") ?? "";
+      if (!ct.includes("application/json")) {
+        setJiraConnected(false, "", "", "Backend not available — start the server first");
+        return;
+      }
       const text = await response.text();
       setJiraConnected(false, "", "", text || `HTTP ${response.status}`);
       return;
     }
-    // Guard against SPA fallback returning HTML instead of JSON
-    const ct = response.headers.get("content-type") ?? "";
-    if (!ct.includes("application/json")) {
-      setJiraConnected(false, "", "", "Backend not available — start the server first");
-      return;
-    }
-    const data = await response.json() as { url: string };
-    window.location.href = data.url;
+    const data = (await response.json()) as { url: string };
+    window.open(data.url, "_blank");
+    // Start polling for when the user completes OAuth in the other tab
+    startJiraStatusPolling();
   } catch (err) {
     const message = err instanceof Error ? err.message : "Network error";
     setJiraConnected(false, "", "", message);
@@ -462,21 +404,97 @@ export async function initiateOAuth(): Promise<void> {
 }
 
 /**
+ * Disconnect Jira OAuth — clears tokens on the backend and local state.
+ */
+export async function disconnectJira(): Promise<void> {
+  try {
+    await fetch("/api/integrations/jira/disconnect", { method: "POST" });
+  } catch {
+    // Ignore network errors — we clear local state regardless
+  }
+  setJiraConnected(false, "", "", null);
+  setJiraConfig({ baseUrl: "" });
+  setConnectionTestStatus("idle");
+}
+
+// ---------------------------------------------------------------------------
+// Jira status polling
+// ---------------------------------------------------------------------------
+
+let _jiraPollTimer: ReturnType<typeof setInterval> | null = null;
+const JIRA_POLL_INTERVAL = 2000;
+const JIRA_POLL_MAX_ATTEMPTS = 60; // 2 minutes max
+
+/**
+ * Fetch current Jira connection status from the backend and update store.
+ * Returns the connected state.
+ */
+export async function fetchJiraStatus(): Promise<boolean> {
+  try {
+    const response = await fetch("/api/integrations/jira/status");
+    if (!response.ok) return false;
+    const data = (await response.json()) as { connected: boolean; site_url?: string; site_name?: string };
+    setSettingsState(
+      produce((s) => {
+        s.jiraConfig.connected = data.connected;
+        if (data.site_name) s.jiraConfig.siteName = data.site_name;
+        if (data.site_url) s.jiraConfig.baseUrl = data.site_url;
+        if (data.connected) s.jiraConfig.lastError = null;
+      }),
+    );
+    return data.connected;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Start polling `/api/integrations/jira/status` every 2 seconds.
+ * Stops automatically once connected or after max attempts.
+ */
+export function startJiraStatusPolling(): void {
+  stopJiraStatusPolling();
+  let attempts = 0;
+  _jiraPollTimer = setInterval(async () => {
+    attempts++;
+    const connected = await fetchJiraStatus();
+    if (connected || attempts >= JIRA_POLL_MAX_ATTEMPTS) {
+      stopJiraStatusPolling();
+    }
+  }, JIRA_POLL_INTERVAL);
+}
+
+/**
+ * Stop the Jira status polling interval if running.
+ */
+export function stopJiraStatusPolling(): void {
+  if (_jiraPollTimer !== null) {
+    clearInterval(_jiraPollTimer);
+    _jiraPollTimer = null;
+  }
+}
+
+/**
+ * @deprecated Use connectJira() instead.
+ * Kept for backward compatibility with any existing callers.
+ */
+export async function initiateOAuth(): Promise<void> {
+  return connectJira();
+}
+
+/**
  * Handle the OAuth callback result (called after redirect back from Atlassian).
  * Expects a code query param to be exchanged for tokens by the backend.
+ * @deprecated The new flow uses status polling instead of direct callback handling.
  */
 export async function handleOAuthCallback(code: string): Promise<void> {
   setConnectionTestStatus("testing");
   try {
-    const response = await fetch("/api/integrations/jira/oauth/callback", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code }),
-    });
+    const response = await fetch(`/api/integrations/jira/oauth/callback?code=${encodeURIComponent(code)}&state=`);
     if (response.ok) {
-      const data = await response.json() as { siteName: string; cloudId: string; baseUrl: string };
-      setJiraConfig({ baseUrl: data.baseUrl });
-      setJiraConnected(true, data.siteName, data.cloudId, null);
+      const data = await response.json() as { site_url?: string; site_name?: string };
+      if (data.site_url) setJiraConfig({ baseUrl: data.site_url });
+      setJiraConnected(true, data.site_name ?? "", "", null);
       setConnectionTestStatus("success");
     } else {
       const text = await response.text();
@@ -490,40 +508,24 @@ export async function handleOAuthCallback(code: string): Promise<void> {
   }
 }
 
-/**
- * Disconnect Jira OAuth — revokes tokens on the backend and clears local state.
- */
-export async function disconnectJira(): Promise<void> {
-  try {
-    await fetch("/api/integrations/jira/oauth/disconnect", { method: "POST" });
-  } finally {
-    setJiraConnected(false, "", "", null);
-    setJiraConfig({ baseUrl: "" });
-    setConnectionTestStatus("idle");
-  }
-}
-
 // ---------------------------------------------------------------------------
-// GitHub actions
+// GitHub actions (OAuth App flow)
 // ---------------------------------------------------------------------------
 
 /**
- * Connect GitHub by storing the personal access token and owner/org.
- * Validates the token against the backend before marking connected.
+ * Initiate GitHub OAuth: fetch the authorization URL from the backend,
+ * then open it in a new window/tab so the user can authorize.
+ * Starts polling for connection status so the UI updates once the
+ * callback completes in the other tab.
  */
-export async function connectGitHub(token: string, owner: string): Promise<void> {
+export async function connectGitHub(): Promise<void> {
   try {
-    const response = await fetch("/api/integrations/github/connect", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token, owner }),
-    });
+    const response = await fetch("/api/integrations/github/auth");
     if (!response.ok) {
       const ct = response.headers.get("content-type") ?? "";
       if (!ct.includes("application/json")) {
         setSettingsState(
           produce((s) => {
-            s.githubConfig.connected = false;
             s.githubConfig.lastError = "Backend not available — start the server first";
           }),
         );
@@ -532,25 +534,19 @@ export async function connectGitHub(token: string, owner: string): Promise<void>
       const text = await response.text();
       setSettingsState(
         produce((s) => {
-          s.githubConfig.connected = false;
           s.githubConfig.lastError = text || `HTTP ${response.status}`;
         }),
       );
       return;
     }
-    setSettingsState(
-      produce((s) => {
-        s.githubConfig.connected = true;
-        s.githubConfig.token = token;
-        s.githubConfig.owner = owner;
-        s.githubConfig.lastError = null;
-      }),
-    );
+    const data = (await response.json()) as { url: string };
+    window.open(data.url, "_blank");
+    // Start polling for when the user completes OAuth in the other tab
+    startGithubStatusPolling();
   } catch (err) {
     const message = err instanceof Error ? err.message : "Network error";
     setSettingsState(
       produce((s) => {
-        s.githubConfig.connected = false;
         s.githubConfig.lastError = message;
       }),
     );
@@ -563,15 +559,72 @@ export async function connectGitHub(token: string, owner: string): Promise<void>
 export async function disconnectGitHub(): Promise<void> {
   try {
     await fetch("/api/integrations/github/disconnect", { method: "POST" });
-  } finally {
+  } catch {
+    // Ignore network errors — we clear local state regardless
+  }
+  setSettingsState(
+    produce((s) => {
+      s.githubConfig.connected = false;
+      s.githubConfig.token = "";
+      s.githubConfig.owner = "";
+      s.githubConfig.lastError = null;
+    }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GitHub status polling
+// ---------------------------------------------------------------------------
+
+let _githubPollTimer: ReturnType<typeof setInterval> | null = null;
+const GITHUB_POLL_INTERVAL = 2000;
+const GITHUB_POLL_MAX_ATTEMPTS = 60; // 2 minutes max
+
+/**
+ * Fetch current GitHub connection status from the backend and update store.
+ * Returns the connected state.
+ */
+export async function fetchGithubStatus(): Promise<boolean> {
+  try {
+    const response = await fetch("/api/integrations/github/status");
+    if (!response.ok) return false;
+    const data = (await response.json()) as { connected: boolean; owner?: string };
     setSettingsState(
       produce((s) => {
-        s.githubConfig.connected = false;
-        s.githubConfig.token = "";
-        s.githubConfig.owner = "";
-        s.githubConfig.lastError = null;
+        s.githubConfig.connected = data.connected;
+        if (data.owner) s.githubConfig.owner = data.owner;
+        if (data.connected) s.githubConfig.lastError = null;
       }),
     );
+    return data.connected;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Start polling `/api/integrations/github/status` every 2 seconds.
+ * Stops automatically once connected or after max attempts.
+ */
+export function startGithubStatusPolling(): void {
+  stopGithubStatusPolling();
+  let attempts = 0;
+  _githubPollTimer = setInterval(async () => {
+    attempts++;
+    const connected = await fetchGithubStatus();
+    if (connected || attempts >= GITHUB_POLL_MAX_ATTEMPTS) {
+      stopGithubStatusPolling();
+    }
+  }, GITHUB_POLL_INTERVAL);
+}
+
+/**
+ * Stop the GitHub status polling interval if running.
+ */
+export function stopGithubStatusPolling(): void {
+  if (_githubPollTimer !== null) {
+    clearInterval(_githubPollTimer);
+    _githubPollTimer = null;
   }
 }
 
@@ -612,72 +665,6 @@ export function setAgentAdapter(adapter: AgentAdapter): void {
 }
 
 // ---------------------------------------------------------------------------
-// Kanban column actions
-// ---------------------------------------------------------------------------
-
-export function addColumn(col: Omit<KanbanColumn, "order">): void {
-  setSettingsState(
-    produce((s) => {
-      const maxOrder = s.kanbanColumns.reduce(
-        (max, c) => Math.max(max, c.order),
-        -1,
-      );
-      s.kanbanColumns.push({ ...col, order: maxOrder + 1 });
-    }),
-  );
-}
-
-export function removeColumn(id: string): void {
-  setSettingsState(
-    produce((s) => {
-      s.kanbanColumns = s.kanbanColumns.filter((c) => c.id !== id);
-    }),
-  );
-}
-
-export function updateColumn(id: string, partial: Partial<Omit<KanbanColumn, "id">>): void {
-  setSettingsState(
-    produce((s) => {
-      const col = s.kanbanColumns.find((c) => c.id === id);
-      if (col) Object.assign(col, partial);
-    }),
-  );
-}
-
-export function updateColumnBehavior(id: string, partial: Partial<ColumnBehavior>): void {
-  setSettingsState(
-    produce((s) => {
-      const col = s.kanbanColumns.find((c) => c.id === id);
-      if (col) Object.assign(col.behavior, partial);
-    }),
-  );
-}
-
-export function updateColumnHooks(id: string, partial: Partial<ColumnHooks>): void {
-  setSettingsState(
-    produce((s) => {
-      const col = s.kanbanColumns.find((c) => c.id === id);
-      if (col) Object.assign(col.hooks, partial);
-    }),
-  );
-}
-
-/**
- * Reorder columns by supplying a new ordered array of IDs.
- * The `order` field on each column is updated to match the index position.
- */
-export function reorderColumns(orderedIds: string[]): void {
-  setSettingsState(
-    produce((s) => {
-      orderedIds.forEach((id, idx) => {
-        const col = s.kanbanColumns.find((c) => c.id === id);
-        if (col) col.order = idx;
-      });
-    }),
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Sidebar width actions
 // ---------------------------------------------------------------------------
 
@@ -696,26 +683,3 @@ export function setInboxSidebarWidth(width: number): void {
   setSettingsState("sidebarWidths", "inboxSidebar", clamped);
 }
 
-// ---------------------------------------------------------------------------
-// Derived helpers (pure — safe to use in tests)
-// ---------------------------------------------------------------------------
-
-/** Returns columns sorted by their order field. */
-export function getSortedColumns(columns: KanbanColumn[]): KanbanColumn[] {
-  return [...columns].sort((a, b) => a.order - b.order);
-}
-
-/** Returns the stage names matched by a column (comma or space separated). */
-export function getStagesForColumn(col: KanbanColumn): string[] {
-  return col.stageMatch.split(/[\s,]+/).filter(Boolean);
-}
-
-/** Parse a comma-separated hook string into an array of hook IDs. */
-export function parseHookIds(value: string): string[] {
-  return value.split(/[\s,]+/).filter(Boolean);
-}
-
-/** Serialize hook IDs array to comma-separated string for display. */
-export function serializeHookIds(ids: string[]): string {
-  return ids.join(", ");
-}

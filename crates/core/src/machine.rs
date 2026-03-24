@@ -219,6 +219,9 @@ fn event_name(event: &DomainEvent) -> &'static str {
         DomainEvent::HumanDecision { .. } => "HumanDecision",
         DomainEvent::TaskImported { .. } => "TaskImported",
         DomainEvent::IntegrationConfigured { .. } => "IntegrationConfigured",
+        DomainEvent::ProjectCreated { .. } => "ProjectCreated",
+        DomainEvent::ProjectArchived { .. } => "ProjectArchived",
+        DomainEvent::ProjectUpdated { .. } => "ProjectUpdated",
     }
 }
 

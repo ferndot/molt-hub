@@ -222,6 +222,9 @@ pub struct Pipeline {
 pub struct Task {
     pub id: TaskId,
     pub pipeline_id: PipelineId,
+    /// The project this task belongs to, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project_id: Option<ProjectId>,
     pub title: String,
     pub description: String,
     /// The `StageConfig.name` of the stage this task currently occupies.

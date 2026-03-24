@@ -20,9 +20,11 @@ import {
 import {
   settingsState,
   initiateOAuth,
+  connectJira,
   disconnectJira,
   connectGitHub,
   disconnectGitHub,
+  fetchGithubStatus,
   setTheme,
   setColorblindMode,
   setAttentionLevel,
@@ -32,6 +34,7 @@ import {
 import type { Theme, AttentionLevel, AgentAdapter } from "./settingsStore";
 import GitHubImport from "./GitHubImport";
 import AuditLog from "./AuditLog";
+import PriorityBadge from "../../components/PriorityBadge/PriorityBadge";
 import styles from "./Settings.module.css";
 
 // ---------------------------------------------------------------------------
@@ -90,6 +93,12 @@ const AppearancePanel: Component = () => {
           <span class={styles.toggleSub}>(Okabe-Ito palette + shape encoding)</span>
         </label>
       </div>
+      <div style={{ display: "flex", gap: "8px", "align-items": "center", "margin-top": "12px", "flex-wrap": "wrap" }}>
+        <PriorityBadge priority="p0" />
+        <PriorityBadge priority="p1" />
+        <PriorityBadge priority="p2" />
+        <PriorityBadge priority="p3" />
+      </div>
     </div>
   );
 };
@@ -135,7 +144,6 @@ const NotificationsPanel: Component = () => {
 
 const ADAPTER_OPTIONS: { value: AgentAdapter; label: string }[] = [
   { value: "claude-code", label: "Claude Code" },
-  { value: "mock", label: "Mock" },
 ];
 
 const AgentDefaultsPanel: Component = () => {
@@ -213,6 +221,13 @@ const IntegrationsPanel: Component<{ onSelect: (id: SectionId) => void }> = (pro
 
 const JiraPanel: Component<{ onBack: () => void }> = (props) => {
   const isConnected = () => settingsState.jiraConfig.connected;
+  const [connecting, setConnecting] = createSignal(false);
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    await connectJira();
+    setConnecting(false);
+  };
 
   return (
     <div>
@@ -222,11 +237,21 @@ const JiraPanel: Component<{ onBack: () => void }> = (props) => {
       <Show when={!isConnected()}>
         <div class={styles.oauthSection}>
           <p class={styles.oauthDescription}>
-            Connect your Atlassian account to import issues and sync with Jira.
+            Connect your Atlassian account via OAuth to import Jira issues.
           </p>
+          <div class={styles.connectedRow}>
+            <span class={`${styles.statusBadge} ${styles.statusIdle}`}>
+              <span class={styles.statusDot} />
+              Not connected
+            </span>
+          </div>
           <div class={styles.buttonRow}>
-            <button class={styles.btnPrimary} onClick={() => initiateOAuth()}>
-              Connect to Jira
+            <button
+              class={styles.btnPrimary}
+              disabled={connecting()}
+              onClick={handleConnect}
+            >
+              {connecting() ? "Opening Jira..." : "Connect Jira"}
             </button>
           </div>
           <Show when={settingsState.jiraConfig.lastError}>
@@ -266,21 +291,16 @@ const JiraPanel: Component<{ onBack: () => void }> = (props) => {
 
 const GitHubPanel: Component<{ onBack: () => void }> = (props) => {
   const isConnected = () => settingsState.githubConfig.connected;
-  const [token, setToken] = createSignal("");
-  const [owner, setOwner] = createSignal("");
   const [importOpen, setImportOpen] = createSignal(false);
   const [connecting, setConnecting] = createSignal(false);
 
+  // Check current status when the panel mounts
+  fetchGithubStatus();
+
   const handleConnect = async () => {
-    const t = token().trim();
-    const o = owner().trim();
-    if (!t || !o) return;
     setConnecting(true);
-    await connectGitHub(t, o);
+    await connectGitHub();
     setConnecting(false);
-    if (settingsState.githubConfig.connected) {
-      setToken("");
-    }
   };
 
   return (
@@ -293,38 +313,21 @@ const GitHubPanel: Component<{ onBack: () => void }> = (props) => {
       <Show when={!isConnected()}>
         <div class={styles.oauthSection}>
           <p class={styles.oauthDescription}>
-            Connect your GitHub account to import issues and pull requests.
-            Provide a personal access token with <code>repo</code> scope.
+            Connect your GitHub account via OAuth to import issues and pull requests.
           </p>
-          <div class={styles.formGroup}>
-            <label class={styles.label} for="gh-token">Personal Access Token</label>
-            <input
-              id="gh-token"
-              class={styles.input}
-              type="password"
-              placeholder="ghp_..."
-              value={token()}
-              onInput={(e) => setToken(e.currentTarget.value)}
-            />
-          </div>
-          <div class={styles.formGroup}>
-            <label class={styles.label} for="gh-owner">Owner / Organization</label>
-            <input
-              id="gh-owner"
-              class={styles.input}
-              type="text"
-              placeholder="my-org or username"
-              value={owner()}
-              onInput={(e) => setOwner(e.currentTarget.value)}
-            />
+          <div class={styles.connectedRow}>
+            <span class={`${styles.statusBadge} ${styles.statusIdle}`}>
+              <span class={styles.statusDot} />
+              Not connected
+            </span>
           </div>
           <div class={styles.buttonRow}>
             <button
               class={styles.btnPrimary}
-              disabled={!token().trim() || !owner().trim() || connecting()}
+              disabled={connecting()}
               onClick={handleConnect}
             >
-              {connecting() ? "Connecting..." : "Connect"}
+              {connecting() ? "Opening GitHub..." : "Connect GitHub"}
             </button>
           </div>
           <Show when={settingsState.githubConfig.lastError}>

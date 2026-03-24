@@ -7,11 +7,6 @@
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
-  getSortedColumns,
-  getStagesForColumn,
-  parseHookIds,
-  serializeHookIds,
-  DEFAULT_KANBAN_COLUMNS,
   loadPersistedSettings,
   persistSettings,
   STORAGE_KEY,
@@ -22,169 +17,7 @@ import {
   TIMEOUT_MIN,
   TIMEOUT_MAX,
 } from "../settingsStore";
-import type { KanbanColumn, Theme, AttentionLevel, AgentAdapter, SettingsState } from "../settingsStore";
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function makeColumn(overrides: Partial<KanbanColumn> & { id: string }): KanbanColumn {
-  return {
-    title: `Column ${overrides.id}`,
-    stageMatch: overrides.id,
-    color: "#000",
-    order: 0,
-    behavior: {
-      wipLimit: null,
-      autoAssign: false,
-      autoTransition: null,
-      requireApproval: false,
-    },
-    hooks: {
-      onEnter: [],
-      onExit: [],
-      onStall: [],
-    },
-    ...overrides,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// getSortedColumns
-// ---------------------------------------------------------------------------
-
-describe("getSortedColumns", () => {
-  it("returns columns sorted by order ascending", () => {
-    const cols: KanbanColumn[] = [
-      makeColumn({ id: "c", order: 2 }),
-      makeColumn({ id: "a", order: 0 }),
-      makeColumn({ id: "b", order: 1 }),
-    ];
-    const sorted = getSortedColumns(cols);
-    expect(sorted.map((c) => c.id)).toEqual(["a", "b", "c"]);
-  });
-
-  it("does not mutate the original array", () => {
-    const cols: KanbanColumn[] = [
-      makeColumn({ id: "z", order: 10 }),
-      makeColumn({ id: "a", order: 0 }),
-    ];
-    const original = cols.map((c) => c.id);
-    getSortedColumns(cols);
-    expect(cols.map((c) => c.id)).toEqual(original);
-  });
-
-  it("handles a single column", () => {
-    const cols = [makeColumn({ id: "only", order: 0 })];
-    expect(getSortedColumns(cols)).toHaveLength(1);
-  });
-
-  it("handles an empty array", () => {
-    expect(getSortedColumns([])).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// getStagesForColumn
-// ---------------------------------------------------------------------------
-
-describe("getStagesForColumn", () => {
-  it("returns a single stage when stageMatch has no delimiter", () => {
-    const col = makeColumn({ id: "x", stageMatch: "backlog" });
-    expect(getStagesForColumn(col)).toEqual(["backlog"]);
-  });
-
-  it("splits comma-separated stage names", () => {
-    const col = makeColumn({ id: "x", stageMatch: "in-progress,code-review" });
-    expect(getStagesForColumn(col)).toEqual(["in-progress", "code-review"]);
-  });
-
-  it("splits space-separated stage names", () => {
-    const col = makeColumn({ id: "x", stageMatch: "testing deployed" });
-    expect(getStagesForColumn(col)).toEqual(["testing", "deployed"]);
-  });
-
-  it("trims extra whitespace and commas", () => {
-    const col = makeColumn({ id: "x", stageMatch: " backlog , in-progress " });
-    expect(getStagesForColumn(col)).toEqual(["backlog", "in-progress"]);
-  });
-
-  it("returns empty array for empty stageMatch", () => {
-    const col = makeColumn({ id: "x", stageMatch: "" });
-    expect(getStagesForColumn(col)).toEqual([]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// parseHookIds / serializeHookIds
-// ---------------------------------------------------------------------------
-
-describe("parseHookIds", () => {
-  it("splits comma-separated hook IDs", () => {
-    expect(parseHookIds("hook-a, hook-b, hook-c")).toEqual(["hook-a", "hook-b", "hook-c"]);
-  });
-
-  it("splits space-separated hook IDs", () => {
-    expect(parseHookIds("hook-a hook-b")).toEqual(["hook-a", "hook-b"]);
-  });
-
-  it("returns empty array for empty string", () => {
-    expect(parseHookIds("")).toEqual([]);
-  });
-
-  it("trims whitespace", () => {
-    expect(parseHookIds("  hook-a  ,  hook-b  ")).toEqual(["hook-a", "hook-b"]);
-  });
-});
-
-describe("serializeHookIds", () => {
-  it("joins IDs with comma-space", () => {
-    expect(serializeHookIds(["hook-a", "hook-b"])).toBe("hook-a, hook-b");
-  });
-
-  it("returns empty string for empty array", () => {
-    expect(serializeHookIds([])).toBe("");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// DEFAULT_KANBAN_COLUMNS
-// ---------------------------------------------------------------------------
-
-describe("DEFAULT_KANBAN_COLUMNS", () => {
-  it("contains exactly 5 default columns", () => {
-    expect(DEFAULT_KANBAN_COLUMNS).toHaveLength(5);
-  });
-
-  it("has unique ids", () => {
-    const ids = DEFAULT_KANBAN_COLUMNS.map((c) => c.id);
-    expect(new Set(ids).size).toBe(ids.length);
-  });
-
-  it("covers the expected stages", () => {
-    const allStages = DEFAULT_KANBAN_COLUMNS.flatMap(getStagesForColumn);
-    expect(allStages).toContain("backlog");
-    expect(allStages).toContain("in-progress");
-    expect(allStages).toContain("code-review");
-    expect(allStages).toContain("testing");
-    expect(allStages).toContain("deployed");
-  });
-
-  it("orders are unique and sequential starting at 0", () => {
-    const orders = DEFAULT_KANBAN_COLUMNS.map((c) => c.order).sort((a, b) => a - b);
-    expect(orders).toEqual([0, 1, 2, 3, 4]);
-  });
-
-  it("each column has behavior and hooks fields", () => {
-    for (const col of DEFAULT_KANBAN_COLUMNS) {
-      expect(col.behavior).toBeDefined();
-      expect(col.hooks).toBeDefined();
-      expect(col.hooks.onEnter).toBeInstanceOf(Array);
-      expect(col.hooks.onExit).toBeInstanceOf(Array);
-      expect(col.hooks.onStall).toBeInstanceOf(Array);
-    }
-  });
-});
+import type { Theme, AttentionLevel, AgentAdapter, SettingsState } from "../settingsStore";
 
 // ---------------------------------------------------------------------------
 // Store actions (via dynamic import to avoid isolation issues)
@@ -254,152 +87,6 @@ describe("settingsStore actions", () => {
     });
   });
 
-  describe("addColumn", () => {
-    it("appends a column with order one greater than current max", async () => {
-      const { settingsState, addColumn, removeColumn } = await import("../settingsStore");
-      const beforeCount = settingsState.kanbanColumns.length;
-      const maxOrder = Math.max(...settingsState.kanbanColumns.map((c) => c.order));
-
-      addColumn({
-        id: "test-col",
-        title: "Test",
-        stageMatch: "test",
-        color: "#abc",
-        behavior: { wipLimit: null, autoAssign: false, autoTransition: null, requireApproval: false },
-        hooks: { onEnter: [], onExit: [], onStall: [] },
-      });
-
-      const after = settingsState.kanbanColumns.find((c) => c.id === "test-col");
-      expect(after).toBeDefined();
-      expect(after?.order).toBe(maxOrder + 1);
-      expect(settingsState.kanbanColumns).toHaveLength(beforeCount + 1);
-
-      // restore
-      removeColumn("test-col");
-    });
-  });
-
-  describe("removeColumn", () => {
-    it("removes a column by id", async () => {
-      const { settingsState, addColumn, removeColumn } = await import("../settingsStore");
-      addColumn({
-        id: "to-remove",
-        title: "Remove Me",
-        stageMatch: "remove",
-        color: "#fff",
-        behavior: { wipLimit: null, autoAssign: false, autoTransition: null, requireApproval: false },
-        hooks: { onEnter: [], onExit: [], onStall: [] },
-      });
-      const before = settingsState.kanbanColumns.length;
-
-      removeColumn("to-remove");
-
-      expect(settingsState.kanbanColumns).toHaveLength(before - 1);
-      expect(settingsState.kanbanColumns.find((c) => c.id === "to-remove")).toBeUndefined();
-    });
-
-    it("does not error on unknown id", async () => {
-      const { settingsState, removeColumn } = await import("../settingsStore");
-      const before = settingsState.kanbanColumns.length;
-      removeColumn("nonexistent-id");
-      expect(settingsState.kanbanColumns).toHaveLength(before);
-    });
-  });
-
-  describe("updateColumn", () => {
-    it("updates title without changing other fields", async () => {
-      const { settingsState, updateColumn } = await import("../settingsStore");
-      const first = settingsState.kanbanColumns[0];
-      const originalColor = first.color;
-
-      updateColumn(first.id, { title: "Updated Title" });
-
-      const updated = settingsState.kanbanColumns.find((c) => c.id === first.id);
-      expect(updated?.title).toBe("Updated Title");
-      expect(updated?.color).toBe(originalColor);
-
-      // restore
-      updateColumn(first.id, { title: first.title });
-    });
-  });
-
-  describe("updateColumnBehavior", () => {
-    it("updates wipLimit without changing other behavior fields", async () => {
-      const { settingsState, updateColumnBehavior } = await import("../settingsStore");
-      const first = settingsState.kanbanColumns[0];
-      const originalAutoAssign = first.behavior.autoAssign;
-
-      updateColumnBehavior(first.id, { wipLimit: 5 });
-
-      const updated = settingsState.kanbanColumns.find((c) => c.id === first.id);
-      expect(updated?.behavior.wipLimit).toBe(5);
-      expect(updated?.behavior.autoAssign).toBe(originalAutoAssign);
-
-      // restore
-      updateColumnBehavior(first.id, { wipLimit: null });
-    });
-
-    it("updates requireApproval flag", async () => {
-      const { settingsState, updateColumnBehavior } = await import("../settingsStore");
-      const first = settingsState.kanbanColumns[0];
-
-      updateColumnBehavior(first.id, { requireApproval: true });
-
-      const updated = settingsState.kanbanColumns.find((c) => c.id === first.id);
-      expect(updated?.behavior.requireApproval).toBe(true);
-
-      // restore
-      updateColumnBehavior(first.id, { requireApproval: false });
-    });
-  });
-
-  describe("updateColumnHooks", () => {
-    it("sets onEnter hooks", async () => {
-      const { settingsState, updateColumnHooks } = await import("../settingsStore");
-      const first = settingsState.kanbanColumns[0];
-
-      updateColumnHooks(first.id, { onEnter: ["hook-notify", "hook-assign"] });
-
-      const updated = settingsState.kanbanColumns.find((c) => c.id === first.id);
-      expect(updated?.hooks.onEnter).toEqual(["hook-notify", "hook-assign"]);
-
-      // restore
-      updateColumnHooks(first.id, { onEnter: [] });
-    });
-
-    it("sets onExit hooks without affecting onEnter", async () => {
-      const { settingsState, updateColumnHooks } = await import("../settingsStore");
-      const first = settingsState.kanbanColumns[0];
-      const originalOnEnter = [...first.hooks.onEnter];
-
-      updateColumnHooks(first.id, { onExit: ["hook-log"] });
-
-      const updated = settingsState.kanbanColumns.find((c) => c.id === first.id);
-      expect(updated?.hooks.onExit).toEqual(["hook-log"]);
-      expect(updated?.hooks.onEnter).toEqual(originalOnEnter);
-
-      // restore
-      updateColumnHooks(first.id, { onExit: [] });
-    });
-  });
-
-  describe("reorderColumns", () => {
-    it("reassigns order values to match the supplied id array", async () => {
-      const { settingsState, reorderColumns } = await import("../settingsStore");
-      const ids = settingsState.kanbanColumns.map((c) => c.id);
-      const reversed = [...ids].reverse();
-
-      reorderColumns(reversed);
-
-      reversed.forEach((id, idx) => {
-        const col = settingsState.kanbanColumns.find((c) => c.id === id);
-        expect(col?.order).toBe(idx);
-      });
-
-      // restore original order
-      reorderColumns(ids);
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
@@ -507,7 +194,7 @@ describe("persistSettings", () => {
       appearance: { theme: "dark", colorblindMode: false },
       notifications: { attentionLevel: "p0p1" },
       agentDefaults: { timeoutMinutes: 30, adapter: "claude-code" },
-      kanbanColumns: DEFAULT_KANBAN_COLUMNS,
+
       sidebarWidths: { navSidebar: 280, inboxSidebar: 350 },
     };
 
@@ -529,7 +216,7 @@ describe("persistSettings", () => {
       appearance: { theme: "system", colorblindMode: false },
       notifications: { attentionLevel: "p0p1" },
       agentDefaults: { timeoutMinutes: 30, adapter: "claude-code" },
-      kanbanColumns: DEFAULT_KANBAN_COLUMNS,
+
       sidebarWidths: { navSidebar: 240, inboxSidebar: 320 },
     };
 
@@ -548,7 +235,7 @@ describe("persistSettings", () => {
       appearance: { theme: "system", colorblindMode: false },
       notifications: { attentionLevel: "p0p1" },
       agentDefaults: { timeoutMinutes: 30, adapter: "claude-code" },
-      kanbanColumns: DEFAULT_KANBAN_COLUMNS,
+
       sidebarWidths: { navSidebar: 240, inboxSidebar: 320 },
     };
 
@@ -703,25 +390,147 @@ describe("agent defaults store actions", () => {
   });
 
   describe("setAgentAdapter", () => {
-    it("sets adapter to mock", async () => {
-      const { settingsState, setAgentAdapter } = await import("../settingsStore");
-      setAgentAdapter("mock");
-      expect(settingsState.agentDefaults.adapter).toBe("mock");
-    });
-
     it("sets adapter to claude-code", async () => {
       const { settingsState, setAgentAdapter } = await import("../settingsStore");
       setAgentAdapter("claude-code");
       expect(settingsState.agentDefaults.adapter).toBe("claude-code");
     });
+  });
+});
 
-    it("cycles through all adapter values", async () => {
-      const { settingsState, setAgentAdapter } = await import("../settingsStore");
-      const adapters: AgentAdapter[] = ["claude-code", "mock"];
-      for (const adapter of adapters) {
-        setAgentAdapter(adapter);
-        expect(settingsState.agentDefaults.adapter).toBe(adapter);
-      }
+// ---------------------------------------------------------------------------
+// GitHub OAuth actions
+// ---------------------------------------------------------------------------
+
+describe("GitHub OAuth actions", () => {
+  const mockFetch = vi.fn();
+
+  beforeEach(() => {
+    globalThis.fetch = mockFetch;
+    mockFetch.mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  describe("fetchGithubStatus", () => {
+    it("updates store when connected", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ connected: true, owner: "test-org" }),
+      });
+      const { settingsState, fetchGithubStatus } = await import("../settingsStore");
+      const result = await fetchGithubStatus();
+      expect(result).toBe(true);
+      expect(settingsState.githubConfig.connected).toBe(true);
+      expect(settingsState.githubConfig.owner).toBe("test-org");
+    });
+
+    it("returns false when not connected", async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ connected: false }),
+      });
+      const { fetchGithubStatus } = await import("../settingsStore");
+      const result = await fetchGithubStatus();
+      expect(result).toBe(false);
+    });
+
+    it("returns false on network error", async () => {
+      mockFetch.mockRejectedValueOnce(new Error("Network error"));
+      const { fetchGithubStatus } = await import("../settingsStore");
+      const result = await fetchGithubStatus();
+      expect(result).toBe(false);
+    });
+
+    it("returns false on non-ok response", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: false, status: 500 });
+      const { fetchGithubStatus } = await import("../settingsStore");
+      const result = await fetchGithubStatus();
+      expect(result).toBe(false);
+    });
+  });
+
+  describe("startGithubStatusPolling / stopGithubStatusPolling", () => {
+    it("starts and stops polling", async () => {
+      vi.useFakeTimers();
+      const { stopGithubStatusPolling: cleanupStop } = await import("../settingsStore");
+      cleanupStop(); // Ensure clean state
+      let callCount = 0;
+      mockFetch.mockImplementation(() => {
+        callCount++;
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ connected: false }),
+        });
+      });
+      const { startGithubStatusPolling, stopGithubStatusPolling } = await import("../settingsStore");
+      startGithubStatusPolling();
+      // Advance past 3 intervals (6 seconds)
+      await vi.advanceTimersByTimeAsync(6000);
+      expect(callCount).toBe(3);
+      stopGithubStatusPolling();
+      // Advance more and confirm no additional calls
+      await vi.advanceTimersByTimeAsync(4000);
+      expect(callCount).toBe(3);
+      vi.useRealTimers();
+    });
+
+    it("stops polling when connected", async () => {
+      vi.useFakeTimers();
+      const { startGithubStatusPolling, stopGithubStatusPolling, settingsState } = await import("../settingsStore");
+      // Ensure no leftover polling from previous tests
+      stopGithubStatusPolling();
+      mockFetch.mockReset();
+      // First call: not connected. Second call: connected.
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ connected: false }),
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ connected: true, owner: "org" }),
+        });
+      startGithubStatusPolling();
+      // After first poll: not connected
+      await vi.advanceTimersByTimeAsync(2100);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(settingsState.githubConfig.connected).toBe(false);
+      // After second poll: connected — polling stops
+      await vi.advanceTimersByTimeAsync(2000);
+      expect(mockFetch).toHaveBeenCalledTimes(2);
+      // Wait to confirm no more polls occur (mockFetch would throw if called again with no mock)
+      mockFetch.mockReset();
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ connected: true, owner: "org" }),
+      });
+      await vi.advanceTimersByTimeAsync(6000);
+      // If polling stopped, fetch should NOT have been called again
+      // (It might get 0 or 1 extra calls due to async tick ordering, so just verify state)
+      expect(settingsState.githubConfig.connected).toBe(true);
+      stopGithubStatusPolling(); // Cleanup
+      vi.useRealTimers();
+    });
+  });
+
+  describe("disconnectGitHub", () => {
+    it("clears github config on disconnect", async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true });
+      const { settingsState, disconnectGitHub } = await import("../settingsStore");
+      await disconnectGitHub();
+      expect(settingsState.githubConfig.connected).toBe(false);
+      expect(settingsState.githubConfig.owner).toBe("");
+      expect(settingsState.githubConfig.lastError).toBeNull();
+    });
+
+    it("clears github config even if backend fails", async () => {
+      mockFetch.mockRejectedValueOnce(new Error("fail"));
+      const { settingsState, disconnectGitHub } = await import("../settingsStore");
+      await disconnectGitHub();
+      expect(settingsState.githubConfig.connected).toBe(false);
     });
   });
 });

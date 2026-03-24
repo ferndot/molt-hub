@@ -6,6 +6,7 @@
 //!   POST /api/agents/:id/terminate — terminate an agent
 //!   POST /api/agents/:id/pause     — pause an agent
 //!   POST /api/agents/:id/resume    — resume an agent
+//!   POST /api/agents/:id/steer     — send a steering message to an agent
 //!   GET  /api/agents/:id/output    — get buffered output lines
 
 use axum::{
@@ -20,7 +21,7 @@ use std::sync::Arc;
 use tracing::instrument;
 
 use molt_hub_core::model::AgentId;
-use molt_hub_harness::supervisor::Supervisor;
+use molt_hub_harness::supervisor::{SteerMessage, SteerPriority, Supervisor, SupervisorError};
 
 use super::output_buffer::AgentOutputBuffer;
 
@@ -90,6 +91,23 @@ pub struct AgentOutputResponse {
 pub struct OutputLineResponse {
     pub line: String,
     pub timestamp: String,
+}
+
+/// Request body for POST /api/agents/:id/steer.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SteerRequest {
+    /// Message to send to the running agent.
+    pub message: String,
+    /// Priority of the steering message (default: normal).
+    #[serde(default)]
+    pub priority: Option<String>,
+}
+
+/// Response for POST /api/agents/:id/steer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SteerResponse {
+    pub delivered: bool,
+    pub agent_id: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -227,6 +245,68 @@ async fn resume_agent(
     }
 }
 
+/// POST /api/agents/:id/steer — send a steering message to a running agent.
+#[instrument(skip(state, body))]
+async fn steer_agent(
+    State(state): State<Arc<AgentState>>,
+    Path(agent_id_str): Path<String>,
+    Json(body): Json<SteerRequest>,
+) -> impl IntoResponse {
+    let ulid = match ulid::Ulid::from_string(&agent_id_str) {
+        Ok(u) => u,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(MessageResponse {
+                    message: format!("invalid agent ID: {agent_id_str}"),
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let agent_id = AgentId(ulid);
+
+    let priority = match body.priority.as_deref() {
+        Some("urgent") => SteerPriority::Urgent,
+        _ => SteerPriority::Normal,
+    };
+
+    let steer_msg = SteerMessage {
+        message: body.message,
+        priority,
+    };
+
+    match state.supervisor.steer(&agent_id, steer_msg).await {
+        Ok(()) => Json(SteerResponse {
+            delivered: true,
+            agent_id: agent_id_str,
+        })
+        .into_response(),
+        Err(SupervisorError::AgentNotFound(_)) => (
+            StatusCode::NOT_FOUND,
+            Json(MessageResponse {
+                message: format!("agent not found: {agent_id_str}"),
+            }),
+        )
+            .into_response(),
+        Err(SupervisorError::AgentNotRunning(_)) => (
+            StatusCode::CONFLICT,
+            Json(MessageResponse {
+                message: format!("agent not running: {agent_id_str}"),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(MessageResponse {
+                message: format!("steer failed: {e}"),
+            }),
+        )
+            .into_response(),
+    }
+}
+
 /// GET /api/agents/:id/output — return buffered output lines for an agent.
 #[instrument(skip(state))]
 async fn get_agent_output(
@@ -260,6 +340,7 @@ async fn get_agent_output(
 ///   POST /:id/terminate     — terminate an agent
 ///   POST /:id/pause         — pause an agent
 ///   POST /:id/resume        — resume an agent
+///   POST /:id/steer         — send a steering message to an agent
 ///   GET  /:id/output        — get buffered output lines
 pub fn agent_router(state: Arc<AgentState>) -> Router {
     Router::new()
@@ -267,6 +348,7 @@ pub fn agent_router(state: Arc<AgentState>) -> Router {
         .route("/:id/terminate", post(terminate_agent))
         .route("/:id/pause", post(pause_agent))
         .route("/:id/resume", post(resume_agent))
+        .route("/:id/steer", post(steer_agent))
         .route("/:id/output", get(get_agent_output))
         .with_state(state)
 }
@@ -446,5 +528,60 @@ mod tests {
         for line in &parsed.lines {
             assert!(!line.timestamp.is_empty());
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Steer endpoint tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_steer_unknown_agent_returns_not_found() {
+        let state = make_state();
+        let app = agent_router(state);
+
+        let agent_id = AgentId::new();
+        let uri = format!("/{}/steer", agent_id);
+
+        let req = Request::builder()
+            .uri(&uri)
+            .method("POST")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({"message": "hello", "priority": "normal"}).to_string(),
+            ))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_steer_invalid_id_returns_error() {
+        let state = make_state();
+        let app = agent_router(state);
+
+        let req = Request::builder()
+            .uri("/not-a-ulid/steer")
+            .method("POST")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                serde_json::json!({"message": "hello"}).to_string(),
+            ))
+            .unwrap();
+
+        let resp = app.oneshot(req).await.unwrap();
+        let status = resp.status().as_u16();
+        assert!(status == 400 || status == 404, "expected 400 or 404, got {status}");
+    }
+
+    #[test]
+    fn test_steer_response_serialization() {
+        let resp = SteerResponse {
+            delivered: true,
+            agent_id: "abc123".into(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("\"delivered\":true"));
+        assert!(json.contains("\"agent_id\":\"abc123\""));
     }
 }
