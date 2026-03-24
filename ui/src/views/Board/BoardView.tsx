@@ -152,9 +152,13 @@ const BoardView: Component = () => {
                 hiddenCount={mc.hiddenCountForStage(stageDef.id)}
                 hoveredItemId={mc.hoveredItemId()}
                 onHoverItem={mc.setHoveredItemId}
-                onApprove={(triageId) => mc.approve(triageId)}
-                onReject={(triageId) => mc.reject(triageId, "")}
-                onRedirect={(triageId, stage) => mc.redirect(triageId, stage)}
+                onApprove={(taskId, triageId) => void mc.approveAttention(taskId, triageId)}
+                onReject={(taskId, triageId, reason) =>
+                  void mc.rejectAttention(taskId, triageId, reason)
+                }
+                onRedirect={(taskId, triageId, stage) =>
+                  void mc.redirectAttention(taskId, triageId, stage)
+                }
                 onDefer={(triageId) => mc.defer(triageId)}
                 onAcknowledge={(triageId) => mc.acknowledge(triageId)}
                 onDrop={(taskId, from, to) => mc.moveTask(taskId, from, to)}

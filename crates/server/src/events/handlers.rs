@@ -6,6 +6,8 @@
 //!   POST   /api/events            — append a new event
 //!   GET    /api/tasks             — list tasks derived from events
 //!   POST   /api/tasks/create      — create a manual task (`TaskCreated`)
+//!   POST   /api/tasks/:id/move    — persisted kanban move + pipeline hooks
+//!   POST   /api/tasks/:id/decision — human approve / reject / redirect (`HumanDecision`)
 
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -24,7 +26,7 @@ use tracing::{info, instrument, warn};
 use ulid::Ulid;
 
 use molt_hub_core::events::types::{DomainEvent, EventEnvelope};
-use molt_hub_core::events::{EventStore, EventStoreError, SqliteEventStore};
+use molt_hub_core::events::{EventStore, EventStoreError, HumanDecisionKind, SqliteEventStore};
 use molt_hub_core::machine::replay_task_machine_from_events;
 use molt_hub_core::model::{EventId, Priority, SessionId, TaskId, TaskState};
 use molt_hub_harness::supervisor::Supervisor;
@@ -90,6 +92,21 @@ pub struct CreateTaskRequest {
 pub struct MoveTaskBody {
     pub to_stage: String,
     pub board_id: String,
+}
+
+/// Body for `POST /api/tasks/:id/decision` — human approve / reject / redirect while awaiting approval.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HumanDecisionBody {
+    pub board_id: String,
+    /// `"approved"`, `"rejected"`, or `"redirected"`.
+    pub kind: String,
+    #[serde(default)]
+    pub reason: Option<String>,
+    #[serde(default, rename = "toStage")]
+    pub to_stage: Option<String>,
+    #[serde(default, rename = "decidedBy")]
+    pub decided_by: Option<String>,
 }
 
 fn board_status_for_state(s: &TaskState) -> &'static str {
@@ -544,6 +561,235 @@ pub async fn move_task_stage(
         .into_response()
 }
 
+/// POST /api/tasks/:id/decision — append `HumanDecision` when task is awaiting approval.
+#[instrument(skip_all)]
+pub async fn submit_human_decision(
+    State(state): State<Arc<EventStoreState>>,
+    Extension(manager): Extension<Arc<ConnectionManager>>,
+    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(supervisor): Extension<Arc<Supervisor>>,
+    Extension(hook_executor): Extension<Arc<HookExecutor>>,
+    Path(task_id_str): Path<String>,
+    Json(body): Json<HumanDecisionBody>,
+) -> impl IntoResponse {
+    let task_id_ulid = match Ulid::from_str(task_id_str.trim()) {
+        Ok(u) => u,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("invalid task id: {e}") })),
+            )
+                .into_response();
+        }
+    };
+    let task_id = TaskId(task_id_ulid);
+
+    let board_id = body.board_id.trim();
+    if board_id.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "boardId is required" })),
+        )
+            .into_response();
+    }
+
+    let rt = ensure_project_runtime("default", &registry, &supervisor).await;
+    let board_store = match rt.boards.get_store(board_id).await {
+        Some(s) => s,
+        None => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": format!("board '{board_id}' not found") })),
+            )
+                .into_response();
+        }
+    };
+
+    let pipeline = board_store.snapshot_config().await;
+
+    let events = match state.store.get_events_for_task(&task_id).await {
+        Ok(e) => e,
+        Err(e) => return error_response(e),
+    };
+
+    let machine = match replay_task_machine_from_events(&events, &pipeline) {
+        Ok(m) => m,
+        Err(msg) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": msg })),
+            )
+                .into_response();
+        }
+    };
+
+    if !matches!(machine.state, TaskState::AwaitingApproval { .. }) {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "task is not awaiting human approval",
+            })),
+        )
+            .into_response();
+    }
+
+    let stage_before = machine.current_stage.clone();
+    let kind = body.kind.trim().to_ascii_lowercase();
+    let decision_kind = match kind.as_str() {
+        "approved" => HumanDecisionKind::Approved,
+        "rejected" => HumanDecisionKind::Rejected {
+            reason: body
+                .reason
+                .clone()
+                .unwrap_or_default()
+                .trim()
+                .to_owned(),
+        },
+        "redirected" => {
+            let to = body
+                .to_stage
+                .as_ref()
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty());
+            let Some(to_stage) = to else {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": "toStage is required for redirected" })),
+                )
+                    .into_response();
+            };
+            if !pipeline.stages.iter().any(|s| s.name == to_stage) {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": format!("unknown stage '{to_stage}'") })),
+                )
+                    .into_response();
+            }
+            let reason = body
+                .reason
+                .clone()
+                .unwrap_or_default()
+                .trim()
+                .to_owned();
+            HumanDecisionKind::Redirected { to_stage, reason }
+        }
+        _ => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "kind must be approved, rejected, or redirected",
+                })),
+            )
+                .into_response();
+        }
+    };
+
+    let decided_by = body
+        .decided_by
+        .as_ref()
+        .map(|s| s.trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "user".to_owned());
+
+    let payload = DomainEvent::HumanDecision {
+        decided_by,
+        decision: decision_kind.clone(),
+        note: None,
+    };
+
+    let mut probe = machine.clone();
+    let new_state = match probe.apply_with_approval_flag(&payload, false) {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    let session_id = events
+        .last()
+        .map(|e| e.session_id.clone())
+        .unwrap_or_else(SessionId::new);
+    let project_id = events
+        .last()
+        .map(|e| e.project_id.clone())
+        .unwrap_or_else(|| "default".to_owned());
+
+    let envelope = EventEnvelope {
+        id: EventId::new(),
+        task_id: Some(task_id.clone()),
+        project_id: project_id.clone(),
+        session_id: session_id.clone(),
+        timestamp: Utc::now(),
+        caused_by: None,
+        payload: payload.clone(),
+    };
+
+    let stage_after = probe.current_stage.clone();
+
+    if let Err(source) = run_lifecycle_hooks_for_event(
+        hook_executor.as_ref(),
+        &pipeline,
+        &task_id,
+        &session_id,
+        &envelope,
+        &stage_before,
+        &stage_after,
+        &new_state,
+    )
+    .await
+    {
+        return (
+            StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({ "error": source.to_string() })),
+        )
+            .into_response();
+    }
+
+    if let Err(e) = state.store.append(envelope).await {
+        return error_response(e);
+    }
+
+    let task_title = events.iter().rev().find_map(|e| {
+        if let DomainEvent::TaskCreated { title, .. } = &e.payload {
+            Some(title.clone())
+        } else {
+            None
+        }
+    });
+
+    let ws_project = events
+        .last()
+        .map(|e| e.project_id.as_str())
+        .unwrap_or("default");
+
+    broadcast_board_update_full(
+        manager.as_ref(),
+        ws_project,
+        &BoardUpdate {
+            task_id: task_id.to_string(),
+            stage: stage_after,
+            status: board_status_for_state(&new_state).to_owned(),
+            priority: None,
+            name: task_title,
+            agent_name: None,
+            summary: None,
+        },
+    );
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "taskId": task_id.to_string(),
+            "status": board_status_for_state(&new_state),
+        })),
+    )
+        .into_response()
+}
+
 // ---------------------------------------------------------------------------
 // Error helpers
 // ---------------------------------------------------------------------------
@@ -575,6 +821,7 @@ pub fn tasks_router(state: Arc<EventStoreState>) -> Router {
         .route("/", get(list_tasks))
         .route("/create", post(create_task))
         .route("/:id/move", post(move_task_stage))
+        .route("/:id/decision", post(submit_human_decision))
         .with_state(state)
 }
 

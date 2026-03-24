@@ -222,12 +222,6 @@ export const api = {
   steerAgent: (id: string, message: string, priority: "normal" | "urgent" = "normal") =>
     post<Record<string, unknown>>(`/agents/${id}/steer`, { message, priority }),
 
-  // Approval
-  approveAgent: (id: string) =>
-    post<Record<string, unknown>>(`/agents/${id}/approve`),
-  rejectAgent: (id: string, reason: string) =>
-    post<Record<string, unknown>>(`/agents/${id}/reject`, { reason }),
-
   // Tasks
   getTasks: () => get<{ tasks: TaskSummary[] }>("/tasks"),
   getTask: (id: string) =>
@@ -247,6 +241,24 @@ export const api = {
   ) =>
     post<{ taskId: string; stage: string; status: string }>(
       `/tasks/${encodeURIComponent(taskId)}/move`,
+      body,
+    ),
+
+  /**
+   * Human decision while task is awaiting approval (persists `HumanDecision`, runs hooks, WS update).
+   */
+  submitTaskHumanDecision: (
+    taskId: string,
+    body: {
+      boardId: string;
+      kind: "approved" | "rejected" | "redirected";
+      reason?: string;
+      toStage?: string;
+      decidedBy?: string;
+    },
+  ) =>
+    post<{ taskId: string; status: string }>(
+      `/tasks/${encodeURIComponent(taskId)}/decision`,
       body,
     ),
 

@@ -70,16 +70,24 @@ const TriageItemCard: Component<Props> = (props) => {
   const [showRedirect, setShowRedirect] = createSignal(false);
   const [redirectTarget, setRedirectTarget] = createSignal("code-review");
 
-  function handleApprove(e: MouseEvent): void {
+  async function handleApprove(e: MouseEvent): Promise<void> {
     e.stopPropagation();
-    approve(props.item.id);
+    try {
+      await approve(props.item.id, props.item.taskId);
+    } catch (err) {
+      console.error(err);
+    }
   }
 
-  function handleReject(e: MouseEvent): void {
+  async function handleReject(e: MouseEvent): Promise<void> {
     e.stopPropagation();
     const reason = window.prompt("Reason for rejection:");
     if (reason !== null) {
-      reject(props.item.id, reason);
+      try {
+        await reject(props.item.id, props.item.taskId, reason);
+      } catch (err) {
+        console.error(err);
+      }
     }
   }
 
@@ -88,9 +96,13 @@ const TriageItemCard: Component<Props> = (props) => {
     setShowRedirect(true);
   }
 
-  function handleConfirmRedirect(e: MouseEvent): void {
+  async function handleConfirmRedirect(e: MouseEvent): Promise<void> {
     e.stopPropagation();
-    redirect(props.item.id, redirectTarget());
+    try {
+      await redirect(props.item.id, props.item.taskId, redirectTarget());
+    } catch (err) {
+      console.error(err);
+    }
     setShowRedirect(false);
   }
 

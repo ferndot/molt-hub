@@ -133,26 +133,44 @@ describe("api client", () => {
     expect(result.lines).toEqual(["hello"]);
   });
 
-  // ---- Approval ----
+  // ---- Task human decision ----
 
-  it("approveAgent sends POST /api/agents/:id/approve", async () => {
-    mockJsonResponse({ ok: true });
-    await api.approveAgent("agent-99");
-    expect(mockFetch).toHaveBeenCalledWith("/api/agents/agent-99/approve", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: undefined,
+  it("submitTaskHumanDecision sends POST /api/tasks/:id/decision", async () => {
+    mockJsonResponse({ taskId: "01HZ", status: "complete" });
+    await api.submitTaskHumanDecision("01HZABCDEF", {
+      boardId: "board-1",
+      kind: "approved",
     });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/tasks/01HZABCDEF/decision",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          boardId: "board-1",
+          kind: "approved",
+        }),
+      }),
+    );
   });
 
-  it("rejectAgent sends POST /api/agents/:id/reject with reason", async () => {
-    mockJsonResponse({ ok: true });
-    await api.rejectAgent("agent-99", "Not ready");
-    expect(mockFetch).toHaveBeenCalledWith("/api/agents/agent-99/reject", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ reason: "Not ready" }),
+  it("submitTaskHumanDecision rejects with reason body", async () => {
+    mockJsonResponse({ taskId: "t1", status: "running" });
+    await api.submitTaskHumanDecision("t1", {
+      boardId: "b",
+      kind: "rejected",
+      reason: "Not ready",
     });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "/api/tasks/t1/decision",
+      expect.objectContaining({
+        body: JSON.stringify({
+          boardId: "b",
+          kind: "rejected",
+          reason: "Not ready",
+        }),
+      }),
+    );
   });
 
   // ---- Audit ----

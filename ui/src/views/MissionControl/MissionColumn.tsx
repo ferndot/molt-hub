@@ -21,9 +21,9 @@ export interface MissionColumnProps {
   hoveredItemId: string | null;
   focusedRow?: number;
   onHoverItem: (id: string | null) => void;
-  onApprove: (triageId: string) => void;
-  onReject: (triageId: string) => void;
-  onRedirect: (triageId: string, stage: string) => void;
+  onApprove: (taskId: string, triageId: string) => void;
+  onReject: (taskId: string, triageId: string, reason: string) => void;
+  onRedirect: (taskId: string, triageId: string, stage: string) => void;
   onDefer: (triageId: string) => void;
   onAcknowledge: (triageId: string) => void;
   onDrop: (taskId: string, fromStage: string, toStage: string) => void;

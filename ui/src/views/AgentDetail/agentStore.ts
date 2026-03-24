@@ -8,6 +8,7 @@
 import { createStore } from "solid-js/store";
 import { subscribe } from "../../lib/ws";
 import { api } from "../../lib/api";
+import { addAgentMessage } from "./steerStore";
 import type { AgentSummary } from "../../lib/api";
 import type { Priority } from "../../types/domain";
 
@@ -228,6 +229,7 @@ export function setupAgentSubscription(agentId: string): () => void {
             second: "2-digit",
           });
       appendOutputLine(agentId, { timestamp: ts, text: output });
+      addAgentMessage(agentId, output);
     }
   });
   return unsubscribe;

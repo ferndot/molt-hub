@@ -19,9 +19,9 @@ export interface UnifiedCardProps {
   onToggle?: (taskId: string) => void;
   onHoverEnter?: (taskId: string) => void;
   onHoverLeave?: () => void;
-  onApprove?: (triageId: string) => void;
-  onReject?: (triageId: string) => void;
-  onRedirect?: (triageId: string, stage: string) => void;
+  onApprove?: (taskId: string, triageId: string) => void;
+  onReject?: (taskId: string, triageId: string, reason: string) => void;
+  onRedirect?: (taskId: string, triageId: string, stage: string) => void;
   onDefer?: (triageId: string) => void;
   onAcknowledge?: (triageId: string) => void;
   onDragStart?: (e: DragEvent, taskId: string, fromStage: string) => void;
@@ -125,7 +125,10 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
               class={`${styles.actionBtn} ${styles.approveBtn}`}
               onClick={(e) =>
                 stopProp(e, () =>
-                  props.onApprove?.(props.item.attentionInfo!.triageId),
+                  props.onApprove?.(
+                    props.item.id,
+                    props.item.attentionInfo!.triageId,
+                  ),
                 )
               }
             >
@@ -134,9 +137,17 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
             <button
               class={`${styles.actionBtn} ${styles.rejectBtn}`}
               onClick={(e) =>
-                stopProp(e, () =>
-                  props.onReject?.(props.item.attentionInfo!.triageId),
-                )
+                stopProp(e, () => {
+                  const reason =
+                    typeof window !== "undefined"
+                      ? window.prompt("Reason for rejection (optional):") ?? ""
+                      : "";
+                  props.onReject?.(
+                    props.item.id,
+                    props.item.attentionInfo!.triageId,
+                    reason,
+                  );
+                })
               }
             >
               <TbOutlineX size={12} /> Reject
@@ -144,12 +155,22 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
             <button
               class={`${styles.actionBtn} ${styles.redirectBtn}`}
               onClick={(e) =>
-                stopProp(e, () =>
-                  props.onRedirect?.(
-                    props.item.attentionInfo!.triageId,
-                    props.item.stage,
-                  ),
-                )
+                stopProp(e, () => {
+                  const to =
+                    typeof window !== "undefined"
+                      ? window.prompt(
+                          "Pipeline stage id to redirect to:",
+                          "",
+                        )?.trim() ?? ""
+                      : "";
+                  if (to) {
+                    props.onRedirect?.(
+                      props.item.id,
+                      props.item.attentionInfo!.triageId,
+                      to,
+                    );
+                  }
+                })
               }
             >
               <TbOutlineArrowRight size={12} /> Redirect

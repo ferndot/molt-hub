@@ -19,6 +19,7 @@ describe("ApprovalCard logic", () => {
 
   const SAMPLE_REQUEST: ApprovalRequest = {
     id: "apr-001",
+    taskId: "01HZABCDEFGHJKMNPQRSTVWXYZ",
     agentId: "agent-42",
     taskTitle: "Deploy billing service v2",
     stage: "deployment",
@@ -27,35 +28,42 @@ describe("ApprovalCard logic", () => {
     summary: "Migration script ready, zero-downtime deploy.",
   };
 
-  it("approveAgent sends POST to /api/agents/:id/approve", async () => {
+  it("submitTaskHumanDecision approve sends POST to /api/tasks/:id/decision", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ ok: true }),
+      json: () => Promise.resolve({ taskId: SAMPLE_REQUEST.taskId, status: "complete" }),
     });
 
     const { api } = await import("../../../lib/api");
-    await api.approveAgent(SAMPLE_REQUEST.agentId);
+    await api.submitTaskHumanDecision(SAMPLE_REQUEST.taskId, {
+      boardId: "main-board",
+      kind: "approved",
+    });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      "/api/agents/agent-42/approve",
+      `/api/tasks/${SAMPLE_REQUEST.taskId}/decision`,
       expect.objectContaining({ method: "POST" }),
     );
   });
 
-  it("rejectAgent sends POST to /api/agents/:id/reject with reason", async () => {
+  it("submitTaskHumanDecision reject sends reason in body", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      json: () => Promise.resolve({ ok: true }),
+      json: () => Promise.resolve({ taskId: SAMPLE_REQUEST.taskId, status: "running" }),
     });
 
     const { api } = await import("../../../lib/api");
-    await api.rejectAgent(SAMPLE_REQUEST.agentId, "Tests failing");
+    await api.submitTaskHumanDecision(SAMPLE_REQUEST.taskId, {
+      boardId: "main-board",
+      kind: "rejected",
+      reason: "Tests failing",
+    });
 
     expect(mockFetch).toHaveBeenCalledWith(
-      "/api/agents/agent-42/reject",
+      `/api/tasks/${SAMPLE_REQUEST.taskId}/decision`,
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ reason: "Tests failing" }),
+        body: expect.stringContaining("Tests failing"),
       }),
     );
   });
@@ -64,6 +72,7 @@ describe("ApprovalCard logic", () => {
     // Type-level check: if this compiles, the interface is correct
     const req: ApprovalRequest = SAMPLE_REQUEST;
     expect(req.id).toBe("apr-001");
+    expect(req.taskId).toBeTruthy();
     expect(req.agentId).toBe("agent-42");
     expect(req.taskTitle).toBe("Deploy billing service v2");
     expect(req.stage).toBe("deployment");
@@ -72,7 +81,7 @@ describe("ApprovalCard logic", () => {
     expect(req.summary).toBe("Migration script ready, zero-downtime deploy.");
   });
 
-  it("approve API throws on server error", async () => {
+  it("submitTaskHumanDecision throws on server error", async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,
       status: 500,
@@ -80,21 +89,8 @@ describe("ApprovalCard logic", () => {
     });
 
     const { api } = await import("../../../lib/api");
-    await expect(api.approveAgent("agent-42")).rejects.toThrow(
-      "POST /agents/agent-42/approve failed: 500",
-    );
-  });
-
-  it("reject API throws on server error", async () => {
-    mockFetch.mockResolvedValueOnce({
-      ok: false,
-      status: 422,
-      text: () => Promise.resolve(""),
-    });
-
-    const { api } = await import("../../../lib/api");
     await expect(
-      api.rejectAgent("agent-42", "Bad code"),
-    ).rejects.toThrow("POST /agents/agent-42/reject failed: 422");
+      api.submitTaskHumanDecision("tid", { boardId: "b", kind: "approved" }),
+    ).rejects.toThrow("POST /tasks/tid/decision failed: 500");
   });
 });

@@ -13,9 +13,9 @@ import {
 } from "../Board/boardStore";
 import {
   useTriageStore,
-  approve,
-  reject,
-  redirect,
+  approve as triageApprove,
+  reject as triageReject,
+  redirect as triageRedirect,
   defer,
   acknowledge,
 } from "../Triage/triageStore";
@@ -114,6 +114,38 @@ export function useMissionControl() {
 
   const totalAttentionCount = createMemo(() => attentionItems().length);
 
+  async function approveAttention(taskId: string, triageId: string): Promise<void> {
+    try {
+      await triageApprove(triageId, taskId);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function rejectAttention(
+    taskId: string,
+    triageId: string,
+    reason: string,
+  ): Promise<void> {
+    try {
+      await triageReject(triageId, taskId, reason);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  async function redirectAttention(
+    taskId: string,
+    triageId: string,
+    stage: string,
+  ): Promise<void> {
+    try {
+      await triageRedirect(triageId, taskId, stage);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
   return {
     stages,
     items,
@@ -129,10 +161,9 @@ export function useMissionControl() {
     setHoveredItemId,
     sidebarCollapsed,
     toggleSidebar: () => setSidebarCollapsed((v) => !v),
-    // Action pass-throughs
-    approve,
-    reject,
-    redirect,
+    approveAttention,
+    rejectAttention,
+    redirectAttention,
     defer,
     acknowledge,
     moveTask,

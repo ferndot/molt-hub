@@ -8,6 +8,8 @@
 import { createStore, produce } from "solid-js/store";
 import { onCleanup } from "solid-js";
 import { subscribe } from "../../lib/ws";
+import { api } from "../../lib/api";
+import { boardState } from "../Board/boardStore";
 import type { Priority } from "../../types/domain";
 
 // ---------------------------------------------------------------------------
@@ -79,16 +81,58 @@ function removeItem(id: string): void {
   );
 }
 
-export function approve(id: string): void {
-  removeItem(id);
+function requireActiveBoardId(): string {
+  const id = boardState.activeBoardId?.trim() ?? "";
+  if (!id) {
+    throw new Error("Select a board on the workboard before acting on triage items.");
+  }
+  return id;
 }
 
-export function reject(id: string, _reason: string): void {
-  removeItem(id);
+/** Approve a task awaiting human sign-off (persists `HumanDecision`, removes triage row). */
+export async function approve(
+  triageId: string,
+  taskId: string,
+): Promise<void> {
+  await api.submitTaskHumanDecision(taskId, {
+    boardId: requireActiveBoardId(),
+    kind: "approved",
+  });
+  removeItem(triageId);
 }
 
-export function redirect(id: string, _targetStage: string): void {
-  removeItem(id);
+/** Reject back to in-progress (optional reason). */
+export async function reject(
+  triageId: string,
+  taskId: string,
+  reason: string,
+): Promise<void> {
+  await api.submitTaskHumanDecision(taskId, {
+    boardId: requireActiveBoardId(),
+    kind: "rejected",
+    reason: reason.trim() || undefined,
+  });
+  removeItem(triageId);
+}
+
+/** Redirect to another pipeline stage while resolving the approval wait. */
+export async function redirect(
+  triageId: string,
+  taskId: string,
+  targetStage: string,
+  reason?: string,
+): Promise<void> {
+  const to = targetStage.trim();
+  if (!to) {
+    throw new Error("Target stage is required");
+  }
+  await api.submitTaskHumanDecision(taskId, {
+    boardId: requireActiveBoardId(),
+    kind: "redirected",
+    toStage: to,
+    reason: reason?.trim() || undefined,
+  });
+  removeItem(triageId);
 }
 
 export function defer(id: string): void {
@@ -148,10 +192,19 @@ export function setupTriageSubscription(): () => void {
         );
       }
     } else if (topic === "triage:resolved" || topic === "triage:removed") {
-      // Remove a triage item that was resolved elsewhere
+      // Server sends `id` as task_id for some resolutions; match either key.
       const id = payload.id as string | undefined;
-      if (id) {
-        removeItem(id);
+      const taskId = payload.task_id as string | undefined;
+      if (id || taskId) {
+        setState(
+          produce((s) => {
+            s.items = s.items.filter(
+              (item) =>
+                (id ? item.id !== id : true) &&
+                (taskId ? item.taskId !== taskId : true),
+            );
+          }),
+        );
       }
     }
   });

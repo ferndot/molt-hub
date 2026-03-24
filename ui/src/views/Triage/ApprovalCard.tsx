@@ -8,6 +8,7 @@
 
 import { createSignal, Show, type Component } from "solid-js";
 import { api } from "../../lib/api";
+import { boardState } from "../Board/boardStore";
 import styles from "./ApprovalCard.module.css";
 
 // ---------------------------------------------------------------------------
@@ -17,7 +18,9 @@ import styles from "./ApprovalCard.module.css";
 export interface ApprovalRequest {
   /** Unique approval request ID */
   id: string;
-  /** Agent ID that needs approval */
+  /** Task id (ULID) for persisting `HumanDecision` */
+  taskId: string;
+  /** Agent ID that needs approval (display / correlation) */
   agentId: string;
   /** Human-readable task title */
   taskTitle: string;
@@ -60,9 +63,17 @@ const ApprovalCard: Component<Props> = (props) => {
   const [submitting, setSubmitting] = createSignal(false);
 
   async function handleApprove(): Promise<void> {
+    const boardId = boardState.activeBoardId?.trim() ?? "";
+    if (!boardId) {
+      console.error("Select a board on the workboard before approving.");
+      return;
+    }
     setSubmitting(true);
     try {
-      await api.approveAgent(props.request.agentId);
+      await api.submitTaskHumanDecision(props.request.taskId, {
+        boardId,
+        kind: "approved",
+      });
       props.onResolved?.(props.request.id);
     } catch {
       // Approval failed — keep card visible
@@ -78,9 +89,18 @@ const ApprovalCard: Component<Props> = (props) => {
   async function handleConfirmReject(): Promise<void> {
     const reason = rejectReason().trim();
     if (!reason) return;
+    const boardId = boardState.activeBoardId?.trim() ?? "";
+    if (!boardId) {
+      console.error("Select a board on the workboard before rejecting.");
+      return;
+    }
     setSubmitting(true);
     try {
-      await api.rejectAgent(props.request.agentId, reason);
+      await api.submitTaskHumanDecision(props.request.taskId, {
+        boardId,
+        kind: "rejected",
+        reason,
+      });
       props.onResolved?.(props.request.id);
     } catch {
       // Rejection failed — keep card visible
