@@ -90,11 +90,12 @@ async fn run_serve(args: ServeArgs) {
         );
     }
 
-    let (app, manager, _supervisor, _audit) = build_router(dist_dir);
+    let (app, manager, supervisor, _audit) = build_router(dist_dir).await;
 
     // Spawn periodic health metrics broadcast (every 5 seconds).
     let _metrics_handle = spawn_health_metrics_task(
         manager,
+        supervisor,
         std::time::Duration::from_secs(5),
     );
 
@@ -224,7 +225,7 @@ mod tests {
     #[tokio::test]
     async fn router_builds_without_panic() {
         let dist = PathBuf::from("/tmp/nonexistent-dist");
-        let (_app, _mgr, _sup, _audit) = build_router(dist);
+        let (_app, _mgr, _sup, _audit) = build_router(dist).await;
         // If we got here, the router compiled and wired correctly.
     }
 }

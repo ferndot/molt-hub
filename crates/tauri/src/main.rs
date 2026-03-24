@@ -1,6 +1,6 @@
 //! Molt Hub desktop application — Tauri v2 shell with embedded Axum server.
 //!
-//! In release mode, spawns the Axum server and opens a webview to localhost:3001.
+//! In release mode, spawns the Axum server and opens a webview to localhost:13401.
 //! In debug mode (`cargo run`), skips the embedded server and points the webview
 //! at the Vite dev server (localhost:5173) for hot module reloading.
 
@@ -13,7 +13,8 @@ use tauri::Manager;
 use molt_hub_server::serve::{build_router, spawn_health_metrics_task};
 
 /// Port for the embedded Axum server.
-const SERVER_PORT: u16 = 3001;
+/// Uncommon port to avoid collisions with common dev servers.
+const SERVER_PORT: u16 = 13401;
 
 /// URL the webview loads — Vite dev server in debug, embedded server in release.
 fn webview_url() -> String {
@@ -45,9 +46,10 @@ fn main() {
                         tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
                     rt.block_on(async {
                         let dist_dir = resolve_dist_dir();
-                        let (router, manager, _supervisor, _audit) = build_router(dist_dir);
+                        let (router, manager, supervisor, _audit) = build_router(dist_dir).await;
                         let _metrics_handle = spawn_health_metrics_task(
                             manager,
+                            supervisor,
                             std::time::Duration::from_secs(5),
                         );
                         let addr: SocketAddr =

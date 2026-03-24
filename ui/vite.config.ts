@@ -7,12 +7,12 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/ws": {
-        target: "ws://localhost:3001",
+        target: "ws://localhost:13401",
         ws: true,
         rewriteWsOrigin: true,
       },
       "/api": {
-        target: "http://localhost:3001",
+        target: "http://localhost:13401",
         changeOrigin: true,
       },
     },
@@ -21,7 +21,8 @@ export default defineConfig({
     target: "esnext",
   },
   test: {
-    environment: "node",
+    environment: "jsdom",
     globals: true,
+    exclude: ["e2e/**", "node_modules/**"],
   },
 });

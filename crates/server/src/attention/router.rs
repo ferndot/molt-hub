@@ -235,6 +235,11 @@ fn event_summary(event: &DomainEvent) -> String {
             integration_type,
             project_scope,
         } => format!("Integration configured: {integration_type} for {project_scope}"),
+        DomainEvent::ProjectCreated { name, .. } => format!("Project created: {name}"),
+        DomainEvent::ProjectArchived { project_id } => {
+            format!("Project archived: {project_id}")
+        }
+        DomainEvent::ProjectUpdated { name, .. } => format!("Project updated: {name}"),
     }
 }
 

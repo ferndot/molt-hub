@@ -1,7 +1,14 @@
 /**
- * Pure utility functions and types for AgentList grouping logic.
+ * Pure utility functions, types, and reactive store for AgentList.
  * Separated from the component to enable server-safe testing.
+ *
+ * The store fetches real agent data from GET /api/agents.
  */
+
+import { createSignal } from "solid-js";
+import { api } from "../lib/api";
+import type { AgentSummary } from "../lib/api";
+import { subscribe } from "../lib/ws";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -9,7 +16,7 @@
 
 export type AgentStatus = "running" | "paused" | "idle" | "terminated";
 
-export interface MockAgent {
+export interface Agent {
   id: string;
   name: string;
   status: AgentStatus;
@@ -37,16 +44,102 @@ export const STATUS_COLOR: Record<AgentStatus, string> = {
 };
 
 // ---------------------------------------------------------------------------
-// Mock data (replaced by real data from T25/T29)
+// API → Agent mapping
 // ---------------------------------------------------------------------------
 
-export const MOCK_AGENTS: MockAgent[] = [
-  { id: "agent-001", name: "frontend", status: "running", stage: "Working" },
-  { id: "agent-002", name: "backend-api", status: "paused", stage: "Needs Review" },
-  { id: "agent-003", name: "core-engine", status: "running", stage: "Testing" },
-  { id: "agent-004", name: "infra", status: "terminated", stage: "Completed" },
-  { id: "agent-005", name: "docs-agent", status: "idle", stage: "Idle" },
-];
+/**
+ * Map a server agent status string (e.g. "Running", "Idle") to the
+ * local AgentStatus type. Unknown statuses default to "idle".
+ */
+function mapApiStatus(status: string): AgentStatus {
+  const lower = status.toLowerCase();
+  if (lower === "running") return "running";
+  if (lower === "paused" || lower === "waiting") return "paused";
+  if (lower === "terminated" || lower === "stopped" || lower === "failed") return "terminated";
+  return "idle";
+}
+
+/**
+ * Convert an API AgentSummary to the Agent shape used by the UI.
+ */
+export function mapApiAgent(a: AgentSummary): Agent {
+  return {
+    id: a.agent_id,
+    name: a.agent_id.slice(0, 8),
+    status: mapApiStatus(a.status),
+    stage: a.status,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Reactive agent store
+// ---------------------------------------------------------------------------
+
+const [agents, setAgents] = createSignal<Agent[]>([]);
+const [agentsLoaded, setAgentsLoaded] = createSignal(false);
+
+export { agents, agentsLoaded };
+
+/**
+ * Fetch agents from the server API and update the reactive store.
+ */
+export async function fetchAgents(): Promise<Agent[] | null> {
+  try {
+    const data = await api.getAgents();
+    if (!Array.isArray(data.agents)) return null;
+    return data.agents.map(mapApiAgent);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Load agents from the API and populate the store.
+ * Call once at startup.
+ */
+export async function initAgents(): Promise<void> {
+  const fetched = await fetchAgents();
+  setAgents(fetched ?? []);
+  setAgentsLoaded(true);
+}
+
+/**
+ * Re-fetch agents from the API and update the store.
+ */
+export async function refreshAgents(): Promise<void> {
+  const fetched = await fetchAgents();
+  if (fetched && fetched.length > 0) {
+    setAgents(fetched);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Periodic refresh
+// ---------------------------------------------------------------------------
+
+let agentRefreshInterval: ReturnType<typeof setInterval> | null = null;
+
+export function startAgentRefresh(): void {
+  if (agentRefreshInterval !== null) return;
+  agentRefreshInterval = setInterval(() => {
+    void refreshAgents();
+  }, 5_000);
+}
+
+export function stopAgentRefresh(): void {
+  if (agentRefreshInterval !== null) {
+    clearInterval(agentRefreshInterval);
+    agentRefreshInterval = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket-triggered refresh
+// ---------------------------------------------------------------------------
+
+subscribe("agent_output:*", () => {
+  void refreshAgents();
+});
 
 // ---------------------------------------------------------------------------
 // Grouping helper
@@ -55,11 +148,11 @@ export const MOCK_AGENTS: MockAgent[] = [
 export interface StatusGroup {
   status: AgentStatus;
   label: string;
-  agents: MockAgent[];
+  agents: Agent[];
 }
 
-export function groupAgentsByStatus(agents: MockAgent[]): StatusGroup[] {
-  const grouped: Record<AgentStatus, MockAgent[]> = {
+export function groupAgentsByStatus(agents: Agent[]): StatusGroup[] {
+  const grouped: Record<AgentStatus, Agent[]> = {
     running: [],
     paused: [],
     idle: [],

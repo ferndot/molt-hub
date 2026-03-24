@@ -7,8 +7,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use std::path::PathBuf;
+
 use crate::model::{
-    AgentId, EventId, Priority, SessionId, TaskId, TaskOutcome, TaskState,
+    AgentId, EventId, Priority, ProjectId, SessionId, TaskId, TaskOutcome, TaskState,
 };
 
 // ---------------------------------------------------------------------------
@@ -160,6 +162,34 @@ pub enum DomainEvent {
         integration_type: String,
         /// Scope this configuration applies to, e.g. a project key or repo slug.
         project_scope: String,
+    },
+
+    // ------------------------------------------------------------------
+    // Project lifecycle
+    // ------------------------------------------------------------------
+
+    /// A new project was created.
+    ProjectCreated {
+        /// The project's unique identifier.
+        project_id: ProjectId,
+        /// Human-readable project name.
+        name: String,
+        /// Path to the repository on disk.
+        repo_path: PathBuf,
+    },
+
+    /// A project was archived (soft-deleted).
+    ProjectArchived {
+        /// The project that was archived.
+        project_id: ProjectId,
+    },
+
+    /// A project's metadata was updated.
+    ProjectUpdated {
+        /// The project that was updated.
+        project_id: ProjectId,
+        /// The new name for the project.
+        name: String,
     },
 }
 

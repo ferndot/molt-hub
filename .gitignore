@@ -31,8 +31,24 @@
 # Claude Code local state
 .claude/
 
-# Dependencies
+# Node
 node_modules/
 
-# Vitest cache
-.vite/
+# Vite / frontend build
+ui/dist/
+ui/.vite/
+**/.vite/
+
+# Test coverage
+coverage/
+*.lcov
+
+# Logs
+*.log
+npm-debug.log*
+
+# TypeScript
+*.tsbuildinfo
+
+# Personal
+TODO.md
