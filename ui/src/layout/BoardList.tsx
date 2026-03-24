@@ -8,11 +8,8 @@ interface Props {
   collapsed?: boolean;
 }
 
-function isWorkboardPath(pathname: string): boolean {
-  return (
-    pathname === "/board" ||
-    /\/projects\/[^/]+\/board$/.test(pathname)
-  );
+function isBoardViewPath(pathname: string): boolean {
+  return pathname === "/board";
 }
 
 const BoardList: Component<Props> = (props) => {
@@ -36,7 +33,7 @@ const BoardList: Component<Props> = (props) => {
   };
 
   const rowActive = (boardId: string) =>
-    isWorkboardPath(location.pathname) && boardState.activeBoardId === boardId;
+    isBoardViewPath(location.pathname) && boardState.activeBoardId === boardId;
 
   return (
     <div class={styles.section} classList={{ [styles.collapsed]: props.collapsed }}>

@@ -47,7 +47,6 @@ const App: Component = () => {
   return (
     <Router root={AppLayout}>
       <Route path="/" component={RedirectToBoard} />
-      <Route path="/mission-control" component={RedirectToBoard} />
       <Route path="/triage" component={TriagePage} />
       <Route path="/board" component={WorkboardPage} />
       <Route path="/boards" component={BoardsPage} />
