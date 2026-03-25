@@ -222,6 +222,10 @@ export const api = {
   steerAgent: (id: string, message: string, priority: "normal" | "urgent" = "normal") =>
     post<Record<string, unknown>>(`/agents/${id}/steer`, { message, priority }),
 
+  // Auth
+  loginAgent: (adapterType = "claude") =>
+    post<{ ok: boolean }>("/agents/login", { adapter_type: adapterType }),
+
   // Tasks
   getTasks: () => get<{ tasks: TaskSummary[] }>("/tasks"),
   getTask: (id: string) =>

@@ -9,6 +9,7 @@
 use std::sync::LazyLock;
 
 use serde::Deserialize;
+use tracing::error;
 
 /// Default port for the Molt Hub API (embedded server and `molt-hub serve`).
 pub const DEFAULT_LOCAL_API_PORT: u16 = 13401;
@@ -32,18 +33,18 @@ fn redirect_table() -> &'static PublicRedirectUris {
     &*PARSED
 }
 
-fn required_https_bridge(field: &'static str, opt: &Option<String>) -> String {
-    opt.as_ref()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            panic!(
-                "oauth-bridge/redirect-uris.json: set a non-empty \"{field}\" URL (HTTPS bridge) \
-                 or set MOLTHUB_{}_REDIRECT_URI",
-                field.to_uppercase()
-            );
-        })
+fn required_https_bridge(field: &'static str, opt: &Option<String>) -> Option<String> {
+    let val = opt.as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if val.is_none() {
+        error!(
+            "oauth-bridge/redirect-uris.json: set a non-empty \"{field}\" URL (HTTPS bridge) \
+             or set MOLTHUB_{}_REDIRECT_URI — OAuth for {field} will be disabled",
+            field.to_uppercase()
+        );
+    }
+    val
 }
 
 /// Atlassian and GitHub OAuth apps must register a **public** HTTPS callback (see
@@ -57,37 +58,51 @@ fn is_loopback_http_oauth_redirect(uri: &str) -> bool {
         || lower.starts_with("http://[::1]")
 }
 
-fn reject_loopback_oauth_redirect(provider_env_prefix: &'static str, uri: &str) {
+/// Returns `false` and logs an error if `uri` is a loopback HTTP URL (which
+/// OAuth providers reject). The caller should treat `false` as "OAuth disabled".
+fn reject_loopback_oauth_redirect(provider_env_prefix: &'static str, uri: &str) -> bool {
     let u = uri.trim();
     if is_loopback_http_oauth_redirect(u) {
-        panic!(
+        error!(
             "{provider_env_prefix}_REDIRECT_URI must not be a loopback HTTP URL (got {u:?}). \
              Unset it to use oauth-bridge/redirect-uris.json, or set it to the same HTTPS \
-             bridge URL you registered in the developer console (…/oauth-bridge/jira.html or github.html)."
+             bridge URL you registered in the developer console \
+             (…/oauth-bridge/jira.html or github.html). \
+             OAuth for this provider will be disabled."
         );
+        return false;
     }
+    true
 }
 
 /// Jira (Atlassian 3LO) redirect URI — must match the developer console entry exactly.
-pub fn jira_redirect_uri() -> String {
+///
+/// Returns `None` if the URI is missing or invalid (OAuth for Jira will be disabled).
+pub fn jira_redirect_uri() -> Option<String> {
     let uri = if let Ok(v) = std::env::var("MOLTHUB_JIRA_REDIRECT_URI") {
         v
     } else {
-        required_https_bridge("jira", &redirect_table().jira)
+        required_https_bridge("jira", &redirect_table().jira)?
     };
-    reject_loopback_oauth_redirect("MOLTHUB_JIRA", &uri);
-    uri
+    if !reject_loopback_oauth_redirect("MOLTHUB_JIRA", &uri) {
+        return None;
+    }
+    Some(uri)
 }
 
 /// GitHub OAuth App redirect URI (single callback per app).
-pub fn github_redirect_uri() -> String {
+///
+/// Returns `None` if the URI is missing or invalid (OAuth for GitHub will be disabled).
+pub fn github_redirect_uri() -> Option<String> {
     let uri = if let Ok(v) = std::env::var("MOLTHUB_GITHUB_REDIRECT_URI") {
         v
     } else {
-        required_https_bridge("github", &redirect_table().github)
+        required_https_bridge("github", &redirect_table().github)?
     };
-    reject_loopback_oauth_redirect("MOLTHUB_GITHUB", &uri);
-    uri
+    if !reject_loopback_oauth_redirect("MOLTHUB_GITHUB", &uri) {
+        return None;
+    }
+    Some(uri)
 }
 
 #[cfg(test)]

@@ -11,7 +11,8 @@ import type { Component } from "solid-js";
 import { Show, onCleanup, createSignal } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { TbOutlineArrowLeft } from "solid-icons/tb";
-import { getAgent, setupAgentSubscription } from "./agentStore";
+import { getAgent, setupAgentSubscription, clearAuthError } from "./agentStore";
+import { api } from "../../lib/api";
 import OutputStream from "./OutputStream";
 import AgentMeta from "./AgentMeta";
 import SteerChat from "./SteerChat";
@@ -59,6 +60,46 @@ const AgentDetailView: Component = () => {
     >
       {(a) => (
         <div class={styles.container}>
+          {/* Auth error banner */}
+          <Show when={a().authError}>
+            {(_err) => {
+              const [loggingIn, setLoggingIn] = createSignal(false);
+              const [loginErr, setLoginErr] = createSignal<string>();
+
+              const handleLogin = async () => {
+                setLoggingIn(true);
+                setLoginErr(undefined);
+                try {
+                  await api.loginAgent();
+                  clearAuthError(params.id);
+                } catch (e: unknown) {
+                  // Strip the "POST /agents/login failed: 500 — " prefix if present.
+                  const raw = e instanceof Error ? e.message : String(e);
+                  const dashIdx = raw.indexOf(" — ");
+                  setLoginErr(dashIdx >= 0 ? raw.slice(dashIdx + 3) : raw);
+                } finally {
+                  setLoggingIn(false);
+                }
+              };
+
+              return (
+                <div class={styles.authErrorBanner}>
+                  <span>Session expired — re-authenticate to continue.</span>
+                  <button
+                    class={styles.loginBtn}
+                    disabled={loggingIn()}
+                    onClick={handleLogin}
+                  >
+                    {loggingIn() ? "Logging in\u2026" : "Login"}
+                  </button>
+                  <Show when={loginErr()}>
+                    <span class={styles.loginError}>{loginErr()}</span>
+                  </Show>
+                </div>
+              );
+            }}
+          </Show>
+
           {/* Header */}
           <div class={styles.header}>
             <a href="/agents" class={styles.backBtn}>

@@ -30,8 +30,9 @@ import {
   setAttentionLevel,
   setAgentTimeout,
   setAgentAdapter,
+  setHarnesses,
 } from "./settingsStore";
-import type { Theme, AttentionLevel, AgentAdapter } from "./settingsStore";
+import type { Theme, AttentionLevel, HarnessEntry } from "./settingsStore";
 import AuditLog from "./AuditLog";
 import PriorityBadge from "../../components/PriorityBadge/PriorityBadge";
 import styles from "./Settings.module.css";
@@ -148,14 +149,65 @@ const NotificationsPanel: Component = () => {
 // Section: Agent Defaults
 // ---------------------------------------------------------------------------
 
-const ADAPTER_OPTIONS: { value: AgentAdapter; label: string }[] = [
-  { value: "claude-code", label: "Claude Code" },
+const KNOWN_HARNESS_TYPES = [
+  { value: "claude", label: "Claude Code" },
+  { value: "opencode", label: "OpenCode" },
+  { value: "goose", label: "Goose" },
+  { value: "gemini", label: "Gemini CLI" },
 ];
 
 const AgentDefaultsPanel: Component = () => {
+  const harnesses = () => settingsState.agentDefaults.harnesses ?? [];
+  const enabledHarnesses = () => harnesses().filter((h) => h.enabled);
+
+  const addHarness = (adapterType: string) => {
+    const existing = harnesses();
+    if (existing.some((h) => h.adapterType === adapterType)) return;
+    const known = KNOWN_HARNESS_TYPES.find((k) => k.value === adapterType);
+    const entry: HarnessEntry = {
+      adapterType,
+      label: known?.label ?? adapterType,
+      enabled: true,
+    };
+    setHarnesses([...existing, entry]);
+  };
+
+  const removeHarness = (adapterType: string) => {
+    setHarnesses(harnesses().filter((h) => h.adapterType !== adapterType));
+    // If the removed harness was the default, switch to the first enabled one.
+    if (settingsState.agentDefaults.adapter === adapterType) {
+      const first = harnesses().find((h) => h.enabled && h.adapterType !== adapterType);
+      if (first) setAgentAdapter(first.adapterType);
+    }
+  };
+
+  const toggleHarness = (adapterType: string) => {
+    setHarnesses(
+      harnesses().map((h) =>
+        h.adapterType === adapterType ? { ...h, enabled: !h.enabled } : h,
+      ),
+    );
+  };
+
+  const setCommand = (adapterType: string, command: string) => {
+    setHarnesses(
+      harnesses().map((h) =>
+        h.adapterType === adapterType
+          ? { ...h, command: command || undefined }
+          : h,
+      ),
+    );
+  };
+
+  const addableTypes = () =>
+    KNOWN_HARNESS_TYPES.filter(
+      (k) => !harnesses().some((h) => h.adapterType === k.value),
+    );
+
   return (
     <div>
       <h3 class={styles.sectionTitle}>Agent Defaults</h3>
+
       <div class={styles.formGroup}>
         <label class={styles.label} for="agent-timeout">Default timeout (minutes)</label>
         <input
@@ -169,21 +221,76 @@ const AgentDefaultsPanel: Component = () => {
           style={{ "max-width": "160px" }}
         />
       </div>
+
       <div class={styles.formGroup}>
-        <label class={styles.label} for="agent-adapter">Default adapter</label>
+        <label class={styles.label} for="agent-adapter">Default harness</label>
         <select
           id="agent-adapter"
           class={styles.input}
           value={settingsState.agentDefaults.adapter}
-          onChange={(e) => setAgentAdapter(e.currentTarget.value as AgentAdapter)}
+          onChange={(e) => setAgentAdapter(e.currentTarget.value)}
         >
-          <For each={ADAPTER_OPTIONS}>
-            {(opt) => (
-              <option value={opt.value}>{opt.label}</option>
-            )}
+          <For each={enabledHarnesses()}>
+            {(h) => <option value={h.adapterType}>{h.label}</option>}
           </For>
         </select>
       </div>
+
+      <h4 class={styles.label} style={{ "margin-top": "20px", "margin-bottom": "8px" }}>
+        Configured harnesses
+      </h4>
+
+      <For each={harnesses()}>
+        {(h) => (
+          <div class={styles.harnessRow}>
+            <label class={styles.checkboxLabel}>
+              <input
+                type="checkbox"
+                checked={h.enabled}
+                onChange={() => toggleHarness(h.adapterType)}
+              />
+              <span class={styles.harnessLabel}>{h.label}</span>
+              <span class={styles.harnessType}>{h.adapterType}</span>
+            </label>
+            <input
+              class={styles.input}
+              type="text"
+              placeholder="Custom binary path (optional)"
+              value={h.command ?? ""}
+              onChange={(e) => setCommand(h.adapterType, e.currentTarget.value)}
+              style={{ flex: "1", "min-width": "0", "font-size": "0.8rem" }}
+            />
+            <button
+              class={styles.removeBtn}
+              onClick={() => removeHarness(h.adapterType)}
+              title="Remove harness"
+            >
+              &times;
+            </button>
+          </div>
+        )}
+      </For>
+
+      <Show when={addableTypes().length > 0}>
+        <div class={styles.formGroup} style={{ "margin-top": "10px" }}>
+          <select
+            class={styles.input}
+            onChange={(e) => {
+              const val = e.currentTarget.value;
+              if (val) {
+                addHarness(val);
+                e.currentTarget.value = "";
+              }
+            }}
+            style={{ "max-width": "220px" }}
+          >
+            <option value="">Add harness…</option>
+            <For each={addableTypes()}>
+              {(k) => <option value={k.value}>{k.label}</option>}
+            </For>
+          </select>
+        </div>
+      </Show>
     </div>
   );
 };

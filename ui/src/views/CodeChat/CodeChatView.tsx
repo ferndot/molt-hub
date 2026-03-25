@@ -16,6 +16,7 @@ import {
 import { TbOutlineArrowLeft } from "solid-icons/tb";
 import { api } from "../../lib/api";
 import {
+  clearAuthError,
   fetchAgents,
   getAgent,
   hydrateAgentOutput,
@@ -215,6 +216,44 @@ const CodeChatView: Component = () => {
           </button>
         </Show>
       </div>
+
+      {/* Auth error banner */}
+      <Show when={agent()?.authError}>
+        {(_err) => {
+          const [loggingIn, setLoggingIn] = createSignal(false);
+          const [loginErr, setLoginErr] = createSignal<string>();
+          const handleLogin = async () => {
+            setLoggingIn(true);
+            setLoginErr(undefined);
+            try {
+              await api.loginAgent();
+              const id = sessionAgentId();
+              if (id) clearAuthError(id);
+            } catch (e: unknown) {
+              const raw = e instanceof Error ? e.message : String(e);
+              const dashIdx = raw.indexOf(" — ");
+              setLoginErr(dashIdx >= 0 ? raw.slice(dashIdx + 3) : raw);
+            } finally {
+              setLoggingIn(false);
+            }
+          };
+          return (
+            <div class={adStyles.authErrorBanner}>
+              <span>Session expired — re-authenticate to continue.</span>
+              <button
+                class={adStyles.loginBtn}
+                disabled={loggingIn()}
+                onClick={() => void handleLogin()}
+              >
+                {loggingIn() ? "Logging in\u2026" : "Login"}
+              </button>
+              <Show when={loginErr()}>
+                <span class={adStyles.loginError}>{loginErr()}</span>
+              </Show>
+            </div>
+          );
+        }}
+      </Show>
 
       <Show when={!ready()}>
         <div class={styles.loadingBanner}>Loading…</div>

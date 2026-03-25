@@ -14,9 +14,9 @@ use tower_http::services::{ServeDir, ServeFile};
 use tracing::{debug, info, warn};
 
 use molt_hub_core::events::SqliteEventStore;
+use molt_hub_harness::acp::AcpAdapter;
 use molt_hub_harness::adapter::AgentEvent;
 use molt_hub_harness::adapter::AgentAdapter;
-use molt_hub_harness::claude::ClaudeAdapter;
 use molt_hub_harness::supervisor::{Supervisor, SupervisorConfig};
 
 use crate::agents::handlers::{agent_router, AgentState};
@@ -40,7 +40,7 @@ use crate::projects::runtime::{MultiBoardPipelineStore, ProjectRuntime, ProjectR
 use crate::settings::{typed_settings_router, SettingsFileStore, TypedSettingsState};
 use crate::system::pick_repo_folder;
 use crate::ws::{ws_handler, ConnectionManager};
-use crate::ws_broadcast::{broadcast_metrics, MetricsPayload};
+use crate::ws_broadcast::{broadcast_agent_error, broadcast_agent_output, broadcast_metrics, MetricsPayload};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -91,18 +91,48 @@ pub async fn build_router(
     let _agent_output_fanout =
         spawn_agent_output_buffer_task(event_tx.subscribe(), Arc::clone(&output_buffer));
 
+    // Wire AgentEvent → WebSocket broadcasts
+    {
+        use tokio::sync::broadcast;
+        let ws_fanout_manager = Arc::clone(&manager);
+        let mut ws_fanout_rx = event_tx.subscribe();
+        tokio::spawn(async move {
+            loop {
+                match ws_fanout_rx.recv().await {
+                    Ok(AgentEvent::Output { agent_id, content, .. }) => {
+                        let id = agent_id.to_string();
+                        for line in content.lines() {
+                            if !line.is_empty() {
+                                broadcast_agent_output(&ws_fanout_manager, &id, line);
+                            }
+                        }
+                    }
+                    Ok(AgentEvent::Error { agent_id, message, .. }) => {
+                        let id = agent_id.to_string();
+                        let auth_required = message.starts_with("auth_required:");
+                        broadcast_agent_error(&ws_fanout_manager, &id, &message, auth_required);
+                    }
+                    Ok(_) => {}
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(skipped = n, "WS fanout lagged");
+                    }
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        });
+    }
+
     let supervisor = Arc::new(Supervisor::new(SupervisorConfig::default(), event_tx));
 
-    let claude_adapter = Arc::new(ClaudeAdapter::new());
+    let acp_adapter = Arc::new(AcpAdapter::new());
     let hook_executor = Arc::new(HookExecutor::with_adapter(
-        Arc::clone(&claude_adapter) as Arc<dyn AgentAdapter>,
+        Arc::clone(&acp_adapter) as Arc<dyn AgentAdapter>,
     ));
 
     // Agent API state
     let agent_state = Arc::new(AgentState {
         supervisor: Arc::clone(&supervisor),
         output_buffer,
-        claude_adapter: Arc::clone(&claude_adapter),
         test_spawn_adapter: None,
         worktree_managers: Arc::new(WorktreeManagerCache::new()),
         worktree_registry: Arc::new(WorktreeRegistry::new()),
@@ -153,7 +183,7 @@ pub async fn build_router(
 
     // GitHub OAuth — client id/secret from env or optional compile-time defaults (see `github_oauth`).
     let github_callback = github_redirect_uri();
-    let github_oauth_svc = GithubOAuthService::from_redirect_uri(&github_callback);
+    let github_oauth_svc = GithubOAuthService::from_redirect_uri(github_callback.as_deref().unwrap_or(""));
     let github_app_creds = match GithubAppCredentials::try_from_env() {
         Ok(c) => c,
         Err(e) => {
@@ -173,7 +203,7 @@ pub async fn build_router(
     });
 
     // Jira (Atlassian 3LO) — PKCE + confidential client secret for code exchange (see `oauth` module).
-    let jira_oauth_svc = JiraOAuthService::from_redirect_uri(&jira_redirect_uri());
+    let jira_oauth_svc = JiraOAuthService::from_redirect_uri(jira_redirect_uri().as_deref().unwrap_or(""));
     let jira_oauth_state = Arc::new(JiraOAuthState::new(
         jira_oauth_svc,
         Arc::clone(&credential_store),

@@ -1,16 +1,17 @@
 {
-  "name": "molt-hub-ui",
+  "name": "molt-hub",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "e2e": "playwright test --config e2e/playwright.config.ts"
+    "dev": "vite ui --config ui/vite.config.ts",
+    "build": "tsc --noEmit --project ui/tsconfig.json && vite build ui --config ui/vite.config.ts",
+    "preview": "vite preview ui --config ui/vite.config.ts",
+    "test": "vitest run --config ui/vite.config.ts",
+    "test:watch": "vitest --config ui/vite.config.ts",
+    "e2e": "playwright test --config ui/e2e/playwright.config.ts"
   },
   "dependencies": {
+    "@zed-industries/claude-agent-acp": "latest",
     "@kobalte/core": "^0.13.11",
     "@solidjs/router": "^0.15.0",
     "@tanstack/solid-virtual": "^3.10.0",

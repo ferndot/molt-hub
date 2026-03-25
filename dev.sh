@@ -44,7 +44,7 @@ fi
   | sed "s/^/$(printf "${RED}[backend]${NC} ")/") &
 
 # Frontend
-(cd "$ROOT/ui" && npm run dev 2>&1 \
+(cd "$ROOT" && npm run dev 2>&1 \
   | sed "s/^/$(printf "${GREEN}[frontend]${NC} ")/") &
 
 # Desktop (optional)

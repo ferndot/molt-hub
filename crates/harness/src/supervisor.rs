@@ -137,10 +137,16 @@ impl Supervisor {
     pub async fn spawn_agent(
         &self,
         adapter: Arc<dyn AgentAdapter>,
-        spawn_config: SpawnConfig,
+        mut spawn_config: SpawnConfig,
     ) -> Result<AgentId, SupervisorError> {
         if self.agents.len() >= self.config.max_agents {
             return Err(SupervisorError::MaxAgentsReached(self.config.max_agents));
+        }
+
+        // Inject the global event channel so that adapter threads can emit
+        // events visible to the WS fanout layer.
+        if spawn_config.event_tx.is_none() {
+            spawn_config.event_tx = Some(self.event_tx.clone());
         }
 
         let agent_id = spawn_config.agent_id.clone();
@@ -552,6 +558,7 @@ mod tests {
             timeout: None,
             adapter_config: serde_json::Value::Null,
             project_id: None,
+            event_tx: None,
         }
     }
 

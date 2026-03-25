@@ -205,6 +205,44 @@ pub fn broadcast_agent_steered(manager: &ConnectionManager, agent_id: &str, mess
 }
 
 // ---------------------------------------------------------------------------
+// Agent error events
+// ---------------------------------------------------------------------------
+
+/// Payload for an agent error pushed to `agent:{id}`.
+///
+/// Wire format:
+/// ```json
+/// {"type": "agent_error", "agent_id": "...", "message": "...", "auth_required": true, "timestamp": "..."}
+/// ```
+#[derive(Debug, Serialize)]
+pub struct AgentErrorPayload {
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    pub agent_id: String,
+    pub message: String,
+    pub auth_required: bool,
+    pub timestamp: String,
+}
+
+/// Broadcast an agent error event to clients subscribed to `agent:{id}`.
+pub fn broadcast_agent_error(
+    manager: &ConnectionManager,
+    agent_id: &str,
+    message: &str,
+    auth_required: bool,
+) {
+    let payload = AgentErrorPayload {
+        msg_type: "agent_error".into(),
+        agent_id: agent_id.to_owned(),
+        message: message.to_owned(),
+        auth_required,
+        timestamp: Utc::now().to_rfc3339(),
+    };
+    let topic = format!("agent:{agent_id}");
+    broadcast_json(manager, &topic, &payload);
+}
+
+// ---------------------------------------------------------------------------
 // Metrics update (with pending decisions)
 // ---------------------------------------------------------------------------
 

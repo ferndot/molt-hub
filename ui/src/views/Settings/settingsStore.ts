@@ -168,7 +168,12 @@ export type Theme = "light" | "dark" | "system";
 
 export type AttentionLevel = "p0" | "p0p1" | "all";
 
-export type AgentAdapter = "claude-code";
+export interface HarnessEntry {
+  adapterType: string;
+  label: string;
+  enabled: boolean;
+  command?: string;
+}
 
 export interface NotificationConfig {
   attentionLevel: AttentionLevel;
@@ -176,7 +181,8 @@ export interface NotificationConfig {
 
 export interface AgentDefaultsConfig {
   timeoutMinutes: number;
-  adapter: AgentAdapter;
+  adapter: string;
+  harnesses: HarnessEntry[];
 }
 
 export interface JiraConfig {
@@ -311,7 +317,10 @@ const defaultState: SettingsState = {
   },
   agentDefaults: {
     timeoutMinutes: 30,
-    adapter: "claude-code",
+    adapter: "claude",
+    harnesses: [
+      { adapterType: "claude", label: "Claude Code", enabled: true },
+    ],
   },
   sidebarWidths: {
     navSidebar: 240,
@@ -792,8 +801,12 @@ export function setAgentTimeout(minutes: number): void {
   setSettingsState("agentDefaults", "timeoutMinutes", clamped);
 }
 
-export function setAgentAdapter(adapter: AgentAdapter): void {
+export function setAgentAdapter(adapter: string): void {
   setSettingsState("agentDefaults", "adapter", adapter);
+}
+
+export function setHarnesses(harnesses: HarnessEntry[]): void {
+  setSettingsState("agentDefaults", "harnesses", harnesses);
 }
 
 // ---------------------------------------------------------------------------
