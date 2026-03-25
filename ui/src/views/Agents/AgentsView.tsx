@@ -1,5 +1,5 @@
 import { createSignal, createMemo, For, Show, onMount, onCleanup, type Component } from "solid-js";
-import { A } from "@solidjs/router";
+import { A, useSearchParams } from "@solidjs/router";
 import { TbOutlineSearch } from "solid-icons/tb";
 import { useAgentDetailStore, startAgentPolling, type AgentDetail } from "../AgentDetail/agentStore";
 import { StatusIndicator } from "../../components/StatusIndicator";
@@ -72,6 +72,7 @@ const TABS: { label: string; value: ListStatus | "all" }[] = [
 
 const AgentsView: Component = () => {
   const { state } = useAgentDetailStore();
+  const [searchParams] = useSearchParams();
 
   // Poll real agent data from the backend every 3 seconds
   onMount(() => {
@@ -82,11 +83,18 @@ const AgentsView: Component = () => {
   const [query, setQuery] = createSignal("");
   const [activeTab, setActiveTab] = createSignal<ListStatus | "all">("all");
 
+  /** The task ID passed via ?task=<id>, if any. */
+  const taskFilter = () => searchParams.task ?? null;
+
   const filtered = createMemo(() => {
     const q = query().toLowerCase().trim();
     const tab = activeTab();
+    const tf = taskFilter();
 
     return state.agents.filter((a) => {
+      // Task filter from URL query param
+      if (tf && a.taskId !== tf) return false;
+
       // Status tab filter
       if (tab !== "all" && toListStatus(a.status) !== tab) return false;
 
@@ -101,14 +109,17 @@ const AgentsView: Component = () => {
   });
 
   const countByStatus = createMemo(() => {
+    const tf = taskFilter();
+    // When a task filter is active, counts are scoped to that task's agents.
+    const base = tf ? state.agents.filter((a) => a.taskId === tf) : state.agents;
     const counts: Record<ListStatus | "all", number> = {
-      all: state.agents.length,
+      all: base.length,
       running: 0,
       waiting: 0,
       blocked: 0,
       done: 0,
     };
-    for (const a of state.agents) {
+    for (const a of base) {
       counts[toListStatus(a.status)]++;
     }
     return counts;
@@ -116,10 +127,18 @@ const AgentsView: Component = () => {
 
   return (
     <div class={styles.container}>
+      {/* Task filter banner */}
+      <Show when={taskFilter()}>
+        <div class={styles.taskFilterBanner}>
+          <span>Viewing agents for task: <strong>{taskFilter()}</strong></span>
+          <A href="/agents" class={styles.clearFilterLink}>Clear filter</A>
+        </div>
+      </Show>
+
       {/* Header */}
       <div class={styles.header}>
         <h2 class={styles.title}>Agents</h2>
-        <span class={styles.countBadge}>{state.agents.length}</span>
+        <span class={styles.countBadge}>{taskFilter() ? countByStatus().all : state.agents.length}</span>
         <input
           class={styles.searchInput}
           type="search"

@@ -6,7 +6,7 @@
  * not Jira/GitHub OAuth (those show under Settings).
  */
 
-import { createMemo, createSignal, createEffect, on, type Component } from "solid-js";
+import { createMemo, createSignal, createEffect, on, onCleanup, type Component } from "solid-js";
 import type { ConnectionStatus } from "../types";
 import { TbFillPoint, TbOutlineBolt, TbOutlineCpu, TbOutlineServer } from "solid-icons/tb";
 import {
@@ -64,9 +64,33 @@ const Sep: Component = () => (
 // Component
 // ---------------------------------------------------------------------------
 
+/** Hook: returns a CSS class that briefly applies a pop animation when the value changes. */
+function usePopOnChange(getValue: () => number): () => string {
+  const [popping, setPopping] = createSignal(false);
+  let prev = getValue();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  createEffect(on(getValue, (next) => {
+    if (next !== prev) {
+      prev = next;
+      clearTimeout(timer);
+      setPopping(true);
+      timer = setTimeout(() => setPopping(false), 350);
+    }
+  }));
+
+  onCleanup(() => clearTimeout(timer));
+
+  return () => (popping() ? `${styles.metricValue} ${styles.metricValuePop}` : styles.metricValue);
+}
+
 const StatusBar: Component<Props> = (props) => {
   const cpuClass = createMemo(() => cpuColorClass(cpuLevel(cpuUsage())));
   const pendingCount = createMemo(() => pendingDecisionCount());
+
+  const activeAgentPopClass = usePopOnChange(activeAgentCount);
+  const pendingCountPopClass = usePopOnChange(pendingCount);
+  const cpuPopClass = usePopOnChange(cpuUsage);
 
   // Debounce transient connection states ("connecting", "error") so the bar
   // doesn't jump on every reconnect cycle. "connected" and "disconnected" are
@@ -99,21 +123,21 @@ const StatusBar: Component<Props> = (props) => {
 
         {/* Active agents — count from metricsStore (updated via WebSocket) */}
         <span class={styles.metricNormal}>
-          <TbFillPoint size={14} style={{ color: "#22c55e", "vertical-align": "middle" }} /> {activeAgentCount()} active
+          <TbFillPoint size={14} style={{ color: "#22c55e", "vertical-align": "middle" }} /> <span class={activeAgentPopClass()}>{activeAgentCount()}</span> active
         </span>
 
         <Sep />
 
         {/* Pending decisions — derived from attentionStore p0Count + p1Count */}
         <span class={styles.metricItem}>
-          <TbOutlineBolt size={14} style={{ "vertical-align": "middle" }} /> {pendingCount()} pending
+          <TbOutlineBolt size={14} style={{ "vertical-align": "middle" }} /> <span class={pendingCountPopClass()}>{pendingCount()}</span> pending
         </span>
 
         <Sep />
 
         {/* CPU usage — mocked; TODO: wire to health monitoring WebSocket stream */}
         <span class={cpuClass()}>
-          <TbOutlineCpu size={14} style={{ "vertical-align": "middle" }} /> CPU {cpuUsage()}%
+          <TbOutlineCpu size={14} style={{ "vertical-align": "middle" }} /> CPU <span class={cpuPopClass()}>{cpuUsage()}</span>%
         </span>
 
         <Sep />

@@ -55,6 +55,21 @@
   color: var(--chrome-text-active);
 }
 
+@keyframes metricPop {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.35); }
+  100% { transform: scale(1); }
+}
+
+.metricValue {
+  display: inline-block;
+  transition: all 0.3s ease;
+}
+
+.metricValuePop {
+  animation: metricPop 0.3s ease both;
+}
+
 .metricNormal {
   color: #22c55e;
 }

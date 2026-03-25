@@ -13,6 +13,7 @@ function makeAgent(overrides: Partial<Agent> & { id: string; status: AgentStatus
   return {
     name: overrides.name ?? `agent-${overrides.id}`,
     stage: overrides.stage ?? "Working",
+    taskId: overrides.taskId ?? "",
     ...overrides,
   };
 }

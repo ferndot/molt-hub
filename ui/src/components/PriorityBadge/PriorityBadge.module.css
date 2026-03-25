@@ -36,8 +36,17 @@
   padding: 0.1875rem 0.5rem;
 }
 
+/* ---- P0 urgency flash animation ---- */
+@keyframes p0Flash {
+  0%, 100% { background: var(--priority-p0); }
+  50% { background: color-mix(in srgb, var(--priority-p0) 70%, #fff 30%); }
+}
+
 /* ---- Priority color backgrounds ---- */
-.p0 { background: var(--priority-p0); }
+.p0 {
+  background: var(--priority-p0);
+  animation: p0Flash 2s ease-in-out infinite;
+}
 .p1 { background: var(--priority-p1); }
 .p2 { background: var(--priority-p2); }
 .p3 { background: var(--priority-p3); }

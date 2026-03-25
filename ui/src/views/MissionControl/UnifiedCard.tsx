@@ -107,7 +107,8 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
       onMouseEnter={() => props.onHoverEnter?.(props.item.id)}
       onMouseLeave={() => props.onHoverLeave?.()}
       data-task-id={props.item.id}
-      role="listitem"
+      role="button"
+      tabIndex={0}
     >
       {/* Header */}
       <div class={styles.header}>

@@ -7,8 +7,9 @@
 
 import { createStore } from "solid-js/store";
 import type { ServerMessage } from "../../types";
-import { api, type BoardSummary, type PipelineStage } from "../../lib/api";
+import { api, type BoardSummary, type BoardTaskItem, type PipelineStage } from "../../lib/api";
 import type { Priority } from "../../types/domain";
+import { emitHookToast } from "../../lib/hookToasts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -53,18 +54,20 @@ export interface BoardState {
 
 const DEFAULT_STAGES: string[] = [
   "backlog",
+  "planning",
   "in-progress",
-  "code-review",
+  "review",
   "testing",
-  "deployed",
+  "deployment",
 ];
 
 const DEFAULT_PIPELINE_STAGES: PipelineStage[] = [
-  { id: "backlog", label: "Backlog", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false, color: "#6b7280", order: 0, hooks: [] },
-  { id: "in-progress", label: "In Progress", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false, color: "#3b82f6", order: 1, hooks: [] },
-  { id: "code-review", label: "Code Review", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false, color: "#f59e0b", order: 2, hooks: [] },
-  { id: "testing", label: "Testing", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false, color: "#8b5cf6", order: 3, hooks: [] },
-  { id: "deployed", label: "Deployed", wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: true, color: "#10b981", order: 4, hooks: [] },
+  { id: "backlog",     label: "Backlog",     wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false,  color: "#94a3b8", order: 0, hooks: [] },
+  { id: "planning",   label: "Planning",    wip_limit: null, requires_approval: true,  timeout_seconds: null, terminal: false,  color: "#a855f7", order: 1, hooks: [] },
+  { id: "in-progress",label: "In Progress", wip_limit: 5,    requires_approval: false, timeout_seconds: null, terminal: false,  color: "#6366f1", order: 2, hooks: [] },
+  { id: "review",     label: "Review",      wip_limit: null, requires_approval: true,  timeout_seconds: null, terminal: false,  color: "#f59e0b", order: 3, hooks: [] },
+  { id: "testing",    label: "Testing",     wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: false,  color: "#10b981", order: 4, hooks: [] },
+  { id: "deployment", label: "Deployment",  wip_limit: null, requires_approval: false, timeout_seconds: null, terminal: true,   color: "#22c55e", order: 5, hooks: [] },
 ];
 
 const BOARD_STORAGE_KEY = "molt:active-board";
@@ -189,6 +192,36 @@ async function applyNoActiveBoard(): Promise<void> {
   setBoardState("stagesLoaded", true);
 }
 
+/** Map a raw BoardTaskItem from the REST API into a BoardTask for the store. */
+function boardTaskFromItem(t: BoardTaskItem): BoardTask {
+  return {
+    id: t.task_id,
+    name: t.name,
+    agentName: t.agent_name ?? "",
+    priority: (t.priority as BoardTask["priority"]) ?? "p2",
+    status: (t.status as BoardTask["status"]) ?? "waiting",
+    stage: t.stage,
+    summary: t.summary ?? "",
+    timeInStage: "",
+    expanded: false,
+  };
+}
+
+/**
+ * Fetch the current board task list from the event store and populate the
+ * shared task list.  Silently ignored if the endpoint is unavailable.
+ */
+async function loadBoardTasksFromApi(): Promise<void> {
+  try {
+    const data = await api.getBoardTasks();
+    if (Array.isArray(data.tasks)) {
+      setBoardState("tasks", data.tasks.map(boardTaskFromItem));
+    }
+  } catch {
+    // Server may not have event store enabled; fall back to empty / WS-only.
+  }
+}
+
 /**
  * Load board list + stages for the active board.
  * Call when the app mounts (and after external board changes if needed).
@@ -215,6 +248,10 @@ export function initBoardStages(): Promise<void> {
       await applyNoActiveBoard();
     }
     setBoardState("boardsSynced", true);
+
+    // Populate tasks from the persisted event store so the board is non-empty
+    // on first load (and after restarts).  WS updates continue to apply on top.
+    await loadBoardTasksFromApi();
   });
 }
 
@@ -493,6 +530,12 @@ export function handleBoardWsMessage(msg: ServerMessage): void {
   const existing = boardState.tasks.find((t) => t.id === taskId);
 
   if (existing) {
+    const newStage = payload.stage != null ? payload.stage as string : null;
+    if (newStage && existing.stage !== newStage) {
+      // on_exit the old stage, on_enter the new stage
+      emitHookToast(existing.stage, "on_exit", existing.name);
+      emitHookToast(newStage, "on_enter", existing.name);
+    }
     setBoardState("tasks", (tasks) =>
       tasks.map((t) => {
         if (t.id !== taskId) return t;

@@ -5,7 +5,7 @@ import {
   TbOutlineLayoutList,
   TbOutlineRobot,
   TbOutlineSettings,
-  TbOutlineTerminal2,
+  TbOutlineRoute,
 } from "solid-icons/tb";
 import { attentionCount } from "./attentionStore";
 import AgentList from "./AgentList";
@@ -24,9 +24,9 @@ import styles from "./Sidebar.module.css";
 
 const NAV_ICONS: Record<string, () => JSX.Element> = {
   "/boards": () => <TbOutlineLayoutList size={16} />,
-  "/chat": () => <TbOutlineTerminal2 size={16} />,
   "/agents": () => <TbOutlineRobot size={16} />,
   "/settings": () => <TbOutlineSettings size={16} />,
+  "/how-it-works": () => <TbOutlineRoute size={16} />,
 };
 
 // ---------------------------------------------------------------------------
@@ -45,11 +45,7 @@ const Sidebar: Component<Props> = (props) => {
   const location = useLocation();
   const [isDragging, setIsDragging] = createSignal(false);
 
-  const isActive = (href: string) => {
-    const path = location.pathname;
-    if (href === "/chat") return path === "/chat";
-    return path.startsWith(href);
-  };
+  const isActive = (href: string) => location.pathname.startsWith(href);
 
   // ---- Drag-to-resize logic ------------------------------------------------
   // Update the DOM directly during drag to avoid the store → effect →
@@ -121,6 +117,13 @@ const Sidebar: Component<Props> = (props) => {
             >
               <span class={styles.navIcon}>{NAV_ICONS["/agents"]?.()}</span>
             </A>
+            <A
+              href="/how-it-works"
+              class={styles.navItem}
+              classList={{ [styles.active]: isActive("/how-it-works") }}
+            >
+              <span class={styles.navIcon}>{NAV_ICONS["/how-it-works"]?.()}</span>
+            </A>
           </nav>
         }
       >
@@ -130,18 +133,18 @@ const Sidebar: Component<Props> = (props) => {
         </div>
       </Show>
 
-      {/* Claude Code + settings — pinned to bottom */}
+      {/* Bottom nav — pinned to bottom */}
       <div class={styles.bottomNav}>
-        <Show when={!props.collapsed}>
-          <A
-            href="/chat"
-            class={styles.navItem}
-            classList={{ [styles.active]: isActive("/chat") }}
-          >
-            <span class={styles.navIcon}>{NAV_ICONS["/chat"]?.()}</span>
-            <span class={styles.navLabel}>Claude Code</span>
-          </A>
-        </Show>
+        <A
+          href="/how-it-works"
+          class={styles.navItem}
+          classList={{ [styles.active]: isActive("/how-it-works") }}
+        >
+          <span class={styles.navIcon}>{NAV_ICONS["/how-it-works"]?.()}</span>
+          <Show when={!props.collapsed}>
+            <span class={styles.navLabel}>How it works</span>
+          </Show>
+        </A>
         <A
           href="/settings"
           class={styles.navItem}

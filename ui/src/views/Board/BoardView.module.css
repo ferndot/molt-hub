@@ -139,6 +139,7 @@
   flex-direction: column;
   gap: 0.35rem;
   padding: 0 0.5rem 0.5rem;
+  flex-shrink: 0;
 }
 
 .addIssueBtn {

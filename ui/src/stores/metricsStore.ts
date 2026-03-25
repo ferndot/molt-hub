@@ -114,6 +114,26 @@ export function cpuLevel(usage: number): MetricLevel {
 }
 
 // ---------------------------------------------------------------------------
+// REST initialisation
+// ---------------------------------------------------------------------------
+
+/** Fetch current metrics from the API and update signals. */
+export async function initMetrics(): Promise<void> {
+  try {
+    const res = await fetch("/api/agents");
+    if (res.ok) {
+      const data = await res.json() as { count: number };
+      _setActiveAgentCount(data.count);
+    }
+  } catch {
+    // silently ignore — status bar degrades gracefully
+  }
+}
+
+/** Re-fetch metrics from the API (alias for initMetrics). */
+export const refreshMetrics = initMetrics;
+
+// ---------------------------------------------------------------------------
 // WebSocket subscription — health:metrics
 // ---------------------------------------------------------------------------
 

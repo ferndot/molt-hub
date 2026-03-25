@@ -24,6 +24,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{instrument, warn};
 
+use molt_hub_core::events::EventStore;
 use molt_hub_core::model::{AgentId, SessionId, TaskId};
 use molt_hub_harness::acp::AcpAdapter;
 use molt_hub_harness::adapter::SpawnConfig;
@@ -50,6 +51,8 @@ pub struct AgentState {
     /// One [`WorktreeManager`] per repository root (agent isolation under `.molt/worktrees/`).
     pub worktree_managers: Arc<WorktreeManagerCache>,
     pub worktree_registry: Arc<WorktreeRegistry>,
+    /// Optional event store for deriving virtual agent entries in demo mode.
+    pub event_store: Option<Arc<molt_hub_core::events::SqliteEventStore>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -455,8 +458,8 @@ async fn spawn_agent(
 /// GET /api/agents — list all agents with status.
 #[instrument(skip(state))]
 async fn list_agents(State(state): State<Arc<AgentState>>) -> impl IntoResponse {
-    let agents = state.supervisor.list_agents().await;
-    let responses: Vec<AgentResponse> = agents
+    let mut responses: Vec<AgentResponse> = state.supervisor.list_agents()
+        .await
         .into_iter()
         .map(|(agent_id, task_id, status)| AgentResponse {
             agent_id: agent_id.to_string(),
@@ -464,8 +467,52 @@ async fn list_agents(State(state): State<Arc<AgentState>>) -> impl IntoResponse 
             status: format!("{:?}", status),
         })
         .collect();
-    let count = responses.len();
 
+    // In demo mode (or when supervisor is empty), derive virtual agents from the event store.
+    if responses.is_empty() {
+        if let Some(ref store) = state.event_store {
+            let since = chrono::DateTime::<chrono::Utc>::MIN_UTC;
+            if let Ok(events) = store.get_events_since(since).await {
+                use std::collections::HashMap;
+                // Track stage and agent assignment separately so ordering doesn't matter.
+                let mut stages: HashMap<String, String> = HashMap::new();
+                let mut agent_ids: HashMap<String, String> = HashMap::new();
+                let mut completed: std::collections::HashSet<String> = std::collections::HashSet::new();
+                for envelope in &events {
+                    let Some(ref tid) = envelope.task_id else { continue };
+                    let id = tid.0.to_string();
+                    match &envelope.payload {
+                        molt_hub_core::events::types::DomainEvent::TaskCreated { initial_stage, .. } => {
+                            stages.insert(id.clone(), initial_stage.clone());
+                        }
+                        molt_hub_core::events::types::DomainEvent::TaskStageChanged { to_stage, .. } => {
+                            stages.insert(id.clone(), to_stage.clone());
+                        }
+                        molt_hub_core::events::types::DomainEvent::AgentAssigned { agent_id, .. } => {
+                            agent_ids.insert(id.clone(), agent_id.0.to_string());
+                        }
+                        molt_hub_core::events::types::DomainEvent::AgentCompleted { .. } => {
+                            completed.insert(id.clone());
+                        }
+                        _ => {}
+                    }
+                }
+                // Tasks that are currently in "in-progress" with an assigned agent and no completion
+                for (task_id, agent_id) in &agent_ids {
+                    let stage = stages.get(task_id).map(|s| s.as_str()).unwrap_or("");
+                    if stage == "in-progress" && !completed.contains(task_id) {
+                        responses.push(AgentResponse {
+                            agent_id: agent_id.clone(),
+                            task_id: task_id.clone(),
+                            status: "Running".to_owned(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    let count = responses.len();
     Json(AgentsListResponse {
         agents: responses,
         count,

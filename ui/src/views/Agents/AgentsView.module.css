@@ -10,6 +10,34 @@
   transition: var(--transition-theme);
 }
 
+/* Task filter banner --------------------------------------------------- */
+
+.taskFilterBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  background: color-mix(in srgb, var(--accent, #3b82f6) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 30%, transparent);
+  border-radius: 6px;
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.clearFilterLink {
+  font-size: 0.75rem;
+  color: var(--accent, #3b82f6);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.clearFilterLink:hover {
+  text-decoration: underline;
+}
+
 /* Header --------------------------------------------------------------- */
 
 .header {

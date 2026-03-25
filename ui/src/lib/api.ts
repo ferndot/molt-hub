@@ -228,6 +228,14 @@ export const api = {
 
   // Tasks
   getTasks: () => get<{ tasks: TaskSummary[] }>("/tasks"),
+  /** Derive current board state for all tasks from the event store. */
+  getBoardTasks: () => get<{ tasks: BoardTaskItem[] }>("/tasks/board"),
+  /** Derive triage items (blocked or awaiting approval) from the event store. */
+  getTriage: () => get<{ items: Array<{
+    id: string; task_id: string; task_name: string; agent_name: string;
+    stage: string; priority: string; type: string;
+    created_at: string; summary: string;
+  }> }>("/tasks/triage"),
   getTask: (id: string) =>
     get<TaskDetail>(`/tasks/${id}`),
   getTaskEvents: (id: string) =>
@@ -343,6 +351,17 @@ export interface TaskSummary {
   title: string | null;
   event_count: number;
   last_event_at: string | null;
+}
+
+/** Board-ready task projection returned by GET /api/tasks/board. */
+export interface BoardTaskItem {
+  task_id: string;
+  name: string;
+  stage: string;
+  status: string;
+  priority?: string;
+  agent_name?: string | null;
+  summary?: string;
 }
 
 export interface AgentSummary {

@@ -26,6 +26,7 @@ use crate::agents::worktree_registry::{WorktreeManagerCache, WorktreeRegistry};
 use crate::audit::{audit_router, start_audit_writer, AuditHandle, AuditState};
 use crate::credentials::{CredentialScope, KeyringStore};
 use crate::events::handlers::{events_router, tasks_router, EventStoreState};
+use crate::seed::maybe_seed_demo_data;
 use crate::integrations::github_app::GithubAppCredentials;
 use crate::integrations::github_handlers::{github_integrations_router, GithubAppState};
 use crate::integrations::github_oauth::GithubOAuthService;
@@ -149,15 +150,6 @@ pub async fn build_router(
         Arc::clone(&acp_adapter) as Arc<dyn AgentAdapter>,
     ));
 
-    // Agent API state
-    let agent_state = Arc::new(AgentState {
-        supervisor: Arc::clone(&supervisor),
-        output_buffer,
-        test_spawn_adapter: None,
-        worktree_managers: Arc::new(WorktreeManagerCache::new()),
-        worktree_registry: Arc::new(WorktreeRegistry::new()),
-    });
-
     // Audit log writer
     let audit_handle = start_audit_writer();
     let audit_state = Arc::new(AuditState {
@@ -173,6 +165,19 @@ pub async fn build_router(
     // ---- SQLite event store ------------------------------------------------
     let event_store_state = init_event_store().await;
 
+    // Agent API state (constructed after event store so we can pass it in)
+    let agent_state = Arc::new(AgentState {
+        supervisor: Arc::clone(&supervisor),
+        output_buffer,
+        test_spawn_adapter: None,
+        worktree_managers: Arc::new(WorktreeManagerCache::new()),
+        worktree_registry: Arc::new(WorktreeRegistry::new()),
+        event_store: event_store_state.as_ref().map(|es| Arc::clone(&es.store)),
+    });
+    if let Some(ref es) = event_store_state {
+        maybe_seed_demo_data(&es.store).await;
+    }
+
     // ---- Project runtime registry ------------------------------------------
     let board_template = pipeline_state.snapshot_config().await;
     let registry = Arc::new(ProjectRuntimeRegistry::new(board_template.clone()));
@@ -181,6 +186,15 @@ pub async fn build_router(
             "default",
             board_template.clone(),
         ));
+        // Seed a default board for demo mode so the boards list is never empty.
+        if std::env::var("MOLT_DEMO").as_deref() == Ok("1")
+            && boards.list_summaries().await.is_empty()
+        {
+            match boards.create_board("Demo Board").await {
+                Ok(id) => tracing::info!(board_id = %id, "seed: created demo board"),
+                Err(e) => tracing::warn!(error = %e, "seed: could not create demo board"),
+            }
+        }
         let default_runtime = Arc::new(ProjectRuntime {
             project_id: "default".to_owned(),
             supervisor: Arc::clone(&supervisor),

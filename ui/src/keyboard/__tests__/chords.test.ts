@@ -53,12 +53,6 @@ describe("chord key parsing", () => {
       expect(result?.action).toBe("goto-agents");
     });
 
-    it("g then c = goto-code-chat", () => {
-      let state = createChordState();
-      ({ next: state } = processChord(state, "g", T0));
-      const { result } = processChord(state, "c", WITHIN);
-      expect(result?.action).toBe("goto-code-chat");
-    });
   });
 
   describe("chord expiry", () => {

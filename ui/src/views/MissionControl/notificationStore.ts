@@ -183,6 +183,59 @@ function connectNotificationsWs(): () => void {
 }
 
 // ---------------------------------------------------------------------------
+// HTTP initialization
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch triage items from the API and seed the notification store.
+ * Call once at startup so the inbox is populated before any WS events arrive.
+ */
+export async function initNotificationsFromTriage(): Promise<void> {
+  try {
+    const res = await fetch("/api/tasks/triage");
+    if (!res.ok) return;
+    const data = await res.json() as { items: Array<{
+      id: string;
+      task_id: string;
+      task_name: string;
+      agent_name: string;
+      stage: string;
+      priority: string;
+      type: string;
+      created_at: string;
+      summary: string;
+    }> };
+    if (!Array.isArray(data.items)) return;
+
+    const existing = new Set(notifications().map((n) => n.id));
+    for (const item of data.items) {
+      if (existing.has(item.id)) continue;
+      const notif: Notification = {
+        id: item.id,
+        type: item.type === "decision" ? "decision" : "agent_update",
+        priority: (["p0","p1","p2","p3"].includes(item.priority) ? item.priority : "p2") as NotificationPriority,
+        title: item.task_name,
+        subtitle: item.summary || (item.stage ? `Stage: ${item.stage}` : undefined),
+        agentName: item.agent_name || undefined,
+        timestamp: item.created_at,
+        read: false,
+        actions: item.type === "decision"
+          ? [
+              { label: "Approve", kind: "approve" as ActionKind, handler: `approve:${item.task_id}` },
+              { label: "Defer",   kind: "defer"   as ActionKind, handler: `defer:${item.task_id}` },
+            ]
+          : [
+              { label: "Acknowledge", kind: "acknowledge" as ActionKind, handler: `ack:${item.task_id}` },
+            ],
+      };
+      setNotifications((prev) => sortByPriorityAndTime([...prev, notif]));
+    }
+  } catch {
+    // silently ignore
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 

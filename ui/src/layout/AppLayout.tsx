@@ -2,14 +2,32 @@ import type { ParentComponent } from "solid-js";
 import { createSignal, onMount, onCleanup } from "solid-js";
 import { useWebSocket, connect, disconnect } from "../lib/ws";
 import { useMissionControl } from "../views/MissionControl/missionControlStore";
-import { connectNotificationsWs } from "../views/MissionControl/notificationStore";
-import { unreadCount } from "./attentionStore";
+import { connectNotificationsWs, initNotificationsFromTriage } from "../views/MissionControl/notificationStore";
+import { unreadCount, setP0Count, setP1Count } from "./attentionStore";
+import { initAgents } from "./agentListUtils";
 import Sidebar from "./Sidebar";
 import TopBar from "./TopBar";
 import InboxSidebar from "../views/MissionControl/InboxSidebar";
 import StatusBar from "./StatusBar";
 import KeyboardManager from "../keyboard/KeyboardManager";
 import styles from "./AppLayout.module.css";
+import HookActivityToast from "../components/HookActivityToast/HookActivityToast";
+import { initMetrics } from "../stores/metricsStore";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+async function syncAttentionCounts(): Promise<void> {
+  try {
+    const res = await fetch("/api/tasks/triage");
+    if (!res.ok) return;
+    const data = await res.json() as { items: Array<{ priority: string }> };
+    if (!Array.isArray(data.items)) return;
+    setP0Count(data.items.filter(i => i.priority === "p0").length);
+    setP1Count(data.items.filter(i => i.priority === "p1").length);
+  } catch { /* ignore */ }
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -23,6 +41,10 @@ const AppLayout: ParentComponent = (props) => {
 
   onMount(() => {
     connect("/ws");
+    void initAgents();
+    void initMetrics();
+    void initNotificationsFromTriage();
+    void syncAttentionCounts();
   });
 
   // Subscribe to WS notifications topic; clean up on unmount
@@ -47,7 +69,9 @@ const AppLayout: ParentComponent = (props) => {
               inboxCount={unreadCount()}
             />
             <main class={styles.main}>
-              {props.children}
+              <div class={styles.pageEnter}>
+                {props.children}
+              </div>
             </main>
           </div>
           <InboxSidebar collapsed={!inboxOpen()} />
@@ -56,6 +80,7 @@ const AppLayout: ParentComponent = (props) => {
         {/* Bottom status bar */}
         <StatusBar status={ws.status()} />
       </div>
+      <HookActivityToast />
     </KeyboardManager>
   );
 };

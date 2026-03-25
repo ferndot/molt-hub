@@ -43,9 +43,10 @@
 }
 
 .navItem.active {
-  background: var(--sidebar-hover);
+  background: linear-gradient(90deg, rgba(67, 97, 238, 0.15) 0%, transparent 100%);
   color: var(--sidebar-text-active);
-  border-left: 3px solid var(--accent);
+  border-left: 2px solid var(--accent);
+  transition: background 0.2s ease;
 }
 
 .navIcon {

@@ -29,6 +29,7 @@ export interface StageEntry {
 export interface AgentDetail {
   id: string;
   name: string;
+  taskId: string;
   taskName: string;
   taskDescription: string;
   currentStage: string;
@@ -106,6 +107,7 @@ function mapApiAgent(a: AgentSummary): AgentDetail {
   return {
     id: a.agent_id,
     name: a.agent_id.slice(0, 8),
+    taskId: a.task_id ?? "",
     taskName: a.task_id ?? "",
     taskDescription: "",
     currentStage: a.status ?? "unknown",
@@ -175,6 +177,7 @@ export function registerAgentPlaceholder(
     {
       id,
       name: "Claude Code",
+      taskId: "",
       taskName: opts?.taskName ?? "Project chat",
       taskDescription: "",
       currentStage: "running",

@@ -22,6 +22,17 @@
   overflow: hidden;
 }
 
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .main {
   flex: 1;
   min-width: 0;
@@ -29,4 +40,8 @@
   background: var(--bg-secondary);
   color: var(--text-primary);
   transition: var(--transition-theme);
+}
+
+.pageEnter {
+  animation: pageEnter 0.2s ease both;
 }

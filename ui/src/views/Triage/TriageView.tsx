@@ -7,7 +7,7 @@
  */
 
 import type { Component } from "solid-js";
-import { createMemo, createSignal, For, Show, onCleanup } from "solid-js";
+import { createMemo, createSignal, For, onMount, Show, onCleanup } from "solid-js";
 import { createVirtualizer } from "../../lib/virtual";
 import {
   useTriageStore,
@@ -15,6 +15,7 @@ import {
   setSortMode,
   setupTriageSubscription,
   getFilteredItems,
+  initTriage,
 } from "./triageStore";
 import type { FilterMode, SortMode, TriageItem } from "./triageStore";
 import TriageItemCard from "./TriageItem";
@@ -101,6 +102,9 @@ const TriageView: Component = () => {
   // Wire up WebSocket subscription for real-time updates
   const unsub = setupTriageSubscription();
   onCleanup(unsub);
+
+  // Hydrate from HTTP on mount
+  onMount(() => { void initTriage(); });
 
   const { state } = useTriageStore();
 

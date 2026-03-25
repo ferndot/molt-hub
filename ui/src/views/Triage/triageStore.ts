@@ -159,6 +159,38 @@ export function setSortMode(mode: SortMode): void {
 }
 
 // ---------------------------------------------------------------------------
+// HTTP hydration — populate triage on mount
+// ---------------------------------------------------------------------------
+
+export async function initTriage(): Promise<void> {
+  try {
+    const data = await api.getTriage();
+    if (Array.isArray(data.items) && data.items.length > 0) {
+      setState(produce((s) => {
+        // Only add items not already present
+        const existing = new Set(s.items.map(i => i.id));
+        const newItems = data.items
+          .filter(raw => !existing.has(raw.id))
+          .map(raw => ({
+            id: raw.id,
+            taskId: raw.task_id,
+            taskName: raw.task_name,
+            agentName: raw.agent_name,
+            stage: raw.stage,
+            priority: raw.priority as Priority,
+            type: raw.type as "decision" | "info",
+            createdAt: raw.created_at,
+            summary: raw.summary,
+          }));
+        s.items = sortItems([...s.items, ...newItems]);
+      }));
+    }
+  } catch {
+    // Silently ignore — triage still works via WebSocket
+  }
+}
+
+// ---------------------------------------------------------------------------
 // WebSocket subscription (stub — wired for future real-time updates)
 // ---------------------------------------------------------------------------
 

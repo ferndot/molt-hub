@@ -21,7 +21,7 @@ import {
   fetchJiraStatus,
 } from "./views/Settings/settingsStore";
 import { initAgents, startAgentRefresh, stopAgentRefresh } from "./layout/AgentList";
-import CodeChatView from "./views/CodeChat/CodeChatView";
+import HowItWorksView from "./views/HowItWorks/HowItWorksView";
 
 // ---------------------------------------------------------------------------
 // Route views
@@ -38,8 +38,6 @@ const AgentsPage: Component = () => <AgentsView />;
 const BoardsPage: Component = () => <BoardsView />;
 
 const SettingsPage: Component = () => <SettingsView />;
-
-const CodeChatPage: Component = () => <CodeChatView />;
 
 // ---------------------------------------------------------------------------
 // App with persistent layout shell
@@ -75,9 +73,9 @@ const App: Component = () => {
       <Route path="/boards" component={BoardsPage} />
       <Route path="/agents" component={AgentsPage} />
       <Route path="/agents/:id" component={AgentDetailView} />
-      <Route path="/chat" component={CodeChatPage} />
       <Route path="/tasks/:id" component={TaskDetailView} />
       <Route path="/settings" component={SettingsPage} />
+      <Route path="/how-it-works" component={HowItWorksView} />
     </Router>
   );
 };

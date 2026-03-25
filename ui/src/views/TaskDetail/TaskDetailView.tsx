@@ -8,7 +8,7 @@
  */
 
 import type { Component } from "solid-js";
-import { Show, For, onMount, onCleanup } from "solid-js";
+import { Show, For, onMount, onCleanup, createSignal } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { TbOutlineArrowLeft } from "solid-icons/tb";
 import { task, events, loading, error, loadTask, clearTask } from "./taskDetailStore";
@@ -52,8 +52,16 @@ function stageLabel(stage: string): string {
 const TaskDetailView: Component = () => {
   const params = useParams<{ id: string }>();
 
+  const [taskAgents, setTaskAgents] = createSignal<Array<{agent_id: string; task_id: string; status: string}>>([]);
+
   onMount(() => {
     loadTask(params.id);
+    fetch("/api/agents")
+      .then(r => r.json())
+      .then((data: { agents: Array<{agent_id: string; task_id: string; status: string}> }) => {
+        setTaskAgents(data.agents.filter(a => a.task_id === params.id));
+      })
+      .catch(() => {});
   });
 
   onCleanup(() => {
@@ -101,6 +109,23 @@ const TaskDetailView: Component = () => {
               <div class={styles.body}>
                 {/* Main pane — description + timeline */}
                 <div class={styles.mainPane}>
+                  {/* Active Agents */}
+                  <Show when={taskAgents().length > 0}>
+                    <section class={styles.agentsSection}>
+                      <h3 class={styles.sectionTitle}>Active Agents</h3>
+                      <For each={taskAgents()}>
+                        {(agent) => (
+                          <div class={styles.agentRow}>
+                            <span class={styles.agentDot} />
+                            <span class={styles.agentIdText}>{agent.agent_id.slice(-8)}</span>
+                            <span class={styles.agentStatusBadge}>{agent.status}</span>
+                            <button class={styles.steerBtn} disabled>Steer</button>
+                          </div>
+                        )}
+                      </For>
+                    </section>
+                  </Show>
+
                   {/* Overview */}
                   <section>
                     <h3 class={styles.sectionTitle}>Overview</h3>

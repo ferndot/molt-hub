@@ -108,9 +108,6 @@ const KeyboardManager: ParentComponent = (props) => {
         case "goto-agents":
           navigate("/agents");
           break;
-        case "goto-code-chat":
-          navigate("/chat");
-          break;
       }
       return;
     }

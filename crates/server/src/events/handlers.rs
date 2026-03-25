@@ -28,7 +28,7 @@ use ulid::Ulid;
 use molt_hub_core::events::types::{DomainEvent, EventEnvelope};
 use molt_hub_core::events::{EventStore, EventStoreError, HumanDecisionKind, SqliteEventStore};
 use molt_hub_core::machine::{replay_task_machine_from_events, TaskMachine};
-use molt_hub_core::model::{EventId, Priority, SessionId, TaskId, TaskState};
+use molt_hub_core::model::{EventId, Priority, SessionId, TaskId, TaskOutcome, TaskState};
 use molt_hub_harness::supervisor::Supervisor;
 
 use crate::actors::run_lifecycle_hooks_for_event;
@@ -790,6 +790,558 @@ pub async fn submit_human_decision(
         .into_response()
 }
 
+/// GET /api/tasks/triage — derive tasks needing human attention from all stored events.
+#[instrument(skip_all)]
+pub async fn list_triage_tasks(State(state): State<Arc<EventStoreState>>) -> impl IntoResponse {
+    use std::collections::HashMap;
+
+    let since = DateTime::<Utc>::MIN_UTC;
+    let events = match state.store.get_events_since(since).await {
+        Ok(e) => e,
+        Err(e) => return error_response(e),
+    };
+
+    #[derive(Default)]
+    struct Proj {
+        id: String,
+        title: String,
+        stage: String,
+        priority: String,
+        agent_name: Option<String>,
+        summary: String,
+        status: String,
+        created_at: String,
+        had_agent_completed: bool,
+    }
+
+    let mut tasks: HashMap<String, Proj> = HashMap::new();
+
+    for envelope in &events {
+        let Some(ref tid) = envelope.task_id else {
+            continue;
+        };
+        let id = tid.0.to_string();
+        let proj = tasks.entry(id.clone()).or_insert_with(|| Proj {
+            id: id.clone(),
+            status: "waiting".to_owned(),
+            ..Default::default()
+        });
+
+        match &envelope.payload {
+            DomainEvent::TaskCreated {
+                title,
+                priority,
+                initial_stage,
+                ..
+            } => {
+                proj.title = title.clone();
+                proj.stage = initial_stage.clone();
+                proj.priority = format!("{priority:?}").to_ascii_lowercase();
+                proj.status = "waiting".to_owned();
+                proj.created_at = envelope.timestamp.to_rfc3339();
+            }
+            DomainEvent::TaskStageChanged { to_stage, .. } => {
+                proj.stage = to_stage.clone();
+                if proj.status == "blocked" {
+                    proj.status = if proj.agent_name.is_some() {
+                        "running".to_owned()
+                    } else {
+                        "waiting".to_owned()
+                    };
+                } else {
+                    proj.status = "waiting".to_owned();
+                }
+            }
+            DomainEvent::TaskPriorityChanged { to, .. } => {
+                proj.priority = format!("{to:?}").to_ascii_lowercase();
+            }
+            DomainEvent::AgentAssigned { agent_name, .. } => {
+                proj.agent_name = Some(agent_name.clone());
+                proj.status = "running".to_owned();
+            }
+            DomainEvent::AgentOutput { .. } => {}
+            DomainEvent::AgentCompleted { summary, .. } => {
+                proj.had_agent_completed = true;
+                if let Some(s) = summary {
+                    proj.summary = s.clone();
+                }
+                proj.agent_name = None;
+                if proj.stage == "deployment" {
+                    proj.status = "complete".to_owned();
+                } else {
+                    proj.status = "waiting".to_owned();
+                }
+            }
+            DomainEvent::TaskBlocked { .. } => {
+                proj.status = "blocked".to_owned();
+            }
+            DomainEvent::TaskUnblocked { .. } => {
+                proj.status = if proj.agent_name.is_some() {
+                    "running".to_owned()
+                } else {
+                    "waiting".to_owned()
+                };
+            }
+            DomainEvent::TaskCompleted { .. } => {
+                proj.status = "complete".to_owned();
+            }
+            _ => {}
+        }
+    }
+
+    let items: Vec<serde_json::Value> = tasks
+        .into_values()
+        .filter(|p| !p.title.is_empty())
+        .filter(|p| {
+            // Include blocked tasks (type = "info")
+            if p.status == "blocked" {
+                return true;
+            }
+            // Include tasks in testing/review/planning with status "waiting" that had AgentCompleted (type = "decision")
+            if p.status == "waiting"
+                && (p.stage == "testing" || p.stage == "review" || p.stage == "planning")
+                && p.had_agent_completed
+            {
+                return true;
+            }
+            false
+        })
+        .map(|p| {
+            let item_type = if p.status == "blocked" { "info" } else { "decision" };
+            serde_json::json!({
+                "id": p.id,
+                "task_id": p.id,
+                "task_name": p.title,
+                "agent_name": p.agent_name.unwrap_or_default(),
+                "stage": p.stage,
+                "priority": p.priority,
+                "type": item_type,
+                "created_at": p.created_at,
+                "summary": p.summary,
+            })
+        })
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "items": items })),
+    )
+        .into_response()
+}
+
+/// GET /api/tasks/:id — derive full task detail from events.
+#[instrument(skip_all)]
+pub async fn get_task_detail(
+    State(state): State<Arc<EventStoreState>>,
+    Path(task_id_str): Path<String>,
+) -> impl IntoResponse {
+    let ulid = match Ulid::from_str(task_id_str.trim()) {
+        Ok(u) => u,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("invalid task id: {e}") })),
+            )
+                .into_response();
+        }
+    };
+    let task_id = TaskId(ulid);
+
+    let events = match state.store.get_events_for_task(&task_id).await {
+        Ok(e) => e,
+        Err(e) => return error_response(e),
+    };
+
+    if events.is_empty() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "task not found" })),
+        )
+            .into_response();
+    }
+
+    let mut title = String::new();
+    let mut description = String::new();
+    let mut current_stage = String::new();
+    let mut priority = String::new();
+    let mut assigned_agent: Option<String> = None;
+    let mut agent_name: Option<String> = None;
+    let mut state_type = "pending".to_owned();
+    let mut created_at = String::new();
+    let mut updated_at = String::new();
+
+    for envelope in &events {
+        updated_at = envelope.timestamp.to_rfc3339();
+        match &envelope.payload {
+            DomainEvent::TaskCreated {
+                title: t,
+                description: d,
+                initial_stage,
+                priority: p,
+            } => {
+                title = t.clone();
+                description = d.clone();
+                current_stage = initial_stage.clone();
+                priority = format!("{p:?}").to_ascii_lowercase();
+                created_at = envelope.timestamp.to_rfc3339();
+                state_type = "pending".to_owned();
+            }
+            DomainEvent::TaskStageChanged { to_stage, .. } => {
+                current_stage = to_stage.clone();
+                state_type = "in_progress".to_owned();
+            }
+            DomainEvent::TaskPriorityChanged { to, .. } => {
+                priority = format!("{to:?}").to_ascii_lowercase();
+            }
+            DomainEvent::AgentAssigned {
+                agent_id,
+                agent_name: name,
+            } => {
+                assigned_agent = Some(agent_id.0.to_string());
+                agent_name = Some(name.clone());
+                state_type = "in_progress".to_owned();
+            }
+            DomainEvent::AgentCompleted { .. } => {
+                assigned_agent = None;
+                agent_name = None;
+                state_type = "awaiting_approval".to_owned();
+            }
+            DomainEvent::TaskBlocked { .. } => {
+                state_type = "blocked".to_owned();
+            }
+            DomainEvent::TaskUnblocked { .. } => {
+                state_type = if assigned_agent.is_some() {
+                    "in_progress".to_owned()
+                } else {
+                    "pending".to_owned()
+                };
+            }
+            DomainEvent::HumanDecision { .. } => {
+                state_type = "in_progress".to_owned();
+            }
+            DomainEvent::TaskCompleted { outcome } => {
+                state_type = match outcome {
+                    TaskOutcome::Success => "completed",
+                    TaskOutcome::Rejected { .. } => "failed",
+                    TaskOutcome::Abandoned { .. } => "completed",
+                }
+                .to_owned();
+            }
+            _ => {}
+        }
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "id": task_id.0.to_string(),
+            "title": title,
+            "description": description,
+            "current_stage": current_stage,
+            "priority": priority,
+            "assigned_agent": assigned_agent,
+            "agent_name": agent_name,
+            "state_type": state_type,
+            "created_at": created_at,
+            "updated_at": updated_at,
+        })),
+    )
+        .into_response()
+}
+
+/// GET /api/tasks/:id/events — return a formatted activity timeline for a task.
+#[instrument(skip_all)]
+pub async fn get_task_events(
+    State(state): State<Arc<EventStoreState>>,
+    Path(task_id_str): Path<String>,
+) -> impl IntoResponse {
+    let ulid = match Ulid::from_str(task_id_str.trim()) {
+        Ok(u) => u,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("invalid task id: {e}") })),
+            )
+                .into_response();
+        }
+    };
+    let task_id = TaskId(ulid);
+
+    let events = match state.store.get_events_for_task(&task_id).await {
+        Ok(e) => e,
+        Err(e) => return error_response(e),
+    };
+
+    let formatted: Vec<serde_json::Value> = events
+        .iter()
+        .map(|envelope| {
+            let (event_type, actor, description) = match &envelope.payload {
+                DomainEvent::TaskCreated {
+                    initial_stage,
+                    priority,
+                    ..
+                } => (
+                    "task_created",
+                    "system".to_owned(),
+                    format!(
+                        "Task created in {} with {} priority",
+                        initial_stage,
+                        format!("{priority:?}").to_ascii_lowercase()
+                    ),
+                ),
+                DomainEvent::TaskStageChanged {
+                    from_stage,
+                    to_stage,
+                    ..
+                } => (
+                    "task_stage_changed",
+                    "system".to_owned(),
+                    format!("Moved from {} to {}", from_stage, to_stage),
+                ),
+                DomainEvent::AgentAssigned { agent_name, .. } => (
+                    "agent_assigned",
+                    agent_name.clone(),
+                    format!("Agent {} assigned", agent_name),
+                ),
+                DomainEvent::AgentOutput { agent_id, output } => {
+                    let truncated = if output.len() > 80 {
+                        format!("{}…", &output[..80])
+                    } else {
+                        output.clone()
+                    };
+                    (
+                        "agent_output",
+                        agent_id.0.to_string(),
+                        format!("Agent output: {}", truncated),
+                    )
+                }
+                DomainEvent::AgentCompleted {
+                    agent_id, summary, ..
+                } => (
+                    "agent_completed",
+                    agent_id.0.to_string(),
+                    format!(
+                        "Agent completed: {}",
+                        summary.as_deref().unwrap_or("work complete")
+                    ),
+                ),
+                DomainEvent::TaskBlocked { reason } => (
+                    "task_blocked",
+                    "system".to_owned(),
+                    format!("Blocked: {}", reason),
+                ),
+                DomainEvent::TaskUnblocked { resolution } => (
+                    "task_unblocked",
+                    "system".to_owned(),
+                    format!(
+                        "Unblocked: {}",
+                        resolution.as_deref().unwrap_or("resolved")
+                    ),
+                ),
+                DomainEvent::HumanDecision {
+                    decided_by,
+                    decision,
+                    ..
+                } => {
+                    let kind_str = match decision {
+                        HumanDecisionKind::Approved => "approved",
+                        HumanDecisionKind::Rejected { .. } => "rejected",
+                        HumanDecisionKind::Redirected { .. } => {
+                            "redirected"
+                        }
+                    };
+                    (
+                        "human_decision",
+                        "human".to_owned(),
+                        format!("{}: {}", decided_by, kind_str),
+                    )
+                }
+                DomainEvent::TaskPriorityChanged { from, to } => (
+                    "task_priority_changed",
+                    "system".to_owned(),
+                    format!(
+                        "Priority changed from {} to {}",
+                        format!("{from:?}").to_ascii_lowercase(),
+                        format!("{to:?}").to_ascii_lowercase()
+                    ),
+                ),
+                DomainEvent::TaskCompleted { .. } => (
+                    "task_completed",
+                    "system".to_owned(),
+                    "Task completed".to_owned(),
+                ),
+                other => {
+                    let type_str = format!("{:?}", other)
+                        .split('{')
+                        .next()
+                        .unwrap_or("unknown")
+                        .trim()
+                        .to_ascii_lowercase();
+                    (
+                        "unknown",
+                        "system".to_owned(),
+                        type_str,
+                    )
+                }
+            };
+
+            serde_json::json!({
+                "id": envelope.id.0.to_string(),
+                "timestamp": envelope.timestamp.to_rfc3339(),
+                "event_type": event_type,
+                "actor": actor,
+                "description": description,
+            })
+        })
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "events": formatted })),
+    )
+        .into_response()
+}
+
+/// GET /api/tasks/board — derive current board-task state from all stored events.
+///
+/// Returns a flat list of tasks with the fields the board UI needs: id, name,
+/// stage, status, priority, agent_name, and summary.  The status is derived
+/// from a simple event scan (no pipeline config required):
+///
+/// - `blocked`  — last status-relevant event was `TaskBlocked`
+/// - `running`  — last status-relevant event was `AgentAssigned`
+/// - `complete` — `AgentCompleted` while in the terminal `deployed` stage
+/// - `waiting`  — everything else (pending, code-review, testing, etc.)
+#[instrument(skip_all)]
+pub async fn list_board_tasks(State(state): State<Arc<EventStoreState>>) -> impl IntoResponse {
+    use std::collections::HashMap;
+
+    let since = DateTime::<Utc>::MIN_UTC;
+    let events = match state.store.get_events_since(since).await {
+        Ok(e) => e,
+        Err(e) => return error_response(e),
+    };
+
+    #[derive(Default)]
+    struct Proj {
+        id: String,
+        title: String,
+        stage: String,
+        priority: String,
+        agent_name: Option<String>,
+        summary: String,
+        /// Derived from the last status-affecting event.
+        status: String,
+    }
+
+    let mut tasks: HashMap<String, Proj> = HashMap::new();
+
+    for envelope in &events {
+        let Some(ref tid) = envelope.task_id else {
+            continue;
+        };
+        let id = tid.0.to_string();
+        let proj = tasks.entry(id.clone()).or_insert_with(|| Proj {
+            id: id.clone(),
+            status: "waiting".to_owned(),
+            ..Default::default()
+        });
+
+        match &envelope.payload {
+            DomainEvent::TaskCreated {
+                title,
+                priority,
+                initial_stage,
+                ..
+            } => {
+                proj.title = title.clone();
+                proj.stage = initial_stage.clone();
+                proj.priority = format!("{priority:?}").to_ascii_lowercase();
+                proj.status = "waiting".to_owned();
+            }
+            DomainEvent::TaskStageChanged { to_stage, .. } => {
+                proj.stage = to_stage.clone();
+                if proj.status == "blocked" {
+                    // Unblock on stage change
+                    proj.status = if proj.agent_name.is_some() {
+                        "running".to_owned()
+                    } else {
+                        "waiting".to_owned()
+                    };
+                } else {
+                    // Moving stages always resets to waiting
+                    proj.status = "waiting".to_owned();
+                }
+            }
+            DomainEvent::TaskPriorityChanged { to, .. } => {
+                proj.priority = format!("{to:?}").to_ascii_lowercase();
+            }
+            DomainEvent::AgentAssigned { agent_name, .. } => {
+                proj.agent_name = Some(agent_name.clone());
+                proj.status = "running".to_owned();
+            }
+            DomainEvent::AgentOutput { .. } => {
+                // Keep status as-is; agent is still running
+            }
+            DomainEvent::AgentCompleted { summary, .. } => {
+                proj.agent_name = None;
+                if let Some(s) = summary {
+                    proj.summary = s.clone();
+                }
+                // Terminal stage → complete; otherwise waiting for next action
+                if proj.stage == "deployment" {
+                    proj.status = "complete".to_owned();
+                } else {
+                    proj.status = "waiting".to_owned();
+                }
+            }
+            DomainEvent::TaskBlocked { .. } => {
+                proj.status = "blocked".to_owned();
+            }
+            DomainEvent::TaskUnblocked { .. } => {
+                proj.status = if proj.agent_name.is_some() {
+                    "running".to_owned()
+                } else {
+                    "waiting".to_owned()
+                };
+            }
+            DomainEvent::TaskCompleted { .. } => {
+                proj.status = "complete".to_owned();
+            }
+            _ => {}
+        }
+    }
+
+    let mut task_list: Vec<serde_json::Value> = tasks
+        .into_values()
+        .filter(|p| !p.title.is_empty())
+        .map(|p| {
+            serde_json::json!({
+                "task_id":    p.id,
+                "name":       p.title,
+                "stage":      p.stage,
+                "status":     p.status,
+                "priority":   p.priority,
+                "agent_name": p.agent_name,
+                "summary":    p.summary,
+            })
+        })
+        .collect();
+
+    // Sort newest-first by task_id (ULIDs are lexicographically time-ordered).
+    task_list.sort_by(|a, b| {
+        b["task_id"]
+            .as_str()
+            .cmp(&a["task_id"].as_str())
+    });
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "tasks": task_list })),
+    )
+        .into_response()
+}
+
 // ---------------------------------------------------------------------------
 // Error helpers
 // ---------------------------------------------------------------------------
@@ -922,8 +1474,11 @@ pub async fn get_task(
 pub fn tasks_router(state: Arc<EventStoreState>) -> Router {
     Router::new()
         .route("/", get(list_tasks))
+        .route("/board", get(list_board_tasks))
+        .route("/triage", get(list_triage_tasks))
         .route("/create", post(create_task))
-        .route("/:id", get(get_task))
+        .route("/:id", get(get_task_detail))
+        .route("/:id/events", get(get_task_events))
         .route("/:id/move", post(move_task_stage))
         .route("/:id/decision", post(submit_human_decision))
         .with_state(state)

@@ -18,6 +18,7 @@ export type AgentStatus = "running" | "paused" | "idle" | "terminated";
 
 export interface Agent {
   id: string;
+  taskId: string;
   name: string;
   status: AgentStatus;
   stage: string;
@@ -65,9 +66,10 @@ function mapApiStatus(status: string): AgentStatus {
 export function mapApiAgent(a: AgentSummary): Agent {
   return {
     id: a.agent_id,
-    name: a.agent_id.slice(0, 8),
+    taskId: a.task_id,
+    name: `Agent ${a.agent_id.slice(-4)}`,
     status: mapApiStatus(a.status),
-    stage: a.status,
+    stage: mapApiStatus(a.status) === "running" ? "in-progress" : a.status.toLowerCase(),
   };
 }
 
