@@ -27,7 +27,7 @@ use chrono::Utc;
 use agent_client_protocol::Agent as _;
 use tokio::sync::{broadcast, mpsc};
 use tokio_util::compat::{TokioAsyncReadCompatExt, TokioAsyncWriteCompatExt};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use molt_hub_core::model::{AgentId, AgentStatus};
 
@@ -132,8 +132,7 @@ impl agent_client_protocol::Client for AcpClientImpl {
                     }
                 }
             }
-            // Ignore all other update types (thought chunks, tool call updates, etc.)
-            _ => {}
+            _other => {}
         }
 
         Ok(())
@@ -201,7 +200,7 @@ impl AcpAdapter {
     pub fn resolve_login_command(adapter_type: &str) -> Result<(String, Vec<String>), AdapterError> {
         let (cmd, args): (&str, &[&str]) = match adapter_type {
             "claude" | "claude-code" | "claude-agent-acp" | "claude-acp" => {
-                ("claude", &["login"])
+                ("claude", &["auth", "login"])
             }
             "opencode" => ("opencode", &["login"]),
             "goose" => ("goose", &["login"]),
@@ -268,9 +267,26 @@ impl AcpAdapter {
     /// `#!/usr/bin/env node` scripts work even when the server has a minimal PATH.
     pub fn augmented_path() -> String {
         let current = std::env::var("PATH").unwrap_or_default();
-        match Self::node_bin_dir() {
-            Some(dir) => format!("{}:{}", dir.display(), current),
-            None => current,
+
+        // Common user-local bin dirs that may not be in the server's inherited PATH.
+        let mut extra: Vec<String> = Vec::new();
+        if let Some(home) = std::env::var_os("HOME") {
+            let home = std::path::Path::new(&home);
+            for rel in &[".local/bin", ".cargo/bin"] {
+                let dir = home.join(rel);
+                if dir.exists() {
+                    extra.push(dir.to_string_lossy().into_owned());
+                }
+            }
+        }
+        if let Some(node_dir) = Self::node_bin_dir() {
+            extra.push(node_dir.to_string_lossy().into_owned());
+        }
+
+        if extra.is_empty() {
+            current
+        } else {
+            format!("{}:{}", extra.join(":"), current)
         }
     }
 
@@ -626,11 +642,16 @@ impl AgentAdapter for AcpAdapter {
 
                         match prompt_result {
                             Ok(resp) => {
-                                debug!(
+                                info!(
                                     agent_id = %agent_id_clone,
                                     stop_reason = ?resp.stop_reason,
                                     "ACP initial prompt completed",
                                 );
+                                // Flush partial output buffer at turn end
+                                let _ = event_tx_thread.send(AgentEvent::TurnEnd {
+                                    agent_id: agent_id_clone.clone(),
+                                    timestamp: Utc::now(),
+                                });
                                 if resp.stop_reason == agent_client_protocol::StopReason::EndTurn {
                                     // Emit Completed only if the message loop also ends.
                                     // We continue to the follow-up loop below so the caller
@@ -682,6 +703,10 @@ impl AgentAdapter for AcpAdapter {
                                     stop_reason = ?resp.stop_reason,
                                     "ACP prompt completed",
                                 );
+                                let _ = event_tx_thread.send(AgentEvent::TurnEnd {
+                                    agent_id: agent_id_clone.clone(),
+                                    timestamp: Utc::now(),
+                                });
                             }
                             Err(e) => {
                                 warn!(

@@ -101,18 +101,31 @@ pub fn spawn_agent_output_buffer_task(
     buffer: Arc<AgentOutputBuffer>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
+        let mut partial: std::collections::HashMap<String, String> = std::collections::HashMap::new();
         loop {
             match rx.recv().await {
-                Ok(AgentEvent::Output {
-                    agent_id, content, ..
-                }) => {
+                Ok(AgentEvent::Output { agent_id, content, .. }) => {
                     let id = agent_id.to_string();
                     if content.is_empty() {
                         continue;
                     }
-                    // One broadcast chunk may contain multiple lines.
-                    for line in content.lines() {
-                        buffer.push(&id, line.to_string());
+                    let buf = partial.entry(id.clone()).or_default();
+                    buf.push_str(&content);
+                    while let Some(nl) = buf.find('\n') {
+                        let line = buf[..nl].to_string();
+                        *buf = buf[nl + 1..].to_string();
+                        if !line.is_empty() {
+                            buffer.push(&id, line);
+                        }
+                    }
+                }
+                Ok(AgentEvent::TurnEnd { ref agent_id, .. }) => {
+                    let id = agent_id.to_string();
+                    if let Some(buf) = partial.remove(&id) {
+                        let trimmed = buf.trim_end_matches('\r').to_string();
+                        if !trimmed.is_empty() {
+                            buffer.push(&id, trimmed);
+                        }
                     }
                 }
                 Ok(_) => {}

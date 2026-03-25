@@ -94,21 +94,41 @@ pub async fn build_router(
     // Wire AgentEvent → WebSocket broadcasts
     {
         use tokio::sync::broadcast;
+        use std::collections::HashMap;
         let ws_fanout_manager = Arc::clone(&manager);
         let mut ws_fanout_rx = event_tx.subscribe();
         tokio::spawn(async move {
+            let mut partial: HashMap<String, String> = HashMap::new();
             loop {
                 match ws_fanout_rx.recv().await {
                     Ok(AgentEvent::Output { agent_id, content, .. }) => {
                         let id = agent_id.to_string();
-                        for line in content.lines() {
+                        let buf = partial.entry(id.clone()).or_default();
+                        buf.push_str(&content);
+                        while let Some(nl) = buf.find('\n') {
+                            let line = buf[..nl].to_string();
+                            *buf = buf[nl + 1..].to_string();
                             if !line.is_empty() {
-                                broadcast_agent_output(&ws_fanout_manager, &id, line);
+                                broadcast_agent_output(&ws_fanout_manager, &id, &line);
+                            }
+                        }
+                    }
+                    Ok(AgentEvent::TurnEnd { ref agent_id, .. }) => {
+                        let id = agent_id.to_string();
+                        if let Some(buf) = partial.remove(&id) {
+                            if !buf.trim().is_empty() {
+                                broadcast_agent_output(&ws_fanout_manager, &id, buf.trim_end_matches('\r'));
                             }
                         }
                     }
                     Ok(AgentEvent::Error { agent_id, message, .. }) => {
                         let id = agent_id.to_string();
+                        // Flush partial first
+                        if let Some(buf) = partial.remove(&id) {
+                            if !buf.trim().is_empty() {
+                                broadcast_agent_output(&ws_fanout_manager, &id, buf.trim_end_matches('\r'));
+                            }
+                        }
                         let auth_required = message.starts_with("auth_required:");
                         broadcast_agent_error(&ws_fanout_manager, &id, &message, auth_required);
                     }

@@ -713,16 +713,23 @@ async fn login_agent(
                     "`{command}` not found. Install the CLI first (e.g. `npm install -g @anthropic-ai/claude-code`)."
                 ));
             }
-            Err(e) => return Err(format!("failed to spawn `{command} login`: {e}")),
+            Err(e) => return Err(format!("failed to spawn `{command} {args}`: {e}", args = args.join(" "))),
         };
 
+        let full_cmd = format!("{command} {}", args.join(" "));
         match child.wait_with_output() {
             Ok(output) if output.status.success() => Ok(()),
             Ok(output) => {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                Err(format!("`{command} login` failed: {stderr}"))
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let detail = if !stderr.trim().is_empty() {
+                    stderr.into_owned()
+                } else {
+                    stdout.into_owned()
+                };
+                Err(format!("`{full_cmd}` failed: {detail}"))
             }
-            Err(e) => Err(format!("`{command} login` error: {e}")),
+            Err(e) => Err(format!("`{full_cmd}` error: {e}")),
         }
     })
     .await;

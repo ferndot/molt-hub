@@ -1,8 +1,8 @@
 /**
  * CodeChatView — project-scoped Claude Code session inside Molt Hub.
  *
- * Spawns a long-lived agent with the Claude CLI adapter (same harness as task agents),
- * streams stdout to the Output panel, and uses the steering API for follow-up prompts.
+ * Manages session lifecycle (start/end, localStorage, polling, subscription).
+ * The chat stream + input bar are rendered by <AgentChat>.
  */
 
 import {
@@ -25,9 +25,8 @@ import {
   setupAgentSubscription,
   startAgentPolling,
 } from "../AgentDetail/agentStore";
-import OutputStream from "../AgentDetail/OutputStream";
-import SteerChat from "../AgentDetail/SteerChat";
 import { clearMessages } from "../AgentDetail/steerStore";
+import AgentChat from "../../components/AgentChat/AgentChat";
 import adStyles from "../AgentDetail/AgentDetailView.module.css";
 import styles from "./CodeChatView.module.css";
 
@@ -61,7 +60,9 @@ function clearStoredAgentId(): void {
   }
 }
 
-type LeftTab = "output" | "chat";
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 const CodeChatView: Component = () => {
   const [sessionAgentId, setSessionAgentId] = createSignal<string | null>(null);
@@ -70,7 +71,6 @@ const CodeChatView: Component = () => {
   const [projectsError, setProjectsError] = createSignal<string | null>(null);
   const [startError, setStartError] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
-  const [leftTab, setLeftTab] = createSignal<LeftTab>("output");
   const [ready, setReady] = createSignal(false);
 
   const agent = () => {
@@ -167,10 +167,11 @@ const CodeChatView: Component = () => {
       saveStoredAgentId(id);
       clearMessages(id);
       registerAgentPlaceholder(id, { taskName: "Project chat" });
+      const earlyUnsub = setupAgentSubscription(id);
+      onCleanup(earlyUnsub);
       await fetchAgents();
       await hydrateAgentOutput(id);
       setSessionAgentId(id);
-      setLeftTab("output");
     } catch (e) {
       setStartError(
         e instanceof Error ? e.message : "Failed to start Claude Code session.",
@@ -199,12 +200,12 @@ const CodeChatView: Component = () => {
 
   return (
     <div class={adStyles.container}>
+      {/* Header */}
       <div class={adStyles.header}>
         <a href="/boards" class={adStyles.backBtn}>
           <TbOutlineArrowLeft size={14} style={{ "vertical-align": "middle" }} /> Home
         </a>
         <span class={adStyles.agentName}>Claude Code</span>
-        <span class={adStyles.stagePill}>Project chat</span>
         <Show when={sessionAgentId()}>
           <button
             type="button"
@@ -255,17 +256,18 @@ const CodeChatView: Component = () => {
         }}
       </Show>
 
+      {/* Loading banner */}
       <Show when={!ready()}>
         <div class={styles.loadingBanner}>Loading…</div>
       </Show>
 
+      {/* Landing screen */}
       <Show when={ready() && !sessionAgentId()}>
         <div class={styles.landing}>
           <h2 class={styles.landingTitle}>Claude Code in Molt Hub</h2>
           <p class={styles.landingBody}>
-            Start a session to run the Claude CLI in your project directory. Streamed output
-            appears in the Output tab; use Chat to send follow-up instructions (same steering
-            channel as task agents).
+            Start a session to run the Claude CLI in your project directory. Output streams
+            inline; send follow-up instructions directly in the input bar below.
           </p>
           <Show when={projectsError()}>
             {(msg) => <p class={styles.errorText}>{msg()}</p>}
@@ -290,59 +292,9 @@ const CodeChatView: Component = () => {
         </div>
       </Show>
 
+      {/* Unified terminal stream via AgentChat */}
       <Show when={sessionAgentId() && agent()}>
-        <div class={adStyles.body}>
-          <div class={adStyles.leftPane}>
-            <div class={adStyles.tabBar}>
-              <button
-                type="button"
-                class={`${adStyles.tab} ${leftTab() === "output" ? adStyles.tabActive : ""}`}
-                onClick={() => setLeftTab("output")}
-              >
-                Output
-              </button>
-              <button
-                type="button"
-                class={`${adStyles.tab} ${leftTab() === "chat" ? adStyles.tabActive : ""}`}
-                onClick={() => setLeftTab("chat")}
-              >
-                Chat
-              </button>
-            </div>
-            <Show when={leftTab() === "output"}>
-              <OutputStream
-                lines={getAgent(sessionAgentId()!)?.outputLines ?? []}
-                status={getAgent(sessionAgentId()!)?.status ?? "idle"}
-              />
-            </Show>
-            <Show when={leftTab() === "chat"}>
-              <SteerChat agentId={sessionAgentId()!} />
-            </Show>
-          </div>
-          <div class={adStyles.divider} />
-          <div class={adStyles.rightPane}>
-            <section class={styles.sideSection}>
-              <h3 class={styles.sideTitle}>Session</h3>
-              <p class={styles.sideMuted}>
-                Agent id <code class={styles.mono}>{sessionAgentId()}</code>
-              </p>
-              <p class={styles.sideMuted}>
-                This is the same Claude CLI harness as agents on the Agents page. Open{" "}
-                <a
-                  class={styles.inlineLink}
-                  href={`/agents/${sessionAgentId()!}`}
-                >
-                  full agent detail
-                </a>{" "}
-                for pause, approve, and metadata.
-              </p>
-            </section>
-            <section class={styles.sideSection}>
-              <h3 class={styles.sideTitle}>Repository</h3>
-              <p class={styles.sideMuted}>{repoPath() || "—"}</p>
-            </section>
-          </div>
-        </div>
+        <AgentChat agentId={sessionAgentId()!} />
       </Show>
     </div>
   );

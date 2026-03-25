@@ -115,13 +115,6 @@ const Sidebar: Component<Props> = (props) => {
               </Show>
             </A>
             <A
-              href="/chat"
-              class={styles.navItem}
-              classList={{ [styles.active]: isActive("/chat") }}
-            >
-              <span class={styles.navIcon}>{NAV_ICONS["/chat"]?.()}</span>
-            </A>
-            <A
               href="/agents"
               class={styles.navItem}
               classList={{ [styles.active]: isActive("/agents") }}
@@ -139,16 +132,16 @@ const Sidebar: Component<Props> = (props) => {
 
       {/* Claude Code + settings — pinned to bottom */}
       <div class={styles.bottomNav}>
-        <A
-          href="/chat"
-          class={styles.navItem}
-          classList={{ [styles.active]: isActive("/chat") }}
-        >
-          <span class={styles.navIcon}>{NAV_ICONS["/chat"]?.()}</span>
-          <Show when={!props.collapsed}>
+        <Show when={!props.collapsed}>
+          <A
+            href="/chat"
+            class={styles.navItem}
+            classList={{ [styles.active]: isActive("/chat") }}
+          >
+            <span class={styles.navIcon}>{NAV_ICONS["/chat"]?.()}</span>
             <span class={styles.navLabel}>Claude Code</span>
-          </Show>
-        </A>
+          </A>
+        </Show>
         <A
           href="/settings"
           class={styles.navItem}

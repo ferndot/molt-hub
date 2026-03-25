@@ -136,6 +136,11 @@ pub enum AgentEvent {
         message: Option<String>,
         timestamp: DateTime<Utc>,
     },
+    /// Signals that the agent finished one prompt/turn (output for this turn is complete).
+    TurnEnd {
+        agent_id: AgentId,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 // ---------------------------------------------------------------------------

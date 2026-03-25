@@ -131,8 +131,12 @@ export async function fetchAgents(): Promise<void> {
       return agents.map((raw) => {
         const m = mapApiAgent(raw);
         const old = prevById.get(m.id);
-        if (old && old.outputLines.length > 0) {
-          return { ...m, outputLines: old.outputLines };
+        if (old) {
+          return {
+            ...m,
+            outputLines: old.outputLines.length > 0 ? old.outputLines : m.outputLines,
+            authError: old.authError,
+          };
         }
         return m;
       });
@@ -192,8 +196,10 @@ export async function hydrateAgentOutput(agentId: string): Promise<void> {
       text: String(l.line ?? ""),
       timestamp: formatOutputTimestamp(l.timestamp),
     }));
+    const authLine = mapped.findLast((l) => l.text.startsWith("auth_required:"));
+    const authError = authLine ? authLine.text.replace(/^auth_required:\s*/, "") : undefined;
     setState("agents", (agents) =>
-      agents.map((a) => (a.id === agentId ? { ...a, outputLines: mapped } : a)),
+      agents.map((a) => (a.id === agentId ? { ...a, outputLines: mapped, authError } : a)),
     );
   } catch {
     /* ignore */
@@ -235,7 +241,8 @@ export function setupAgentSubscription(agentId: string): () => void {
     }
 
     // Append agent output lines to the store.
-    const output = payload.output as string | undefined;
+    // Server sends { type: "agent_output", line: "...", timestamp: "..." }
+    const output = (payload.line ?? payload.output) as string | undefined;
     const timestamp = payload.timestamp as string | undefined;
     if (output) {
       const ts = timestamp

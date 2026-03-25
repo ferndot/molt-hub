@@ -103,38 +103,3 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
-
-.sideSection {
-  margin-bottom: 1.25rem;
-}
-
-.sideTitle {
-  margin: 0 0 0.5rem;
-  font-size: 0.6875rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-}
-
-.sideMuted {
-  margin: 0;
-  font-size: 0.8125rem;
-  line-height: 1.5;
-  color: var(--text-muted);
-}
-
-.mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 0.75rem;
-  word-break: break-all;
-}
-
-.inlineLink {
-  color: var(--accent, #3b82f6);
-  text-decoration: none;
-}
-
-.inlineLink:hover {
-  text-decoration: underline;
-}
