@@ -37,6 +37,7 @@ export interface AgentDetail {
   priority: Priority;
   assignedAt: string;
   outputLines: OutputLine[];
+  authError?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -59,6 +60,15 @@ const [state, setState] = createStore<AgentDetailState>({
 
 export function setActiveAgent(id: string): void {
   setState("activeId", id);
+}
+
+export function clearAuthError(agentId: string): void {
+  setState(
+    "agents",
+    (a) => a.id === agentId,
+    "authError",
+    undefined,
+  );
 }
 
 export function appendOutputLine(agentId: string, line: OutputLine): void {
@@ -210,6 +220,19 @@ export function setupAgentSubscription(agentId: string): () => void {
   const unsubscribe = subscribe(topic, (msg) => {
     if (msg.type !== "event") return;
     const payload = msg.payload as Record<string, unknown>;
+
+    // Handle auth errors.
+    if (payload.type === "agent_error") {
+      const authRequired = payload.auth_required as boolean | undefined;
+      const message = payload.message as string | undefined;
+      setState(
+        "agents",
+        (a) => a.id === agentId,
+        "authError",
+        authRequired ? (message ?? "Authentication required") : undefined,
+      );
+      return;
+    }
 
     // Append agent output lines to the store.
     const output = payload.output as string | undefined;

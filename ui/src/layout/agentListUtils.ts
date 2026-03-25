@@ -108,7 +108,7 @@ export async function initAgents(): Promise<void> {
  */
 export async function refreshAgents(): Promise<void> {
   const fetched = await fetchAgents();
-  if (fetched && fetched.length > 0) {
+  if (fetched !== null) {
     setAgents(fetched);
   }
 }

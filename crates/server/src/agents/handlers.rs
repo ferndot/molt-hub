@@ -25,9 +25,8 @@ use std::time::Duration;
 use tracing::{instrument, warn};
 
 use molt_hub_core::model::{AgentId, SessionId, TaskId};
+use molt_hub_harness::acp::AcpAdapter;
 use molt_hub_harness::adapter::SpawnConfig;
-use molt_hub_harness::claude::ClaudeAdapter;
-use molt_hub_harness::cli::CliAdapter;
 use molt_hub_harness::supervisor::{SteerMessage, SteerPriority, Supervisor, SupervisorError};
 use molt_hub_harness::worktree::{validate_repo, WorktreeConfig, WorktreeManager};
 
@@ -46,8 +45,6 @@ use super::worktree_registry::{WorktreeManagerCache, WorktreeRegistry};
 pub struct AgentState {
     pub supervisor: Arc<Supervisor>,
     pub output_buffer: Arc<AgentOutputBuffer>,
-    /// Default Claude CLI adapter used when `adapter_type` is `claude` / `claude-cli`.
-    pub claude_adapter: Arc<ClaudeAdapter>,
     /// When set, [`spawn_agent`] uses this adapter for any `adapter_type` (unit tests only).
     pub test_spawn_adapter: Option<Arc<dyn molt_hub_harness::adapter::AgentAdapter>>,
     /// One [`WorktreeManager`] per repository root (agent isolation under `.molt/worktrees/`).
@@ -163,6 +160,17 @@ async fn remove_agent_worktree_if_any(state: &AgentState, agent_id: &AgentId) {
     }
 }
 
+const KNOWN_ADAPTER_TYPES: &[&str] = &[
+    "claude",
+    "claude-code",
+    "claude-agent-acp",
+    "claude-acp",
+    "opencode",
+    "goose",
+    "gemini",
+    "acp",
+];
+
 fn resolve_spawn_adapter(
     state: &AgentState,
     adapter_type: &str,
@@ -171,25 +179,22 @@ fn resolve_spawn_adapter(
         return Ok(Arc::clone(adapter));
     }
 
-    match adapter_type {
-        "claude" | "claude-cli" => {
-            let a: Arc<dyn molt_hub_harness::adapter::AgentAdapter> = state.claude_adapter.clone();
-            Ok(a)
-        }
-        "cli" => Ok(Arc::new(CliAdapter::new())),
-        other => Err((
+    if !KNOWN_ADAPTER_TYPES.contains(&adapter_type) {
+        return Err((
             StatusCode::BAD_REQUEST,
-            format!("unknown adapter_type: {other} (expected claude, claude-cli, or cli)"),
-        )),
+            format!(
+                "unknown adapter_type {adapter_type:?}; valid values: {}",
+                KNOWN_ADAPTER_TYPES.join(", ")
+            ),
+        ));
     }
+
+    Ok(Arc::new(AcpAdapter::new()))
 }
 
 /// Maps persisted settings `agent_defaults.adapter` to the harness spawn kind.
-fn settings_adapter_kind(settings_adapter: &str) -> &'static str {
-    match settings_adapter.trim() {
-        "cli" => "cli",
-        _ => "claude",
-    }
+fn settings_adapter_kind(settings_adapter: &str) -> &str {
+    settings_adapter.trim()
 }
 
 fn task_title_prompt(draft: &str) -> String {
@@ -224,43 +229,6 @@ fn heuristic_title_from_draft(draft: &str) -> String {
     sanitize_suggested_title(line)
 }
 
-/// Defaults for one-shot Claude title suggestions in a headless server: skip project hooks
-/// (`--bare`) and permission prompts (`--dangerously-skip-permissions`). Callers can override
-/// by passing `adapterConfig` with `bare` / `dangerously_skip_permissions` set to `false`.
-fn merge_title_suggestion_claude_adapter_config(
-    adapter_config: Option<serde_json::Value>,
-) -> serde_json::Value {
-    let mut v = adapter_config.unwrap_or_else(|| serde_json::json!({}));
-    if !v.is_object() {
-        v = serde_json::json!({});
-    }
-    if let Some(map) = v.as_object_mut() {
-        map.entry("bare").or_insert(serde_json::json!(true));
-        map.entry("dangerously_skip_permissions")
-            .or_insert(serde_json::json!(true));
-    }
-    v
-}
-
-fn spawn_config_for_title_suggestion(
-    instructions: String,
-    adapter_config: serde_json::Value,
-    timeout: Duration,
-) -> SpawnConfig {
-    let working_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    SpawnConfig {
-        agent_id: AgentId::new(),
-        task_id: TaskId::new(),
-        session_id: SessionId::new(),
-        working_dir,
-        instructions,
-        env: HashMap::new(),
-        timeout: Some(timeout),
-        adapter_config,
-        project_id: None,
-    }
-}
-
 /// POST /api/agents/suggest-task-title — ask the configured harness for a short task title.
 #[instrument(skip(state, settings_state, body))]
 async fn suggest_task_title(
@@ -290,96 +258,91 @@ async fn suggest_task_title(
     }
 
     let settings = settings_state.store.get().await;
-    let kind = settings_adapter_kind(&settings.agent_defaults.adapter);
+    let adapter_type = settings_adapter_kind(&settings.agent_defaults.adapter);
     let timeout = title_suggestion_timeout(settings.agent_defaults.timeout_minutes.max(1));
     let instructions = task_title_prompt(draft);
-    let adapter_config_cli = body.adapter_config.clone();
 
-    match kind {
-        "cli" => {
-            let adapter_config = adapter_config_cli.unwrap_or_else(|| serde_json::json!({}));
-            if adapter_config
-                .get("command")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .trim()
-                .is_empty()
-            {
+    let mut adapter_config = body.adapter_config.clone().unwrap_or_else(|| serde_json::json!({}));
+    if !adapter_config.is_object() {
+        adapter_config = serde_json::json!({});
+    }
+    if let Some(map) = adapter_config.as_object_mut() {
+        map.entry("adapter_type")
+            .or_insert_with(|| serde_json::json!(adapter_type));
+    }
+
+    let working_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let acp = AcpAdapter::new();
+    match tokio::time::timeout(
+        timeout,
+        acp.run_oneshot(working_dir, instructions, adapter_config, None),
+    )
+    .await
+    {
+        Ok(Ok(raw)) => {
+            let title = sanitize_suggested_title(&raw);
+            if !title.is_empty() {
                 return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({
-                        "error": "CLI adapter requires adapter_config.command (pass adapterConfig in the request body, same shape as spawnAgent)."
-                    })),
+                    StatusCode::OK,
+                    Json(serde_json::json!({ "title": title, "source": "acp" })),
                 )
                     .into_response();
             }
-            let cli = CliAdapter::new();
-            let cfg = spawn_config_for_title_suggestion(instructions, adapter_config, timeout);
-            match cli.run_stdin_once_collect(cfg).await {
-                Ok(raw) => {
-                    let title = sanitize_suggested_title(&raw);
-                    if title.is_empty() {
-                        return (
-                            StatusCode::UNPROCESSABLE_ENTITY,
-                            Json(serde_json::json!({ "error": "harness returned an empty title" })),
-                        )
-                            .into_response();
-                    }
-                    (
-                        StatusCode::OK,
-                        Json(serde_json::json!({ "title": title, "source": "cli" })),
-                    )
-                        .into_response()
-                }
-                Err(e) => (
-                    StatusCode::BAD_GATEWAY,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                )
-                    .into_response(),
-            }
+            // Empty title from ACP — fall through to heuristic below.
         }
-        _ => {
-            let adapter_config =
-                merge_title_suggestion_claude_adapter_config(adapter_config_cli);
-            let cfg = spawn_config_for_title_suggestion(instructions, adapter_config, timeout);
-            match state.claude_adapter.run_print_collect(cfg).await {
-                Ok(raw) => {
-                    let title = sanitize_suggested_title(&raw);
-                    if title.is_empty() {
-                        return (
-                            StatusCode::UNPROCESSABLE_ENTITY,
-                            Json(serde_json::json!({ "error": "harness returned an empty title" })),
-                        )
-                            .into_response();
-                    }
-                    (
-                        StatusCode::OK,
-                        Json(serde_json::json!({ "title": title, "source": "claude-cli" })),
-                    )
-                        .into_response()
-                }
-                Err(e) => (
-                    StatusCode::BAD_GATEWAY,
-                    Json(serde_json::json!({ "error": e.to_string() })),
-                )
-                    .into_response(),
-            }
+        Ok(Err(e)) => {
+            warn!(error = %e, "ACP run_oneshot failed for title suggestion; using heuristic");
+        }
+        Err(_elapsed) => {
+            warn!(timeout_secs = timeout.as_secs(), "ACP title suggestion timed out; using heuristic");
         }
     }
+
+    // Heuristic fallback.
+    let title = heuristic_title_from_draft(draft);
+    if title.is_empty() {
+        return (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({ "error": "could not derive a title from the provided text" })),
+        )
+            .into_response();
+    }
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "title": title, "source": "heuristic" })),
+    )
+        .into_response()
 }
 
 /// POST /api/agents/spawn — start a new agent process.
-#[instrument(skip(state, body))]
+#[instrument(skip(state, settings_state, body))]
 async fn spawn_agent(
     State(state): State<Arc<AgentState>>,
+    Extension(settings_state): Extension<Arc<TypedSettingsState>>,
     Json(body): Json<SpawnRequest>,
 ) -> impl IntoResponse {
-    let adapter = match resolve_spawn_adapter(&state, body.adapter_type.trim()) {
+    // Resolve adapter type: use request value, fall back to settings default.
+    let settings = settings_state.store.get().await;
+    let adapter_type = if body.adapter_type.trim().is_empty() {
+        settings.agent_defaults.adapter.clone()
+    } else {
+        body.adapter_type.trim().to_string()
+    };
+
+    let adapter = match resolve_spawn_adapter(&state, &adapter_type) {
         Ok(a) => a,
         Err((code, msg)) => {
             return (code, Json(MessageResponse { message: msg })).into_response();
         }
     };
+
+    // If the matching harness entry has a custom command, inject it into adapter_config.
+    let harness_command = settings
+        .agent_defaults
+        .harnesses
+        .iter()
+        .find(|h| h.adapter_type == adapter_type && h.enabled)
+        .and_then(|h| h.command.clone());
 
     let working_dir = PathBuf::from(body.working_dir.trim());
     if working_dir.as_os_str().is_empty() {
@@ -436,8 +399,19 @@ async fn spawn_agent(
         instructions: body.instructions,
         env: HashMap::new(),
         timeout: None,
-        adapter_config: body.adapter_config.unwrap_or(serde_json::Value::Null),
+        adapter_config: {
+            let mut cfg = body.adapter_config.unwrap_or_else(|| serde_json::json!({}));
+            if let Some(map) = cfg.as_object_mut() {
+                map.entry("adapter_type")
+                    .or_insert_with(|| serde_json::json!(adapter_type));
+                if let Some(cmd) = &harness_command {
+                    map.entry("command").or_insert_with(|| serde_json::json!(cmd));
+                }
+            }
+            cfg
+        },
         project_id: None,
+        event_tx: None, // supervisor injects the global channel
     };
 
     match state.supervisor.spawn_agent(adapter, spawn_cfg).await {
@@ -695,6 +669,87 @@ async fn get_agent_output(
 }
 
 // ---------------------------------------------------------------------------
+// Login
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct LoginRequest {
+    adapter_type: Option<String>,
+}
+
+/// POST /api/agents/login — run `<tool> login` for the configured harness.
+///
+/// Spawns the CLI login subprocess (which opens the system browser for OAuth)
+/// and waits up to 120 seconds for it to complete.
+#[instrument(skip(body))]
+async fn login_agent(
+    Json(body): Json<LoginRequest>,
+) -> impl IntoResponse {
+    let adapter_type = body.adapter_type.as_deref().unwrap_or("claude");
+
+    let (command, args) = match AcpAdapter::resolve_login_command(adapter_type) {
+        Ok(r) => r,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    let result = tokio::task::spawn_blocking(move || {
+        let mut cmd = std::process::Command::new(&command);
+        cmd.args(&args)
+            .env("PATH", AcpAdapter::augmented_path())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped());
+
+        let child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Err(format!(
+                    "`{command}` not found. Install the CLI first (e.g. `npm install -g @anthropic-ai/claude-code`)."
+                ));
+            }
+            Err(e) => return Err(format!("failed to spawn `{command} login`: {e}")),
+        };
+
+        match child.wait_with_output() {
+            Ok(output) if output.status.success() => Ok(()),
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(format!("`{command} login` failed: {stderr}"))
+            }
+            Err(e) => Err(format!("`{command} login` error: {e}")),
+        }
+    })
+    .await;
+
+    match result {
+        Ok(Ok(())) => (
+            StatusCode::OK,
+            Json(serde_json::json!({ "ok": true })),
+        )
+            .into_response(),
+        Ok(Err(msg)) => {
+            warn!("login failed: {msg}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": msg })),
+            )
+                .into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": format!("task panicked: {e}") })),
+        )
+            .into_response(),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
@@ -709,11 +764,13 @@ async fn get_agent_output(
 ///   POST /:id/resume        — resume an agent
 ///   POST /:id/steer         — send a steering message to an agent
 ///   GET  /:id/output        — get buffered output lines
+///   POST /login              — run `<tool> login` for the configured harness
 pub fn agent_router(state: Arc<AgentState>) -> Router {
     Router::new()
         .route("/", get(list_agents))
         .route("/spawn", post(spawn_agent))
         .route("/suggest-task-title", post(suggest_task_title))
+        .route("/login", post(login_agent))
         .route("/:id/terminate", post(terminate_agent))
         .route("/:id/pause", post(pause_agent))
         .route("/:id/resume", post(resume_agent))
@@ -877,7 +934,6 @@ mod tests {
     use molt_hub_harness::adapter::{
         AdapterError, AgentAdapter, AgentEvent, AgentHandle, AgentMessage,
     };
-    use molt_hub_harness::claude::ClaudeAdapter;
     use molt_hub_harness::supervisor::SupervisorConfig;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::Duration;
@@ -948,7 +1004,6 @@ mod tests {
         Arc::new(AgentState {
             supervisor: make_supervisor(),
             output_buffer: Arc::new(AgentOutputBuffer::new()),
-            claude_adapter: Arc::new(ClaudeAdapter::new()),
             test_spawn_adapter: None,
             worktree_managers: Arc::new(WorktreeManagerCache::new()),
             worktree_registry: Arc::new(WorktreeRegistry::new()),
@@ -1079,7 +1134,6 @@ mod tests {
         let state = Arc::new(AgentState {
             supervisor: make_supervisor(),
             output_buffer,
-            claude_adapter: Arc::new(ClaudeAdapter::new()),
             test_spawn_adapter: None,
             worktree_managers: Arc::new(WorktreeManagerCache::new()),
             worktree_registry: Arc::new(WorktreeRegistry::new()),
@@ -1172,7 +1226,6 @@ mod tests {
         let state = Arc::new(AgentState {
             supervisor: make_supervisor(),
             output_buffer: Arc::new(AgentOutputBuffer::new()),
-            claude_adapter: Arc::new(ClaudeAdapter::new()),
             test_spawn_adapter: Some(adapter),
             worktree_managers: Arc::new(WorktreeManagerCache::new()),
             worktree_registry: Arc::new(WorktreeRegistry::new()),

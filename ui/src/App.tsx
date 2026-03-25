@@ -20,6 +20,7 @@ import {
   fetchGithubStatus,
   fetchJiraStatus,
 } from "./views/Settings/settingsStore";
+import { initAgents, startAgentRefresh, stopAgentRefresh } from "./layout/AgentList";
 import CodeChatView from "./views/CodeChat/CodeChatView";
 
 // ---------------------------------------------------------------------------
@@ -50,6 +51,13 @@ const App: Component = () => {
     // Reconcile integration flags with the server (tokens live in the OS keychain, not localStorage).
     void fetchJiraStatus();
     void fetchGithubStatus();
+    // Bootstrap sidebar agent list and start polling.
+    void initAgents();
+    startAgentRefresh();
+  });
+
+  onCleanup(() => {
+    stopAgentRefresh();
   });
 
   createEffect(() => {

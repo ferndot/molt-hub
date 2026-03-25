@@ -29,6 +29,9 @@ pub struct SpawnConfig {
     pub adapter_config: serde_json::Value,
     /// Optional project this agent belongs to. `None` means the global / default context.
     pub project_id: Option<String>,
+    /// Global event broadcast channel. When provided, agent events are sent here
+    /// so that the WS fanout layer can relay them to clients.
+    pub event_tx: Option<tokio::sync::broadcast::Sender<AgentEvent>>,
 }
 
 // ---------------------------------------------------------------------------

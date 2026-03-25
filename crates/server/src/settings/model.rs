@@ -87,14 +87,46 @@ impl Default for NotificationSettings {
 #[serde(rename_all = "camelCase")]
 pub struct AgentDefaultSettings {
     pub timeout_minutes: u32,
+    /// The adapter_type of the default harness (e.g. "claude", "opencode").
     pub adapter: String,
+    /// Configured harnesses available for spawning agents.
+    #[serde(default)]
+    pub harnesses: Vec<HarnessEntry>,
+}
+
+/// A single configured agent harness (Claude, OpenCode, Goose, Gemini, etc.).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessEntry {
+    /// Adapter type identifier used by AcpAdapter::resolve_command.
+    pub adapter_type: String,
+    /// Human-readable display name.
+    pub label: String,
+    /// Whether this harness is available for use.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Optional custom command override (binary path).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for AgentDefaultSettings {
     fn default() -> Self {
         Self {
             timeout_minutes: 30,
-            adapter: "claude-code".to_owned(),
+            adapter: "claude".to_owned(),
+            harnesses: vec![
+                HarnessEntry {
+                    adapter_type: "claude".to_owned(),
+                    label: "Claude Code".to_owned(),
+                    enabled: true,
+                    command: None,
+                },
+            ],
         }
     }
 }
