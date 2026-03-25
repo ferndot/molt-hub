@@ -61,7 +61,7 @@ const App: Component = () => {
   });
 
   createEffect(() => {
-    const topic = projectTopic(WORKSPACE_ID, "board:*");
+    const topic = projectTopic(WORKSPACE_ID, "board:update");
     const unsub = subscribe(topic, handleBoardWsMessage);
     onCleanup(unsub);
   });

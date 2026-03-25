@@ -4,6 +4,7 @@
  */
 
 import { Show, type Component } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import { TbOutlineCheck, TbOutlineX, TbOutlineArrowRight, TbOutlineClock } from "solid-icons/tb";
 import type { MissionControlItem } from "./missionControlStore";
 import styles from "./UnifiedCard.module.css";
@@ -65,6 +66,8 @@ const attentionBorderClass = (priority: string): string => {
 // ---------------------------------------------------------------------------
 
 const UnifiedCard: Component<UnifiedCardProps> = (props) => {
+  const navigate = useNavigate();
+
   const cardClass = () => {
     const classes = [styles.card];
     if (props.item.attentionInfo) {
@@ -96,7 +99,11 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
       draggable="true"
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
-      onClick={() => props.onToggle?.(props.item.id)}
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest("button")) return;
+        if (e.detail === 2) { navigate(`/tasks/${props.item.id}`); return; }
+        props.onToggle?.(props.item.id);
+      }}
       onMouseEnter={() => props.onHoverEnter?.(props.item.id)}
       onMouseLeave={() => props.onHoverLeave?.()}
       data-task-id={props.item.id}
@@ -113,9 +120,11 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
       </div>
 
       {/* Meta — stage chip omitted; column header already shows the stage */}
-      <div class={styles.meta}>
-        <span class={styles.agentName}>{props.item.agentName}</span>
-      </div>
+      <Show when={props.item.agentName}>
+        <div class={styles.meta}>
+          <span class={styles.agentName}>{props.item.agentName}</span>
+        </div>
+      </Show>
 
       {/* Attention actions — always visible when attention info present */}
       <Show when={props.item.attentionInfo}>

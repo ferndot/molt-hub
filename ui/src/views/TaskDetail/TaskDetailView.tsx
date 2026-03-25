@@ -13,8 +13,14 @@ import { useParams } from "@solidjs/router";
 import { TbOutlineArrowLeft } from "solid-icons/tb";
 import { task, events, loading, error, loadTask, clearTask } from "./taskDetailStore";
 import { boardKanbanPath, boardState } from "../Board/boardStore";
-import { PRIORITY_COLORS } from "../Board/TaskCard";
 import type { Priority } from "../../types/domain";
+
+const PRIORITY_COLORS: Record<Priority, string> = {
+  p0: "#e63946",
+  p1: "#f4a261",
+  p2: "#2a9d8f",
+  p3: "#6c757d",
+};
 import styles from "./TaskDetailView.module.css";
 
 // ---------------------------------------------------------------------------

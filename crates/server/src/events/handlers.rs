@@ -27,7 +27,7 @@ use ulid::Ulid;
 
 use molt_hub_core::events::types::{DomainEvent, EventEnvelope};
 use molt_hub_core::events::{EventStore, EventStoreError, HumanDecisionKind, SqliteEventStore};
-use molt_hub_core::machine::replay_task_machine_from_events;
+use molt_hub_core::machine::{replay_task_machine_from_events, TaskMachine};
 use molt_hub_core::model::{EventId, Priority, SessionId, TaskId, TaskState};
 use molt_hub_harness::supervisor::Supervisor;
 
@@ -815,11 +815,115 @@ pub fn events_router(state: Arc<EventStoreState>) -> Router {
         .with_state(state)
 }
 
+/// GET /api/tasks/:id — fetch a single task's detail by replaying its events.
+#[instrument(skip(state))]
+pub async fn get_task(
+    State(state): State<Arc<EventStoreState>>,
+    Path(task_id_str): Path<String>,
+) -> impl IntoResponse {
+    let task_id_ulid = match Ulid::from_str(task_id_str.trim()) {
+        Ok(u) => u,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("invalid task id: {e}") })),
+            )
+                .into_response();
+        }
+    };
+    let task_id = TaskId(task_id_ulid);
+
+    let events = match state.store.get_events_for_task(&task_id).await {
+        Ok(e) => e,
+        Err(e) => return error_response(e),
+    };
+
+    if events.is_empty() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "task not found" })),
+        )
+            .into_response();
+    }
+
+    // Derive task detail from events.
+    let mut title = String::new();
+    let mut description = String::new();
+    let mut priority = Priority::P2;
+    let mut current_stage = String::new();
+    let mut assigned_agent: Option<String> = None;
+    let mut agent_name: Option<String> = None;
+    let mut created_at = events[0].timestamp;
+    let mut updated_at = events[0].timestamp;
+
+    for ev in &events {
+        updated_at = ev.timestamp;
+        match &ev.payload {
+            DomainEvent::TaskCreated {
+                title: t,
+                description: d,
+                initial_stage,
+                priority: p,
+            } => {
+                title = t.clone();
+                description = d.clone();
+                priority = p.clone();
+                current_stage = initial_stage.clone();
+                created_at = ev.timestamp;
+            }
+            DomainEvent::TaskStageChanged { to_stage, .. } => {
+                current_stage = to_stage.clone();
+            }
+            DomainEvent::AgentAssigned {
+                agent_id,
+                agent_name: name,
+            } => {
+                assigned_agent = Some(agent_id.0.to_string());
+                agent_name = Some(name.clone());
+            }
+            DomainEvent::AgentCompleted { .. } => {
+                agent_name = None;
+            }
+            _ => {}
+        }
+    }
+
+    let state_type = {
+        let mut m = TaskMachine::new(String::new());
+        for ev in &events {
+            if let DomainEvent::TaskCreated { initial_stage, .. } = &ev.payload {
+                m = TaskMachine::new(initial_stage.clone());
+            } else {
+                let _ = m.apply(&ev.payload);
+            }
+        }
+        board_status_for_state(&m.state).to_string()
+    };
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "id": task_id.0.to_string(),
+            "title": title,
+            "description": description,
+            "current_stage": current_stage,
+            "priority": format!("{priority:?}").to_lowercase(),
+            "assigned_agent": assigned_agent,
+            "agent_name": agent_name,
+            "state_type": state_type,
+            "created_at": created_at.to_rfc3339(),
+            "updated_at": updated_at.to_rfc3339(),
+        })),
+    )
+        .into_response()
+}
+
 /// Build the `/api/tasks` sub-router.
 pub fn tasks_router(state: Arc<EventStoreState>) -> Router {
     Router::new()
         .route("/", get(list_tasks))
         .route("/create", post(create_task))
+        .route("/:id", get(get_task))
         .route("/:id/move", post(move_task_stage))
         .route("/:id/decision", post(submit_human_decision))
         .with_state(state)

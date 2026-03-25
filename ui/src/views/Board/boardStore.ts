@@ -519,7 +519,7 @@ export function handleBoardWsMessage(msg: ServerMessage): void {
     const newTask: BoardTask = {
       id: taskId,
       name: (payload.name as string) ?? "Untitled",
-      agentName: (payload.agent_name as string) ?? "unknown",
+      agentName: (payload.agent_name as string) ?? "",
       priority: (payload.priority as Priority) ?? "p2",
       status: payload.status as BoardTaskStatus,
       stage: payload.stage as string,
