@@ -1,0 +1,1196 @@
+/* ============================================================
+ * How It Works — stage color tokens
+ * ============================================================ */
+:root {
+  --stage-grey:    #6b7280;
+  --stage-purple:  #a855f7;
+  --stage-blue:    #6366f1;
+  --stage-amber:   #f59e0b;
+  --stage-emerald: #10b981;
+  --stage-green:   #22c55e;
+}
+
+/* ============================================================
+ * Keyframes
+ * ============================================================ */
+
+@keyframes fadeSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes drawLine {
+  from { stroke-dashoffset: 60; }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* ============================================================
+ * Layout
+ * ============================================================ */
+
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+  padding: 40px 48px 64px;
+  overflow-y: auto;
+  height: 100%;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.header {
+  animation: fadeSlideIn 0.5s ease both;
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 0 0 8px;
+  color: var(--text-primary);
+}
+
+.subtitle {
+  font-size: 1rem;
+  color: var(--text-muted);
+  margin: 0;
+  max-width: 560px;
+  line-height: 1.6;
+}
+
+/* ============================================================
+ * Tab bar
+ * ============================================================ */
+
+.tabBar {
+  display: flex;
+  gap: 8px;
+  animation: fadeSlideIn 0.4s ease both;
+}
+
+.tab {
+  padding: 8px 20px;
+  border-radius: 999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.tab:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.tabActive {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* ============================================================
+ * Section
+ * ============================================================ */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.sectionTitle {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* ============================================================
+ * Pipeline
+ * ============================================================ */
+
+.pipeline {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 8px;
+  scrollbar-width: none;
+}
+
+.pipeline::-webkit-scrollbar {
+  display: none;
+}
+
+.stageNode {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background-color: var(--bg-secondary);
+  border: 2px solid var(--stage-color, var(--border));
+  color: var(--stage-color, var(--text-primary));
+  position: relative;
+  font-weight: 600;
+  font-size: 0.82rem;
+
+  /* Staggered entrance */
+  animation: fadeSlideIn 0.45s ease both;
+
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.stageNode:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--stage-color) 30%, transparent);
+}
+
+.stageNodeActive {
+  transform: scale(1.04);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--stage-color) 40%, transparent),
+              0 4px 16px color-mix(in srgb, var(--stage-color) 25%, transparent);
+  background-color: color-mix(in srgb, var(--stage-color) 12%, var(--bg-secondary));
+}
+
+.stageIcon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.stageName {
+  white-space: nowrap;
+}
+
+.stageBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background-color: var(--stage-color, var(--accent));
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* ============================================================
+ * Arrow SVG
+ * ============================================================ */
+
+.arrow {
+  flex-shrink: 0;
+  color: var(--text-subtle);
+  animation: fadeIn 0.3s ease both;
+}
+
+.arrowLine {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: drawLine 0.6s ease both;
+}
+
+.arrowHead {
+  opacity: 0;
+  animation: fadeIn 0.3s ease both;
+  animation-delay: inherit;
+}
+
+/* ============================================================
+ * Agent Loop
+ * ============================================================ */
+
+.stageDetailPanel {
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--panel-color, var(--accent));
+  border-radius: 12px;
+  padding: 28px 32px;
+  max-width: 520px;
+  animation: fadeSlideIn 0.35s ease both;
+}
+
+.panelTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 0 0 20px;
+}
+
+.agentLoop {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.loopStep {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--text-primary);
+
+  opacity: 0;
+  animation: fadeSlideIn 0.4s ease both;
+}
+
+.loopIcon {
+  font-size: 1.1rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.loopLabel {
+  flex: 1;
+}
+
+.loopConnector {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  color: var(--accent);
+  font-size: 1.1rem;
+  font-weight: 700;
+
+  opacity: 0;
+  animation: fadeIn 0.3s ease both;
+}
+
+/* ============================================================
+ * Feature cards
+ * ============================================================ */
+
+.featureGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.featureCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px 22px;
+  border-radius: 12px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+
+  opacity: 0;
+  animation: fadeSlideIn 0.45s ease both;
+}
+
+.featureCard:hover {
+  border-color: var(--accent);
+  background-color: var(--bg-elevated);
+}
+
+.featureIcon {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.featureTitle {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.featureDescription {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ============================================================
+ * Technology tab
+ * ============================================================ */
+
+.techSection {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.techDiagram {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr auto 1fr;
+  gap: 0;
+  align-items: start;
+  padding: 8px;
+  overflow-x: auto;
+}
+
+.techColumn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+}
+
+.techBox {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 20px;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  text-align: center;
+  min-width: 160px;
+  opacity: 0;
+  animation: fadeSlideIn 0.4s ease both;
+}
+
+.techBoxIcon {
+  font-size: 1.6rem;
+}
+
+.techBoxTitle {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.techBoxSub {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.techConnector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 16px;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  min-width: 80px;
+  padding-top: 40px;
+}
+
+.techConnectorLine {
+  width: 2px;
+  flex: 1;
+  min-height: 60px;
+  border-left: 2px dashed var(--border);
+}
+
+.techConnectorLabel {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  font-size: 0.65rem;
+  color: var(--text-subtle, var(--text-muted));
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.techArrow {
+  color: var(--accent);
+  font-size: 1rem;
+}
+
+/* ============================================================
+ * Customization tab
+ * ============================================================ */
+
+.customGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.customCard {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px 26px;
+  border-radius: 14px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--card-accent, var(--accent));
+  opacity: 0;
+  animation: fadeSlideIn 0.45s ease both;
+}
+
+.customCardBoards  { --card-accent: #6366f1; animation-delay: 0.05s; }
+.customCardColumns { --card-accent: #f59e0b; animation-delay: 0.15s; }
+.customCardHooks   { --card-accent: #a855f7; animation-delay: 0.25s; }
+
+.customCardIcon {
+  font-size: 1.8rem;
+  line-height: 1;
+}
+
+.customCardTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.customList {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.customList li strong {
+  color: var(--text-primary);
+  font-family: monospace;
+  font-size: 0.9em;
+}
+
+/* Hook anatomy diagram */
+.hookDiagram {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 8px;
+  padding: 20px 0 8px;
+  scrollbar-width: none;
+}
+.hookDiagram::-webkit-scrollbar { display: none; }
+
+.hookStep {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 20px;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  min-width: 140px;
+  text-align: center;
+  opacity: 0;
+  animation: fadeSlideIn 0.4s ease both;
+}
+
+.hookStep:nth-child(1) { animation-delay: 0.1s; }
+.hookStep:nth-child(3) { animation-delay: 0.2s; }
+.hookStep:nth-child(5) { animation-delay: 0.3s; }
+.hookStep:nth-child(7) { animation-delay: 0.4s; }
+
+.hookStepIcon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.hookStepLabel {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.hookArrowH {
+  color: var(--accent);
+  font-size: 1.4rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  opacity: 0;
+  animation: fadeIn 0.3s ease both;
+}
+.hookArrowH:nth-child(2) { animation-delay: 0.15s; }
+.hookArrowH:nth-child(4) { animation-delay: 0.25s; }
+.hookArrowH:nth-child(6) { animation-delay: 0.35s; }
+
+/* ============================================================
+ * Future tab
+ * ============================================================ */
+
+.futureGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 20px;
+}
+
+.futureCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 26px;
+  border-radius: 14px;
+  background-color: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--future-accent, var(--accent));
+  opacity: 0;
+  animation: fadeSlideIn 0.45s ease both;
+}
+
+.futureCardTeams   { --future-accent: #6366f1; animation-delay: 0.05s; }
+.futureCardSignal  { --future-accent: #f59e0b; animation-delay: 0.15s; }
+.futureCardPreview { --future-accent: #22c55e; animation-delay: 0.25s; }
+
+.futureCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.futureIcon {
+  font-size: 1.8rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.futureCardTitle {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.futureCardLead {
+  font-size: 0.88rem;
+  color: var(--text-secondary);
+  margin: 0;
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.futureList {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.visionBlock {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 24px 28px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-secondary));
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  opacity: 0;
+  animation: fadeSlideIn 0.5s 0.35s ease both;
+}
+
+.visionIcon {
+  font-size: 2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.visionText {
+  font-size: 0.95rem;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.7;
+  font-style: italic;
+}
+
+/* ============================================================
+ * Shared visual block
+ * ============================================================ */
+.vizBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 24px 28px;
+  border-radius: 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  opacity: 0;
+  animation: fadeSlideIn 0.4s ease both;
+}
+
+.vizLabel {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.vizCaption {
+  font-size: 0.78rem;
+  color: var(--text-subtle, var(--text-muted));
+  opacity: 0.7;
+}
+
+/* ============================================================
+ * Multiple Boards mini-diagram
+ * ============================================================ */
+.boardsDemo {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.boardMini {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--bg-elevated, var(--bg-primary));
+  border: 1px solid var(--bcolor, var(--border));
+  border-top: 3px solid var(--bcolor, var(--accent));
+  min-width: 180px;
+  opacity: 0;
+  animation: fadeSlideIn 0.35s ease both;
+}
+
+.boardMiniTitle {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.boardMiniCols {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.boardMiniCol {
+  font-size: 0.68rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+/* ============================================================
+ * Custom Columns demo
+ * ============================================================ */
+.colSettingsDemo {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.colCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--bg-elevated, var(--bg-primary));
+  border: 1px solid var(--border);
+  min-width: 190px;
+  opacity: 0;
+  animation: fadeSlideIn 0.35s ease both;
+}
+
+.colCardName {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.colBadges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.colBadge {
+  font-size: 0.7rem;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--bc, var(--accent)) 50%, transparent);
+  color: var(--bc, var(--accent));
+  background: color-mix(in srgb, var(--bc, var(--accent)) 10%, transparent);
+  white-space: nowrap;
+}
+
+/* ============================================================
+ * Hooks visual
+ * ============================================================ */
+.hooksGrid {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hookTile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 18px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ht, var(--accent)) 10%, var(--bg-primary));
+  border: 1px solid color-mix(in srgb, var(--ht, var(--accent)) 40%, transparent);
+  flex: 1;
+  min-width: 180px;
+  opacity: 0;
+  animation: fadeSlideIn 0.35s ease both;
+}
+
+.hookTileEvent {
+  font-family: monospace;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ht, var(--accent));
+}
+
+.hookTileArrow {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.hookTileAction {
+  font-size: 0.82rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.hookFlow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 4px 0;
+  scrollbar-width: none;
+}
+.hookFlow::-webkit-scrollbar { display: none; }
+
+.hookFlowStep {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: var(--bg-elevated, var(--bg-primary));
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.hookFlowArrow {
+  color: var(--accent);
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+ * Agent team diagram
+ * ============================================================ */
+.teamDiagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.teamOrchestrator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 16px 28px;
+  border-radius: 12px;
+  background: color-mix(in srgb, #6366f1 12%, var(--bg-elevated, var(--bg-primary)));
+  border: 2px solid #6366f1;
+  opacity: 0;
+  animation: fadeSlideIn 0.3s ease both;
+}
+
+.teamSpokes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.teamRole {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  background: var(--bg-elevated, var(--bg-primary));
+  border: 1px solid var(--border);
+  min-width: 100px;
+  text-align: center;
+  opacity: 0;
+  animation: fadeSlideIn 0.35s ease both;
+}
+
+.teamRoleIcon {
+  font-size: 1.4rem;
+  line-height: 1;
+}
+
+.teamRoleName {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.teamModel {
+  font-size: 0.65rem;
+  color: var(--accent);
+  font-family: monospace;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* ============================================================
+ * Signal funnel diagram
+ * ============================================================ */
+.funnelDiagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.funnelLayer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  border-radius: 8px;
+  background: var(--fc, var(--bg-secondary));
+  width: var(--fw, 100%);
+  transition: width 0.3s ease;
+  opacity: 0;
+  animation: fadeSlideIn 0.4s ease both;
+}
+
+.funnelLayer:nth-child(1) { animation-delay: 0.05s; }
+.funnelLayer:nth-child(3) { animation-delay: 0.15s; }
+.funnelLayer:nth-child(5) { animation-delay: 0.25s; }
+.funnelLayer:nth-child(7) { animation-delay: 0.35s; }
+
+.funnelIcon { font-size: 1.1rem; flex-shrink: 0; }
+.funnelLabel { flex: 1; font-size: 0.82rem; font-weight: 600; color: var(--text-primary); }
+.funnelCount { font-size: 0.75rem; color: var(--text-muted); font-family: monospace; }
+
+.funnelArrow {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  opacity: 0.5;
+}
+
+/* ============================================================
+ * Preview demo
+ * ============================================================ */
+.previewDemo {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 12px;
+  align-items: start;
+}
+
+.previewPane {
+  border-radius: 10px;
+  background: var(--pp, var(--bg-primary));
+  border: 1px solid var(--border);
+  overflow: hidden;
+  opacity: 0;
+  animation: fadeSlideIn 0.4s ease both;
+}
+
+.previewPaneTitle {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.previewDiffLine {
+  font-family: monospace;
+  font-size: 0.75rem;
+  padding: 4px 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.previewMockBrowser {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.previewMockBar {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  padding: 6px 12px;
+  background: rgba(255,255,255,0.04);
+  border-bottom: 1px solid var(--border);
+  font-family: monospace;
+}
+
+.previewMockContent {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  padding: 16px 12px;
+  text-align: center;
+  font-style: italic;
+}
+
+.previewActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  opacity: 0;
+  animation: fadeSlideIn 0.4s 0.2s ease both;
+}
+
+.previewActionBtn {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: white;
+  padding: 8px 16px;
+  border-radius: 8px;
+  text-align: center;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.vizBullets {
+  margin: 0;
+  padding: 0 0 0 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+/* ============================================================
+ * Collaboration diagram (shared triage queue)
+ * ============================================================ */
+
+/* Problem statement */
+.collabProblem {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* Outer diagram wrapper: queue node on top, engineers below */
+.collabDiagram {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+/* Center node: triage queue */
+.collabQueueNode {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 24px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-elevated, var(--bg-primary)));
+  border: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  width: 100%;
+  max-width: 480px;
+  opacity: 0;
+  animation: fadeSlideIn 0.35s 0.05s ease both;
+}
+
+.collabQueueIcon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.collabQueueLabel {
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--accent);
+}
+
+.collabQueueItems {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+}
+
+.collabQueueItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-primary);
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  border: 1px solid color-mix(in srgb, var(--qi, var(--border)) 35%, var(--border));
+}
+
+.collabQueueItem::before {
+  content: "";
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--qi, var(--accent));
+  flex-shrink: 0;
+}
+
+/* Connector lines between queue and engineers */
+.collabConnectors {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  max-width: 480px;
+}
+
+.collabConnectorLine {
+  width: 2px;
+  height: 24px;
+  background: color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+/* Row of engineer nodes */
+.collabEngineers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  width: 100%;
+  max-width: 520px;
+}
+
+/* Individual engineer card */
+.collabEngineerCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 18px;
+  border-radius: 12px;
+  flex: 1 1 130px;
+  max-width: 180px;
+  background: color-mix(in srgb, var(--ec, var(--accent)) 10%, var(--bg-elevated, var(--bg-primary)));
+  border: 1px solid color-mix(in srgb, var(--ec, var(--accent)) 40%, transparent);
+  text-align: center;
+  opacity: 0;
+  animation: fadeSlideIn 0.35s ease both;
+}
+
+.collabEngineerAvatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ec, var(--accent)) 20%, transparent);
+  border: 2px solid color-mix(in srgb, var(--ec, var(--accent)) 60%, transparent);
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ec, var(--accent));
+}
+
+.collabEngineerName {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.collabEngineerDecision {
+  font-size: 0.7rem;
+  color: var(--ec, var(--accent));
+  font-style: italic;
+  line-height: 1.3;
+  text-align: center;
+}
+
+/* Capability pills row */
+.collabCaps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.collabCapPill {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 5px 12px;
+  border-radius: 999px;
+  background: var(--bg-elevated, var(--bg-primary));
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  opacity: 0;
+  animation: fadeSlideIn 0.35s ease both;
+}
+
+/* Vision sentence */
+.collabVision {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  line-height: 1.65;
+  margin: 0;
+  font-style: italic;
+  border-left: 3px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  padding-left: 12px;
+}

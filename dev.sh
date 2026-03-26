@@ -34,13 +34,8 @@ GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-# Backend (skip auto-opening the system browser when using the Tauri shell)
-if [ "$DESKTOP" = true ]; then
-  BACKEND_SERVE=(run --bin molt-hub -- serve --no-open)
-else
-  BACKEND_SERVE=(run --bin molt-hub -- serve)
-fi
-(cd "$ROOT" && $CARGO "${BACKEND_SERVE[@]}" 2>&1 \
+# Backend — never auto-open; we always open the browser to the Vite dev server below
+(cd "$ROOT" && $CARGO run --bin molt-hub -- serve --no-open 2>&1 \
   | sed "s/^/$(printf "${RED}[backend]${NC} ")/") &
 
 # Frontend
@@ -58,9 +53,15 @@ echo " Molt Hub dev servers starting..."
 echo "   Backend:  http://127.0.0.1:13401"
 echo "   Frontend: http://127.0.0.1:5173"
 if [ "$DESKTOP" = true ]; then
-  echo "   Desktop:  Tauri window (browser will not auto-open)"
+  echo "   Desktop:  Tauri window"
 fi
 echo "   Press Ctrl+C to stop all"
 echo "================================================"
+
+# Open browser to Vite dev server (not the backend static build) so
+# both browser and desktop see the same live UI.
+if [ "$DESKTOP" = false ]; then
+  (sleep 2 && open "http://127.0.0.1:5173") &
+fi
 
 wait

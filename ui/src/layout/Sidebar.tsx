@@ -117,13 +117,6 @@ const Sidebar: Component<Props> = (props) => {
             >
               <span class={styles.navIcon}>{NAV_ICONS["/agents"]?.()}</span>
             </A>
-            <A
-              href="/how-it-works"
-              class={styles.navItem}
-              classList={{ [styles.active]: isActive("/how-it-works") }}
-            >
-              <span class={styles.navIcon}>{NAV_ICONS["/how-it-works"]?.()}</span>
-            </A>
           </nav>
         }
       >

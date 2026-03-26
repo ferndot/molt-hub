@@ -1,0 +1,74 @@
+@keyframes hookSlideIn {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes hookFadeOut {
+  0%   { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.toastStack {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  background-color: #1e1e2e;
+  border: 1px solid #3b3b56;
+  border-left: 3px solid #6366f1;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  font-size: 0.82rem;
+  color: #e2e8f0;
+  white-space: nowrap;
+  max-width: 340px;
+
+  animation: hookSlideIn 0.25s ease both, hookFadeOut 3.5s ease both;
+}
+
+.hookIcon {
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.hookEvent {
+  font-weight: 700;
+  color: #a78bfa;
+  font-family: monospace;
+}
+
+.hookStage {
+  font-weight: 600;
+  color: #818cf8;
+  font-family: monospace;
+}
+
+.hookArrow {
+  color: #6b7280;
+  font-size: 0.9rem;
+}
+
+.hookTask {
+  color: #94a3b8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
