@@ -36,6 +36,7 @@ use crate::integrations::jira_oauth_handlers::{jira_oauth_router, JiraOAuthState
 use crate::integrations::oauth::JiraOAuthService;
 use crate::integrations::oauth_redirect::{github_redirect_uri, jira_redirect_uri};
 use crate::pipeline::handlers::PipelineState;
+use crate::projects::boards_store::BoardsStore;
 use crate::projects::handlers::{project_router, ProjectConfigStore};
 use crate::projects::runtime::{MultiBoardPipelineStore, ProjectRuntime, ProjectRuntimeRegistry};
 use crate::settings::{typed_settings_router, SettingsFileStore, TypedSettingsState};
@@ -178,14 +179,36 @@ pub async fn build_router(
         maybe_seed_demo_data(&es.store).await;
     }
 
+    // ---- Boards SQLite store (shares the same DB as the event store) --------
+    let boards_store: Option<Arc<BoardsStore>> = match event_store_state.as_ref() {
+        Some(es) => {
+            let pool = es.store.pool().clone();
+            match BoardsStore::new(pool).await {
+                Ok(bs) => {
+                    info!("boards store initialised");
+                    Some(Arc::new(bs))
+                }
+                Err(e) => {
+                    warn!(error = %e, "failed to initialise boards store — boards index will not be persisted");
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+
     // ---- Project runtime registry ------------------------------------------
     let board_template = pipeline_state.snapshot_config().await;
-    let registry = Arc::new(ProjectRuntimeRegistry::new(board_template.clone()));
+    let registry = Arc::new(ProjectRuntimeRegistry::new(board_template.clone(), boards_store.clone()));
     {
-        let boards = Arc::new(MultiBoardPipelineStore::load_or_empty(
-            "default",
-            board_template.clone(),
-        ));
+        let boards = Arc::new(
+            MultiBoardPipelineStore::load_or_empty(
+                "default",
+                board_template.clone(),
+                boards_store.clone(),
+            )
+            .await,
+        );
         // Seed a default board for demo mode so the boards list is never empty.
         if std::env::var("MOLT_DEMO").as_deref() == Ok("1")
             && boards.list_summaries().await.is_empty()

@@ -17,58 +17,37 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use dashmap::DashMap;
 use molt_hub_core::config::PipelineConfig;
 use molt_hub_harness::supervisor::Supervisor;
-use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 use tracing::warn;
 use ulid::Ulid;
 
 use crate::pipeline::handlers::PipelineConfigStore;
+use crate::projects::boards_store::BoardsStore;
 
 // ---------------------------------------------------------------------------
-// Multi-board store (per project)
+// Persist directory helper
 // ---------------------------------------------------------------------------
-
-const BOARDS_INDEX_FILE: &str = "boards-index.yaml";
-
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct BoardsIndex {
-    #[serde(default)]
-    board_ids: Vec<String>,
-}
 
 fn board_persist_dir(project_id: &str) -> Option<std::path::PathBuf> {
     dirs::config_dir().map(|d| d.join("molt-hub").join("boards").join(project_id))
 }
 
-fn boards_index_path(root: &Path) -> std::path::PathBuf {
-    root.join(BOARDS_INDEX_FILE)
-}
+// ---------------------------------------------------------------------------
+// Load board YAML configs from disk using the board IDs supplied by the caller
+// ---------------------------------------------------------------------------
 
-fn read_boards_index(path: &Path) -> Result<BoardsIndex, String> {
-    match std::fs::read_to_string(path) {
-        Ok(s) => serde_yaml::from_str(&s).map_err(|e| format!("boards index: {e}")),
-        Err(e) if e.kind() == ErrorKind::NotFound => Ok(BoardsIndex::default()),
-        Err(e) => Err(format!("read boards index: {e}")),
-    }
-}
-
-fn write_boards_index(path: &Path, index: &BoardsIndex) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-    }
-    let s = serde_yaml::to_string(index).map_err(|e| e.to_string())?;
-    std::fs::write(path, s).map_err(|e| e.to_string())
-}
-
-fn load_board_stores_from_disk(
+/// Load per-board `{id}.yaml` files from `root` for the given `board_ids`.
+///
+/// Any board whose YAML file is missing is silently dropped from the result.
+/// Returns (kept_ids, boards_map) so callers can reconcile stale SQLite rows.
+fn load_board_yamls(
     root: &Path,
+    board_ids: &[String],
     template: &PipelineConfig,
-) -> Result<HashMap<String, Arc<PipelineConfigStore>>, String> {
-    let index_path = boards_index_path(root);
-    let mut index = read_boards_index(&index_path)?;
+) -> (Vec<String>, HashMap<String, Arc<PipelineConfigStore>>) {
     let mut map = HashMap::new();
     let mut kept: Vec<String> = Vec::new();
-    for id in &index.board_ids {
+    for id in board_ids {
         let p = root.join(format!("{id}.yaml"));
         if p.is_file() {
             kept.push(id.clone());
@@ -81,61 +60,84 @@ fn load_board_stores_from_disk(
             );
         }
     }
-    if kept != index.board_ids {
-        index.board_ids = kept;
-        write_boards_index(&index_path, &index)?;
-    }
-    Ok(map)
-}
-
-fn append_board_id(root: &Path, id: &str) -> Result<(), String> {
-    let path = boards_index_path(root);
-    let mut index = read_boards_index(&path)?;
-    if !index.board_ids.iter().any(|x| x == id) {
-        index.board_ids.push(id.to_string());
-    }
-    write_boards_index(&path, &index)
-}
-
-fn remove_board_id(root: &Path, id: &str) -> Result<(), String> {
-    let path = boards_index_path(root);
-    let mut index = read_boards_index(&path)?;
-    index.board_ids.retain(|x| x != id);
-    write_boards_index(&path, &index)
+    (kept, map)
 }
 
 /// Named kanban boards, each backed by a [`PipelineConfigStore`].
 ///
 /// When a config directory is available (`~/.config/molt-hub/boards/<project_id>/` on Unix),
-/// boards are persisted as `{ulid}.yaml` plus `boards-index.yaml` and survive server restarts.
+/// boards are persisted as `{ulid}.yaml` with the index tracked in SQLite, and survive
+/// server restarts.
 ///
 /// Use [`Self::empty_with_template`] for tests (no disk I/O).
 pub struct MultiBoardPipelineStore {
-    /// When set, board YAML files and the index live under this directory.
+    /// When set, board YAML files live under this directory.
     persist_dir: Option<std::path::PathBuf>,
+    /// SQLite-backed index tracking which boards belong to this project.
+    boards_store: Option<Arc<BoardsStore>>,
+    /// `project_id` — needed for SQLite writes.
+    project_id: String,
     boards: RwLock<HashMap<String, Arc<PipelineConfigStore>>>,
     /// Pipeline config copied for each new board file (columns, stages, hooks).
     new_board_template: PipelineConfig,
 }
 
 impl MultiBoardPipelineStore {
-    /// Load boards from disk for `project_id`, or start empty if none exist.
-    pub fn load_or_empty(project_id: &str, new_board_template: PipelineConfig) -> Self {
+    /// Load boards for `project_id` using the SQLite `boards_store`, falling back
+    /// to an empty list if the store is not available or fails.
+    ///
+    /// Per-board YAML config files are loaded from the platform config directory.
+    pub async fn load_or_empty(
+        project_id: &str,
+        new_board_template: PipelineConfig,
+        boards_store: Option<Arc<BoardsStore>>,
+    ) -> Self {
         let persist_dir = board_persist_dir(project_id);
         let mut boards_map = HashMap::new();
-        if let Some(ref dir) = persist_dir {
-            match load_board_stores_from_disk(dir, &new_board_template) {
-                Ok(m) => boards_map = m,
+
+        if let (Some(ref dir), Some(ref store)) = (&persist_dir, &boards_store) {
+            match store.list_boards(project_id).await {
+                Ok(records) => {
+                    let board_ids: Vec<String> =
+                        records.iter().map(|r| r.board_id.clone()).collect();
+                    let (kept, map) = load_board_yamls(dir, &board_ids, &new_board_template);
+                    boards_map = map;
+
+                    // Remove SQLite rows whose YAML files have been deleted.
+                    let stale: Vec<_> = board_ids
+                        .iter()
+                        .filter(|id| !kept.contains(id))
+                        .collect();
+                    for id in stale {
+                        if let Err(e) = store.remove_board(project_id, id).await {
+                            warn!(
+                                project_id = %project_id,
+                                board_id = %id,
+                                error = %e,
+                                "failed to remove stale board from SQLite"
+                            );
+                        }
+                    }
+                }
                 Err(e) => warn!(
                     project_id = %project_id,
-                    path = %dir.display(),
                     error = %e,
-                    "failed to load boards from disk; starting with an empty board list",
+                    "failed to load boards from SQLite; starting with an empty board list",
                 ),
             }
+        } else if let Some(ref dir) = persist_dir {
+            // No SQLite store available — start empty (boards will be re-created if needed).
+            warn!(
+                project_id = %project_id,
+                path = %dir.display(),
+                "no SQLite boards store available; starting with empty board list",
+            );
         }
+
         Self {
             persist_dir,
+            boards_store,
+            project_id: project_id.to_string(),
             boards: RwLock::new(boards_map),
             new_board_template,
         }
@@ -143,24 +145,46 @@ impl MultiBoardPipelineStore {
 
     /// Empty project: no boards until the user creates one (each new board uses `template`).
     ///
-    /// Does not read or write the filesystem (for unit tests).
+    /// Does not read or write the filesystem or SQLite (for unit tests).
     pub fn empty_with_template(new_board_template: PipelineConfig) -> Self {
         Self {
             persist_dir: None,
+            boards_store: None,
+            project_id: String::new(),
             boards: RwLock::new(HashMap::new()),
             new_board_template,
         }
     }
 
-    /// Tests: load or create boards under `persist_dir` with stock [`PipelineConfig::board_defaults`].
+    /// Tests: load or create boards under `persist_dir` reading from on-disk YAML only.
+    ///
+    /// Does NOT use SQLite (for tests that only care about YAML file persistence).
     #[cfg(test)]
     fn with_persist_dir(persist_dir: std::path::PathBuf, new_board_template: PipelineConfig) -> Self {
-        let mut boards_map = HashMap::new();
-        if let Ok(m) = load_board_stores_from_disk(&persist_dir, &new_board_template) {
-            boards_map = m;
-        }
+        // Scan the directory for any existing {id}.yaml files directly (no index).
+        let board_ids: Vec<String> = std::fs::read_dir(&persist_dir)
+            .ok()
+            .map(|entries| {
+                entries
+                    .filter_map(|e| e.ok())
+                    .filter_map(|e| {
+                        let name = e.file_name().to_string_lossy().into_owned();
+                        if name.ends_with(".yaml") && name != "boards-index.yaml" {
+                            Some(name.trim_end_matches(".yaml").to_string())
+                        } else {
+                            None
+                        }
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let (_, boards_map) = load_board_yamls(&persist_dir, &board_ids, &new_board_template);
+
         Self {
             persist_dir: Some(persist_dir),
+            boards_store: None,
+            project_id: String::new(),
             boards: RwLock::new(boards_map),
             new_board_template,
         }
@@ -213,12 +237,25 @@ impl MultiBoardPipelineStore {
         let arc_store = if let Some(ref root) = self.persist_dir {
             std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
             let path = root.join(format!("{id}.yaml"));
+            let config_path = path.display().to_string();
             let store = PipelineConfigStore::from_file_with_template(
                 path,
                 self.new_board_template.clone(),
             );
             store.set_display_name(title.to_string()).await;
-            append_board_id(root, &id)?;
+
+            // Register in SQLite boards index.
+            if let Some(ref bs) = self.boards_store {
+                if let Err(e) = bs.add_board(&self.project_id, &id, &config_path).await {
+                    warn!(
+                        project_id = %self.project_id,
+                        board_id = %id,
+                        error = %e,
+                        "failed to add board to SQLite index"
+                    );
+                }
+            }
+
             Arc::new(store)
         } else {
             let store = PipelineConfigStore::from_pipeline_config(self.new_board_template.clone());
@@ -245,10 +282,20 @@ impl MultiBoardPipelineStore {
                     warn!(path = %yaml.display(), error = %e, "failed to remove board yaml");
                 }
             }
-            if let Err(e) = remove_board_id(root, &id) {
-                warn!(error = %e, "failed to update boards index after delete");
+        }
+
+        // Remove from SQLite boards index.
+        if let Some(ref bs) = self.boards_store {
+            if let Err(e) = bs.remove_board(&self.project_id, &id).await {
+                warn!(
+                    project_id = %self.project_id,
+                    board_id = %id,
+                    error = %e,
+                    "failed to remove board from SQLite index"
+                );
             }
         }
+
         Ok(())
     }
 }
@@ -330,11 +377,13 @@ pub struct ProjectRuntimeRegistry {
     max_projects: usize,
     /// Copied into each new [`MultiBoardPipelineStore`] when a project runtime is created.
     new_board_template: PipelineConfig,
+    /// SQLite-backed boards index shared across all project runtimes.
+    boards_store: Option<Arc<BoardsStore>>,
 }
 
 impl Default for ProjectRuntimeRegistry {
     fn default() -> Self {
-        Self::new(PipelineConfig::board_defaults())
+        Self::new(PipelineConfig::board_defaults(), None)
     }
 }
 
@@ -353,10 +402,14 @@ pub async fn ensure_project_runtime(
     let runtime = Arc::new(ProjectRuntime {
         project_id: project_id.to_string(),
         supervisor: Arc::clone(supervisor),
-        boards: Arc::new(MultiBoardPipelineStore::load_or_empty(
-            project_id,
-            registry.new_board_template(),
-        )),
+        boards: Arc::new(
+            MultiBoardPipelineStore::load_or_empty(
+                project_id,
+                registry.new_board_template(),
+                registry.boards_store(),
+            )
+            .await,
+        ),
     });
     registry
         .insert(project_id.to_string(), Arc::clone(&runtime))
@@ -366,16 +419,21 @@ pub async fn ensure_project_runtime(
 
 impl ProjectRuntimeRegistry {
     /// Create a registry with the default capacity ([`DEFAULT_MAX_PROJECT_RUNTIMES`]).
-    pub fn new(new_board_template: PipelineConfig) -> Self {
-        Self::with_max_projects(DEFAULT_MAX_PROJECT_RUNTIMES, new_board_template)
+    pub fn new(new_board_template: PipelineConfig, boards_store: Option<Arc<BoardsStore>>) -> Self {
+        Self::with_max_projects(DEFAULT_MAX_PROJECT_RUNTIMES, new_board_template, boards_store)
     }
 
     /// Create a registry that retains at most `max_projects` entries before LRU eviction.
-    pub fn with_max_projects(max_projects: usize, new_board_template: PipelineConfig) -> Self {
+    pub fn with_max_projects(
+        max_projects: usize,
+        new_board_template: PipelineConfig,
+        boards_store: Option<Arc<BoardsStore>>,
+    ) -> Self {
         Self {
             map: DashMap::new(),
             max_projects: max_projects.max(2),
             new_board_template,
+            boards_store,
         }
     }
 
@@ -442,6 +500,11 @@ impl ProjectRuntimeRegistry {
     pub fn new_board_template(&self) -> PipelineConfig {
         self.new_board_template.clone()
     }
+
+    /// Return the shared SQLite boards store, if one is configured.
+    pub fn boards_store(&self) -> Option<Arc<BoardsStore>> {
+        self.boards_store.clone()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -468,7 +531,7 @@ mod tests {
 
     #[tokio::test]
     async fn registry_insert_and_get() {
-        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults());
+        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults(), None);
         let rt = make_runtime("proj-1");
 
         registry.insert("proj-1".into(), Arc::clone(&rt)).await;
@@ -480,13 +543,13 @@ mod tests {
 
     #[tokio::test]
     async fn registry_get_missing_returns_none() {
-        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults());
+        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults(), None);
         assert!(registry.get("nonexistent").await.is_none());
     }
 
     #[tokio::test]
     async fn registry_remove() {
-        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults());
+        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults(), None);
         registry.insert("p".into(), make_runtime("p")).await;
         assert_eq!(registry.len(), 1);
 
@@ -497,7 +560,7 @@ mod tests {
 
     #[tokio::test]
     async fn registry_is_empty() {
-        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults());
+        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults(), None);
         assert!(registry.is_empty());
         registry.insert("x".into(), make_runtime("x")).await;
         assert!(!registry.is_empty());
@@ -506,7 +569,7 @@ mod tests {
     #[tokio::test]
     async fn registry_evicts_lru_when_over_capacity() {
         let registry =
-            ProjectRuntimeRegistry::with_max_projects(2, PipelineConfig::board_defaults());
+            ProjectRuntimeRegistry::with_max_projects(2, PipelineConfig::board_defaults(), None);
 
         registry
             .insert("default".into(), make_runtime("default"))

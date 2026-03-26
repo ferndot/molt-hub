@@ -1061,6 +1061,7 @@ mod tests {
             test_spawn_adapter: None,
             worktree_managers: Arc::new(WorktreeManagerCache::new()),
             worktree_registry: Arc::new(WorktreeRegistry::new()),
+            event_store: None,
         })
     }
 
@@ -1191,6 +1192,7 @@ mod tests {
             test_spawn_adapter: None,
             worktree_managers: Arc::new(WorktreeManagerCache::new()),
             worktree_registry: Arc::new(WorktreeRegistry::new()),
+            event_store: None,
         });
         let app = agent_router(state);
 
@@ -1283,6 +1285,7 @@ mod tests {
             test_spawn_adapter: Some(adapter),
             worktree_managers: Arc::new(WorktreeManagerCache::new()),
             worktree_registry: Arc::new(WorktreeRegistry::new()),
+            event_store: None,
         });
         let app = agent_router(state);
 
