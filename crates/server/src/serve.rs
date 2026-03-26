@@ -36,6 +36,7 @@ use crate::integrations::jira_oauth_handlers::{jira_oauth_router, JiraOAuthState
 use crate::integrations::oauth::JiraOAuthService;
 use crate::integrations::oauth_redirect::{github_redirect_uri, jira_redirect_uri};
 use crate::pipeline::handlers::PipelineState;
+use crate::pipeline::PipelineConfigSqliteStore;
 use crate::projects::boards_store::BoardsStore;
 use crate::projects::handlers::{project_router, ProjectConfigStore};
 use crate::projects::runtime::{MultiBoardPipelineStore, ProjectRuntime, ProjectRuntimeRegistry};
@@ -197,6 +198,25 @@ pub async fn build_router(
         None => None,
     };
 
+    // ---- Pipeline config SQLite store (shares the same DB as the event store) --------
+    let pipeline_config_store: Option<Arc<PipelineConfigSqliteStore>> =
+        match event_store_state.as_ref() {
+            Some(es) => {
+                let pool = es.store.pool().clone();
+                match PipelineConfigSqliteStore::new(pool).await {
+                    Ok(pcs) => {
+                        info!("pipeline config store initialised");
+                        Some(Arc::new(pcs))
+                    }
+                    Err(e) => {
+                        warn!(error = %e, "failed to initialise pipeline config store — pipeline configs will not be persisted in SQLite");
+                        None
+                    }
+                }
+            }
+            None => None,
+        };
+
     // ---- Project runtime registry ------------------------------------------
     let board_template = pipeline_state.snapshot_config().await;
     let registry = Arc::new(ProjectRuntimeRegistry::new(board_template.clone(), boards_store.clone()));
@@ -313,7 +333,7 @@ pub async fn build_router(
     }
 
     // Single `ProjectRuntimeRegistry` Extension (populated above, e.g. `"default"`).
-    let router = router
+    let mut router = router
         .fallback_service(ServeDir::new(dist_dir).fallback(ServeFile::new(index_html)))
         .layer(axum::Extension(Arc::clone(&registry)))
         .layer(axum::Extension(Arc::clone(&supervisor)))
@@ -322,6 +342,13 @@ pub async fn build_router(
         .layer(axum::Extension(Arc::clone(&manager)))
         .layer(axum::Extension(Arc::clone(&typed_settings_state)))
         .with_state(Arc::clone(&manager));
+
+    // Wire pipeline config store as an extension (available to handlers that opt in).
+    if let Some(ref pcs) = pipeline_config_store {
+        router = router.layer(axum::Extension(Arc::clone(pcs)));
+    }
+
+    let router = router;
 
     (router, manager, supervisor, audit_handle)
 }
