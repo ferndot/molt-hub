@@ -320,13 +320,18 @@ pub async fn create_project(
     {
         Ok(project) => {
             let pid = project.id.to_string();
+            let boards_store = registry.boards_store();
             let runtime = Arc::new(ProjectRuntime {
                 project_id: pid.clone(),
                 supervisor: Arc::clone(&supervisor),
-                boards: Arc::new(MultiBoardPipelineStore::load_or_empty(
-                    &pid,
-                    registry.new_board_template(),
-                )),
+                boards: Arc::new(
+                    MultiBoardPipelineStore::load_or_empty(
+                        &pid,
+                        registry.new_board_template(),
+                        boards_store,
+                    )
+                    .await,
+                ),
             });
             registry.insert(pid, runtime).await;
             info!(id = %project.id, name = %project.name, "project created");
@@ -703,7 +708,7 @@ mod tests {
         Extension<Arc<Supervisor>>,
     ) {
         use molt_hub_core::config::PipelineConfig;
-        let registry = Arc::new(ProjectRuntimeRegistry::new(PipelineConfig::board_defaults()));
+        let registry = Arc::new(ProjectRuntimeRegistry::new(PipelineConfig::board_defaults(), None));
         let (tx, _rx) = broadcast::channel::<AgentEvent>(4);
         let supervisor = Arc::new(Supervisor::new(SupervisorConfig::default(), tx));
         (Extension(registry), Extension(supervisor))

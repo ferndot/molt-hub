@@ -148,6 +148,13 @@ impl SqliteEventStore {
         Ok(Self { pool })
     }
 
+    /// Return a reference to the underlying connection pool.
+    ///
+    /// Allows other stores (e.g. `BoardsStore`) to share the same SQLite database.
+    pub fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
+
     /// Create tables, indexes, and apply WAL / synchronous pragmas.
     async fn initialize(pool: &SqlitePool) -> Result<(), EventStoreError> {
         let mut conn = pool.acquire().await?;
