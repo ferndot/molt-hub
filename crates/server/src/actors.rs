@@ -61,6 +61,9 @@ async fn run_hooks_for_named_stage(
     task_id: &TaskId,
     session_id: &SessionId,
     agent_id: Option<AgentId>,
+    task_title: &str,
+    task_description: &str,
+    priority: &str,
 ) -> Result<(), HookExecutorError> {
     let Some(stage) = stage_by_name(pipeline, stage_name) else {
         return Ok(());
@@ -73,6 +76,9 @@ async fn run_hooks_for_named_stage(
         trigger: trigger.clone(),
         pipeline_name: pipeline.name.clone(),
         env: HashMap::new(),
+        task_title: task_title.to_string(),
+        task_description: task_description.to_string(),
+        priority: priority.to_string(),
     };
     executor.execute_hooks(stage, trigger, &ctx).await?;
     Ok(())
@@ -87,6 +93,9 @@ pub(crate) async fn run_lifecycle_hooks_for_event(
     stage_before: &str,
     _stage_after: &str,
     new_state: &TaskState,
+    task_title: &str,
+    task_description: &str,
+    priority: &str,
 ) -> Result<(), HookExecutorError> {
     let aid = agent_id_from_event(&envelope.payload);
     match &envelope.payload {
@@ -103,6 +112,9 @@ pub(crate) async fn run_lifecycle_hooks_for_event(
                 task_id,
                 session_id,
                 aid.clone(),
+                task_title,
+                task_description,
+                priority,
             )
             .await?;
             run_hooks_for_named_stage(
@@ -113,6 +125,9 @@ pub(crate) async fn run_lifecycle_hooks_for_event(
                 task_id,
                 session_id,
                 aid,
+                task_title,
+                task_description,
+                priority,
             )
             .await?;
         }
@@ -128,6 +143,9 @@ pub(crate) async fn run_lifecycle_hooks_for_event(
                 task_id,
                 session_id,
                 aid.clone(),
+                task_title,
+                task_description,
+                priority,
             )
             .await?;
             run_hooks_for_named_stage(
@@ -138,6 +156,9 @@ pub(crate) async fn run_lifecycle_hooks_for_event(
                 task_id,
                 session_id,
                 aid,
+                task_title,
+                task_description,
+                priority,
             )
             .await?;
         }
@@ -150,6 +171,9 @@ pub(crate) async fn run_lifecycle_hooks_for_event(
                 task_id,
                 session_id,
                 aid,
+                task_title,
+                task_description,
+                priority,
             )
             .await?;
         }
@@ -165,6 +189,9 @@ pub(crate) async fn run_lifecycle_hooks_for_event(
                 task_id,
                 session_id,
                 aid,
+                task_title,
+                task_description,
+                priority,
             )
             .await?;
         }
@@ -254,6 +281,9 @@ pub struct TaskActorConfig {
     pub session_id: SessionId,
     pub initial_stage: String,
     pub pipeline_config: Arc<PipelineConfig>,
+    pub task_title: String,
+    pub task_description: String,
+    pub priority: String,
 }
 
 /// Runs a per-task event loop, owning a `TaskMachine` and responding to commands.
@@ -271,6 +301,9 @@ struct TaskActor<S: EventStore + 'static> {
     ws_manager: Option<Arc<ConnectionManager>>,
     /// When set, stage enter/exit hooks from the pipeline config run on transitions.
     hook_executor: Option<Arc<HookExecutor>>,
+    task_title: String,
+    task_description: String,
+    priority: String,
 }
 
 impl<S: EventStore + 'static> TaskActor<S> {
@@ -294,6 +327,9 @@ impl<S: EventStore + 'static> TaskActor<S> {
             state_tx,
             ws_manager,
             hook_executor,
+            task_title: config.task_title,
+            task_description: config.task_description,
+            priority: config.priority,
         }
     }
 
@@ -363,6 +399,9 @@ impl<S: EventStore + 'static> TaskActor<S> {
                 &snapshot_stage,
                 &stage_after,
                 &new_state,
+                &self.task_title,
+                &self.task_description,
+                &self.priority,
             )
             .await
             {
@@ -832,6 +871,9 @@ mod tests {
             session_id: SessionId::new(),
             initial_stage: initial_stage.to_string(),
             pipeline_config: pipeline,
+            task_title: "Test Task".to_string(),
+            task_description: "A test description.".to_string(),
+            priority: "p1".to_string(),
         }
     }
 

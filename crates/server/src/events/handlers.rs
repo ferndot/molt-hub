@@ -500,6 +500,28 @@ pub async fn move_task_stage(
         payload: payload.clone(),
     };
 
+    let task_title = events.iter().rev().find_map(|e| {
+        if let DomainEvent::TaskCreated { title, .. } = &e.payload {
+            Some(title.clone())
+        } else {
+            None
+        }
+    });
+    let (hook_task_title, hook_task_description, hook_priority) =
+        events.iter().rev().find_map(|e| {
+            if let DomainEvent::TaskCreated { title, description, priority, .. } = &e.payload {
+                let p = match priority {
+                    molt_hub_core::model::Priority::P0 => "p0",
+                    molt_hub_core::model::Priority::P1 => "p1",
+                    molt_hub_core::model::Priority::P2 => "p2",
+                    molt_hub_core::model::Priority::P3 => "p3",
+                };
+                Some((title.clone(), description.clone(), p.to_string()))
+            } else {
+                None
+            }
+        }).unwrap_or_else(|| ("".to_string(), "".to_string(), "p2".to_string()));
+
     if let Err(source) = run_lifecycle_hooks_for_event(
         hook_executor.as_ref(),
         &pipeline,
@@ -509,6 +531,9 @@ pub async fn move_task_stage(
         &from_stage,
         &to_stage,
         &new_state,
+        &hook_task_title,
+        &hook_task_description,
+        &hook_priority,
     )
     .await
     {
@@ -522,14 +547,6 @@ pub async fn move_task_stage(
     if let Err(e) = state.store.append(envelope).await {
         return error_response(e);
     }
-
-    let task_title = events.iter().rev().find_map(|e| {
-        if let DomainEvent::TaskCreated { title, .. } = &e.payload {
-            Some(title.clone())
-        } else {
-            None
-        }
-    });
 
     let ws_project = events
         .last()
@@ -730,6 +747,28 @@ pub async fn submit_human_decision(
 
     let stage_after = probe.current_stage.clone();
 
+    let task_title = events.iter().rev().find_map(|e| {
+        if let DomainEvent::TaskCreated { title, .. } = &e.payload {
+            Some(title.clone())
+        } else {
+            None
+        }
+    });
+    let (hook_task_title2, hook_task_description2, hook_priority2) =
+        events.iter().rev().find_map(|e| {
+            if let DomainEvent::TaskCreated { title, description, priority, .. } = &e.payload {
+                let p = match priority {
+                    molt_hub_core::model::Priority::P0 => "p0",
+                    molt_hub_core::model::Priority::P1 => "p1",
+                    molt_hub_core::model::Priority::P2 => "p2",
+                    molt_hub_core::model::Priority::P3 => "p3",
+                };
+                Some((title.clone(), description.clone(), p.to_string()))
+            } else {
+                None
+            }
+        }).unwrap_or_else(|| ("".to_string(), "".to_string(), "p2".to_string()));
+
     if let Err(source) = run_lifecycle_hooks_for_event(
         hook_executor.as_ref(),
         &pipeline,
@@ -739,6 +778,9 @@ pub async fn submit_human_decision(
         &stage_before,
         &stage_after,
         &new_state,
+        &hook_task_title2,
+        &hook_task_description2,
+        &hook_priority2,
     )
     .await
     {
@@ -752,14 +794,6 @@ pub async fn submit_human_decision(
     if let Err(e) = state.store.append(envelope).await {
         return error_response(e);
     }
-
-    let task_title = events.iter().rev().find_map(|e| {
-        if let DomainEvent::TaskCreated { title, .. } = &e.payload {
-            Some(title.clone())
-        } else {
-            None
-        }
-    });
 
     let ws_project = events
         .last()

@@ -40,6 +40,9 @@ pub struct HookContext {
     pub pipeline_name: String,
     /// Additional environment variables injected into shell hooks.
     pub env: HashMap<String, String>,
+    pub task_title: String,
+    pub task_description: String,
+    pub priority: String,
 }
 
 // ─── Results ─────────────────────────────────────────────────────────────────
@@ -350,11 +353,33 @@ impl HookExecutor {
 
         let config = &hook.config;
 
-        let instruction = match config.get("instruction").and_then(|v| v.as_str()) {
+        let instruction_template = match config.get("instruction").and_then(|v| v.as_str()) {
             Some(i) => i.to_string(),
             None => {
                 return HookResult::Failed {
                     error: "agent_dispatch hook missing required 'instruction' field".into(),
+                    retryable: false,
+                }
+            }
+        };
+
+        let engine = molt_hub_core::templates::TemplateEngine::new();
+        let tmpl_ctx = molt_hub_core::templates::TemplateContext {
+            task_id: ctx.task_id.to_string(),
+            task_title: ctx.task_title.clone(),
+            task_description: ctx.task_description.clone(),
+            stage_name: ctx.stage_name.clone(),
+            pipeline_name: ctx.pipeline_name.clone(),
+            agent_name: None,
+            agent_type: None,
+            priority: ctx.priority.clone(),
+            custom: std::collections::HashMap::new(),
+        };
+        let instruction = match engine.render_inline(&instruction_template, &tmpl_ctx) {
+            Ok(rendered) => rendered,
+            Err(e) => {
+                return HookResult::Failed {
+                    error: format!("instruction template render error: {e}"),
                     retryable: false,
                 }
             }
@@ -622,6 +647,9 @@ mod tests {
             trigger: HookTrigger::Enter,
             pipeline_name: "ci".into(),
             env: HashMap::new(),
+            task_title: "Test Task".to_string(),
+            task_description: "A test description.".to_string(),
+            priority: "p1".to_string(),
         }
     }
 

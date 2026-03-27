@@ -599,6 +599,9 @@ mod tests {
             session_id: session_id.clone(),
             initial_stage: "work".to_string(),
             pipeline_config: pipeline,
+            task_title: "Test Task".to_string(),
+            task_description: "A test description.".to_string(),
+            priority: "p1".to_string(),
         };
         let handle = registry.spawn_task(config);
 
@@ -783,6 +786,9 @@ mod tests {
             session_id: session_id.clone(),
             initial_stage: "work".to_string(),
             pipeline_config: Arc::clone(&pipeline),
+            task_title: "Test Task".to_string(),
+            task_description: "A test description.".to_string(),
+            priority: "p1".to_string(),
         };
         let handle = registry.spawn_task(config);
 

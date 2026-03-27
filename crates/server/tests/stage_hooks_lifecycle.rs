@@ -180,6 +180,9 @@ async fn task_stage_changed_runs_exit_then_enter_hooks() {
         session_id: session_id.clone(),
         initial_stage: "plan".into(),
         pipeline_config: Arc::clone(&pipeline),
+        task_title: "Test Task".to_string(),
+        task_description: "A test description.".to_string(),
+        priority: "p1".to_string(),
     });
 
     handle
@@ -245,6 +248,9 @@ async fn aborting_enter_hook_reverts_stage_and_skips_persist() {
         session_id: session_id.clone(),
         initial_stage: "plan".into(),
         pipeline_config: Arc::clone(&pipeline),
+        task_title: "Test Task".to_string(),
+        task_description: "A test description.".to_string(),
+        priority: "p1".to_string(),
     });
 
     handle
@@ -322,6 +328,9 @@ async fn agent_completed_success_runs_exit_hook_on_stage() {
         session_id: session_id.clone(),
         initial_stage: "work".into(),
         pipeline_config: Arc::clone(&pipeline),
+        task_title: "Test Task".to_string(),
+        task_description: "A test description.".to_string(),
+        priority: "p1".to_string(),
     });
 
     handle

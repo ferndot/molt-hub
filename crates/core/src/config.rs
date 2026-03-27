@@ -238,7 +238,15 @@ impl PipelineConfig {
                     approvers: vec![],
                     timeout_seconds: None,
                     terminal: false,
-                    hooks: vec![],
+                    hooks: vec![
+                        HookDefinition {
+                            kind: HookKind::AgentDispatch,
+                            on: HookTrigger::Enter,
+                            config: serde_json::json!({
+                                "instruction": "You are an AI software agent. Work on the following task:\n\nTitle: {{task_title}}\n\nDescription:\n{{task_description}}\n\nPriority: {{priority}}\nStage: {{stage_name}}\n\nComplete the task, commit your changes, and report back with a summary of what you did."
+                            }),
+                        }
+                    ],
                     transition_rules: vec![],
                     color: Some("#6366f1".into()),
                     order: 2,

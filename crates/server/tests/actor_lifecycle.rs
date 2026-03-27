@@ -158,6 +158,9 @@ fn make_config(task_id: TaskId, stage: &str, pipeline: Arc<PipelineConfig>) -> T
         session_id: SessionId::new(),
         initial_stage: stage.to_string(),
         pipeline_config: pipeline,
+        task_title: "Test Task".to_string(),
+        task_description: "A test description.".to_string(),
+        priority: "p1".to_string(),
     }
 }
 
