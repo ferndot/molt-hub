@@ -321,10 +321,7 @@ impl HookExecutor {
                 HookResult::Success { output: None }
             }
             HookKind::AgentDispatch => self.execute_agent_dispatch(hook, ctx).await,
-            HookKind::Webhook => {
-                debug!(stage = %ctx.stage_name, "Webhook hook placeholder");
-                HookResult::Success { output: None }
-            }
+            HookKind::Webhook => self.execute_webhook(hook, ctx).await,
         }
     }
 
@@ -448,6 +445,131 @@ impl HookExecutor {
         );
         HookResult::Success {
             output: Some(format!("agent spawned: {}", handle.agent_id())),
+        }
+    }
+
+    // ── Webhook hook ────────────────────────────────────────────────────────
+
+    /// Send an HTTP request for the `webhook` hook kind.
+    ///
+    /// Config fields:
+    /// - `url` (required): the URL to call
+    /// - `method` (optional, default `"POST"`): POST, GET, PUT, PATCH
+    /// - `headers` (optional): object of key→value string pairs to add
+    /// - `body` (optional): string body to send (for POST/PUT/PATCH); defaults to task context JSON
+    /// - `timeout_seconds` (optional, default 10)
+    async fn execute_webhook(&self, hook: &HookDefinition, ctx: &HookContext) -> HookResult {
+        let config = &hook.config;
+
+        let url = match config.get("url").and_then(|v| v.as_str()) {
+            Some(u) => u.to_string(),
+            None => {
+                return HookResult::Failed {
+                    error: "webhook hook missing required 'url' field".into(),
+                    retryable: false,
+                }
+            }
+        };
+
+        let method_str = config
+            .get("method")
+            .and_then(|v| v.as_str())
+            .unwrap_or("POST")
+            .to_uppercase();
+        let timeout_secs = config
+            .get("timeout_seconds")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(10);
+
+        // Build payload: task context as JSON
+        let payload = serde_json::json!({
+            "task_id": ctx.task_id.to_string(),
+            "task_title": ctx.task_title,
+            "task_description": ctx.task_description,
+            "stage_name": ctx.stage_name,
+            "pipeline_name": ctx.pipeline_name,
+            "priority": ctx.priority,
+            "trigger": match ctx.trigger {
+                HookTrigger::Enter => "enter",
+                HookTrigger::Exit => "exit",
+                HookTrigger::OnStall => "on_stall",
+            },
+        });
+
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(timeout_secs))
+            .build()
+        {
+            Ok(c) => c,
+            Err(e) => {
+                return HookResult::Failed {
+                    error: format!("webhook: failed to build HTTP client: {e}"),
+                    retryable: false,
+                }
+            }
+        };
+
+        let mut req = match method_str.as_str() {
+            "GET" => client.get(&url),
+            "POST" => client.post(&url),
+            "PUT" => client.put(&url),
+            "PATCH" => client.patch(&url),
+            other => {
+                return HookResult::Failed {
+                    error: format!("webhook: unsupported method '{other}'"),
+                    retryable: false,
+                }
+            }
+        };
+
+        // Add custom headers
+        if let Some(headers) = config.get("headers").and_then(|v| v.as_object()) {
+            for (k, v) in headers {
+                if let Some(val) = v.as_str() {
+                    req = req.header(k.as_str(), val);
+                }
+            }
+        }
+
+        // Add body for POST/PUT/PATCH
+        if matches!(method_str.as_str(), "POST" | "PUT" | "PATCH") {
+            let body = config
+                .get("body")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| payload.to_string());
+            req = req.header("Content-Type", "application/json").body(body);
+        }
+
+        tracing::info!(
+            task_id = %ctx.task_id,
+            stage = %ctx.stage_name,
+            url = %url,
+            method = %method_str,
+            "webhook hook: sending request"
+        );
+
+        match req.send().await {
+            Ok(resp) => {
+                let status = resp.status();
+                if status.is_success() {
+                    HookResult::Success {
+                        output: Some(format!("webhook responded {}", status.as_u16())),
+                    }
+                } else {
+                    HookResult::Failed {
+                        error: format!(
+                            "webhook responded with non-2xx status: {}",
+                            status.as_u16()
+                        ),
+                        retryable: status.as_u16() >= 500,
+                    }
+                }
+            }
+            Err(e) => HookResult::Failed {
+                error: format!("webhook request failed: {e}"),
+                retryable: true,
+            },
         }
     }
 
@@ -1155,5 +1277,67 @@ mod tests {
     fn execution_mode_parallel_parsed() {
         let mode = ExecutionMode::from_config(&json!({ "execution_mode": "parallel" }));
         assert_eq!(mode, ExecutionMode::Parallel);
+    }
+
+    // ── Webhook hook ─────────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn webhook_missing_url_returns_failed_non_retryable() {
+        let executor = HookExecutor::new();
+        let hook = HookDefinition {
+            kind: HookKind::Webhook,
+            on: HookTrigger::Enter,
+            config: json!({}),
+        };
+        let ctx = make_ctx();
+
+        let result = executor.execute_single(&hook, &ctx).await;
+
+        assert!(matches!(
+            result,
+            HookResult::Failed {
+                retryable: false,
+                ..
+            }
+        ));
+        if let HookResult::Failed { error, .. } = result {
+            assert!(error.contains("url"), "error should mention 'url': {error}");
+        }
+    }
+
+    #[tokio::test]
+    async fn webhook_invalid_url_returns_failed_retryable() {
+        let executor = HookExecutor::new();
+        let hook = HookDefinition {
+            kind: HookKind::Webhook,
+            on: HookTrigger::Enter,
+            config: json!({ "url": "http://127.0.0.1:1", "timeout_seconds": 1 }),
+        };
+        let ctx = make_ctx();
+
+        let result = executor.execute_single(&hook, &ctx).await;
+
+        assert!(matches!(result, HookResult::Failed { retryable: true, .. }));
+    }
+
+    #[tokio::test]
+    async fn webhook_unsupported_method_returns_failed_non_retryable() {
+        let executor = HookExecutor::new();
+        let hook = HookDefinition {
+            kind: HookKind::Webhook,
+            on: HookTrigger::Enter,
+            config: json!({ "url": "http://example.com", "method": "DELETE" }),
+        };
+        let ctx = make_ctx();
+
+        let result = executor.execute_single(&hook, &ctx).await;
+
+        assert!(matches!(
+            result,
+            HookResult::Failed {
+                retryable: false,
+                ..
+            }
+        ));
     }
 }

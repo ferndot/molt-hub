@@ -492,12 +492,12 @@ const HowItWorksView: Component = () => {
             <div class={styles.vizLabel}>🪝 Lifecycle Hooks</div>
             <div class={styles.hooksGrid}>
               <div class={styles.hookTile} style={{ "--ht": "#6366f1" }}>
-                <span class={styles.hookTileEvent}>on_enter</span>
+                <span class={styles.hookTileEvent}>enter</span>
                 <span class={styles.hookTileArrow}>→</span>
                 <span class={styles.hookTileAction}>🤖 Spawn agent</span>
               </div>
               <div class={styles.hookTile} style={{ "--ht": "#f59e0b" }}>
-                <span class={styles.hookTileEvent}>on_exit</span>
+                <span class={styles.hookTileEvent}>exit</span>
                 <span class={styles.hookTileArrow}>→</span>
                 <span class={styles.hookTileAction}>📡 Webhook</span>
               </div>
