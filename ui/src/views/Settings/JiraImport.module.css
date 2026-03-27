@@ -79,61 +79,63 @@
 /* ---- Body ---- */
 
 .dialogBody {
-  padding: 1rem 1.25rem;
+  padding: 1.25rem 1.5rem;
   overflow-y: auto;
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
 }
 
-/* ---- Search controls ---- */
+/* ---- Filters row (project + status dropdowns) ---- */
+
+.filtersRow {
+  display: flex;
+  gap: 0.625rem;
+}
+
+.filterSelect {
+  flex: 1;
+  min-width: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.filterSelect:focus {
+  border-color: var(--accent, #3b82f6);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+/* ---- Search row (text input + button) ---- */
 
 .searchRow {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-  align-items: center;
+  display: flex;
+  gap: 0.625rem;
 }
 
-@media (max-width: 520px) {
-  .searchRow {
-    grid-template-columns: 1fr;
-  }
-}
-
-.projectSelect {
+.searchInput {
+  flex: 1;
   min-width: 0;
-  width: 100%;
-  padding: 0.5rem 0.75rem;
+  padding: 0.5625rem 0.875rem;
   border: 1px solid var(--border-subtle);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--bg-secondary);
   color: var(--text-primary);
   font-size: 0.875rem;
   outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
-.projectSelect:focus {
+.searchInput:focus {
   border-color: var(--accent, #3b82f6);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
-}
-
-.jqlInput {
-  min-width: 0;
-  width: 100%;
-  box-sizing: border-box;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: 0.875rem;
-  font-family: monospace;
-  outline: none;
-}
-
-.jqlInput:focus {
-  border-color: var(--accent, #3b82f6);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
 }
 
 .searchBtn {
@@ -191,46 +193,55 @@
 }
 
 .resultCheckbox {
-  margin-top: 2px;
   flex-shrink: 0;
   cursor: pointer;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent, #3b82f6);
+  margin-top: 3px;
 }
 
 .resultContent {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
 }
 
 .resultKey {
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--accent, #3b82f6);
   font-family: monospace;
-  margin-right: 0.5rem;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
 }
 
 .resultSummary {
   font-size: 0.875rem;
   color: var(--text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.resultMeta {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.25rem;
+  line-height: 1.45;
 }
 
 .resultStatus {
-  font-size: 0.75rem;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  border-radius: 4px;
+  padding: 0.15em 0.5em;
+  white-space: nowrap;
   color: var(--text-muted);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-subtle);
 }
 
 .resultPriority {
-  font-size: 0.75rem;
-  color: var(--text-muted);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  white-space: nowrap;
+  border-radius: 4px;
+  padding: 0.15em 0.5em;
+  border: 1px solid transparent;
 }
 
 /* ---- States ---- */
@@ -382,46 +393,14 @@
   margin-bottom: 0.125rem;
 }
 
-.statusDone {
-  color: #059669;
-}
+:global(.jira-status-todo)       { color: #94a3b8; background: rgba(148,163,184,0.1);  border-color: rgba(148,163,184,0.25); }
+:global(.jira-status-inprogress) { color: #60a5fa; background: rgba(96,165,250,0.1);   border-color: rgba(96,165,250,0.25);  }
+:global(.jira-status-done)       { color: #34d399; background: rgba(52,211,153,0.1);   border-color: rgba(52,211,153,0.25);  }
+:global(.jira-status-closed)     { color: #6b7280; background: rgba(107,114,128,0.1);  border-color: rgba(107,114,128,0.2);  }
 
-.statusInProgress {
-  color: #d97706;
-}
-
-.statusTodo {
-  color: var(--text-muted);
-}
-
-:global(.jira-status-todo) {
-  color: var(--text-muted);
-}
-
-:global(.jira-status-inprogress) {
-  color: #d97706;
-}
-
-:global(.jira-status-done) {
-  color: #059669;
-}
-
-:global(.jira-status-closed) {
-  color: var(--text-muted);
-  opacity: 0.6;
-}
-
-.priorityCritical {
-  color: #dc2626;
-}
-
-.priorityHigh {
-  color: #ea580c;
-}
-
-.priorityLow {
-  color: var(--text-muted);
-}
+:global(.jira-priority-critical) { color: #f87171; background: rgba(248,113,113,0.1);  border-color: rgba(248,113,113,0.25); }
+:global(.jira-priority-high)     { color: #fb923c; background: rgba(251,146,60,0.1);   border-color: rgba(251,146,60,0.25);  }
+:global(.jira-priority-low)      { color: #94a3b8; background: rgba(148,163,184,0.08); border-color: rgba(148,163,184,0.2);  }
 
 /* ---- Epic badge ---- */
 

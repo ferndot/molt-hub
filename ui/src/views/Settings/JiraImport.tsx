@@ -79,29 +79,59 @@ async function parseJsonOrThrow<T>(response: Response): Promise<T> {
   return JSON.parse(text) as T;
 }
 
+export interface JiraStatus {
+  id: string;
+  name: string;
+}
+
 async function fetchProjects(): Promise<JiraProject[]> {
   const response = await fetch("/api/integrations/jira/projects");
   return parseJsonOrThrow<JiraProject[]>(response);
 }
 
-/** Server `GET /search` expects `jql` (optional `cloud_id`). */
-function buildJiraSearchJql(projectKey: string, userJql: string): string {
-  const j = userJql.trim();
+async function fetchStatuses(projectKey: string): Promise<JiraStatus[]> {
+  const params = new URLSearchParams();
+  if (projectKey) params.set("project", projectKey);
+  const response = await fetch(`/api/integrations/jira/statuses?${params}`);
+  return parseJsonOrThrow<JiraStatus[]>(response);
+}
+
+/** Detect whether user input is an issue key, plain text, or JQL. */
+function classifyInput(s: string): "key" | "text" | "jql" {
+  if (/^[A-Z][A-Z0-9]+-\d+$/i.test(s)) return "key";
+  if (/\b(AND|OR|NOT|ORDER BY|=|!=|~|in\s*\(|is\s+(EMPTY|NULL))\b/i.test(s)) return "jql";
+  return "text";
+}
+
+function buildJiraSearchJql(projectKey: string, userInput: string, statusFilter: string): string {
+  const s = userInput.trim();
   const esc = (k: string) => `"${k.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-  if (projectKey) {
-    const proj = `project = ${esc(projectKey)}`;
-    if (j) return `${proj} AND (${j})`;
-    return `${proj} ORDER BY updated DESC`;
+
+  const clauses: string[] = [];
+  if (projectKey) clauses.push(`project = ${esc(projectKey)}`);
+  if (statusFilter) clauses.push(`status = ${esc(statusFilter)}`);
+
+  if (s) {
+    const kind = classifyInput(s);
+    if (kind === "key") {
+      clauses.push(`key = ${s.toUpperCase()}`);
+    } else if (kind === "text") {
+      clauses.push(`summary ~ ${esc(s)}`);
+    } else {
+      clauses.push(`(${s})`);
+    }
   }
-  if (j) return j;
-  return "created >= -30d ORDER BY updated DESC";
+
+  if (clauses.length === 0) return "created >= -30d ORDER BY updated DESC";
+  return `${clauses.join(" AND ")} ORDER BY updated DESC`;
 }
 
 async function searchIssues(
   projectKey: string,
-  userJql: string,
+  userInput: string,
+  statusFilter: string,
 ): Promise<JiraIssue[]> {
-  const jql = buildJiraSearchJql(projectKey, userJql);
+  const jql = buildJiraSearchJql(projectKey, userInput, statusFilter);
   const params = new URLSearchParams({ jql });
   const response = await fetch(`/api/integrations/jira/search?${params}`);
   return parseJsonOrThrow<JiraIssue[]>(response);
@@ -138,9 +168,9 @@ function statusClass(issue: JiraIssue): string {
 
 function priorityClass(priority: string): string {
   const p = priority.toLowerCase();
-  if (p === "highest" || p === "critical" || p === "blocker") return styles.priorityCritical;
-  if (p === "high") return styles.priorityHigh;
-  if (p === "low" || p === "lowest" || p === "minor") return styles.priorityLow;
+  if (p === "highest" || p === "critical" || p === "blocker") return "jira-priority-critical";
+  if (p === "high") return "jira-priority-high";
+  if (p === "low" || p === "lowest" || p === "minor") return "jira-priority-low";
   return "";
 }
 
@@ -151,15 +181,29 @@ function priorityClass(priority: string): string {
 const JiraImport: Component<JiraImportProps> = (props) => {
   // ---- State ----
   const [selectedProject, setSelectedProject] = createSignal("");
+  const [selectedStatus, setSelectedStatus] = createSignal("");
   const [jql, setJql] = createSignal("");
   const [searchTrigger, setSearchTrigger] = createSignal<{
     project: string;
+    status: string;
     jql: string;
   } | null>(null);
   const [selectedKeys, setSelectedKeys] = createSignal<Set<string>>(new Set());
   const [importStatus, setImportStatus] = createSignal<ImportStatus>("idle");
   const [importError, setImportError] = createSignal<string | null>(null);
   const [importedCount, setImportedCount] = createSignal(0);
+
+  // ---- Statuses resource (refetches when project changes) ----
+  const [statuses] = createResource(
+    () => props.isOpen ? { project: selectedProject() } : null,
+    async ({ project }) => fetchStatuses(project ?? ""),
+  );
+
+  const statusOptions = (): string[] => {
+    const st = statuses.state;
+    if (st === "ready" || st === "refreshing") return (statuses() ?? []).map((s) => s.name);
+    return [];
+  };
 
   // ---- Projects resource (only while dialog is open; avoids eager fetch + crash on error) ----
   const [projects] = createResource(
@@ -189,7 +233,7 @@ const JiraImport: Component<JiraImportProps> = (props) => {
     searchTrigger,
     async (trigger) => {
       if (!trigger) return [];
-      return searchIssues(trigger.project, trigger.jql);
+      return searchIssues(trigger.project, trigger.jql, trigger.status);
     },
   );
 
@@ -198,7 +242,7 @@ const JiraImport: Component<JiraImportProps> = (props) => {
     setSelectedKeys(new Set<string>());
     setImportStatus("idle");
     setImportError(null);
-    setSearchTrigger({ project: selectedProject(), jql: jql() });
+    setSearchTrigger({ project: selectedProject(), status: selectedStatus(), jql: jql() });
   };
 
   const handleKeyDown = (e: KeyboardEvent) => {
@@ -295,8 +339,8 @@ const JiraImport: Component<JiraImportProps> = (props) => {
                 </div>
               </Show>
 
-              {/* Search controls */}
-              <div class={styles.searchRow}>
+              {/* Filters */}
+              <div class={styles.filtersRow}>
                 <Show
                   when={projects.loading}
                   fallback={
@@ -304,7 +348,7 @@ const JiraImport: Component<JiraImportProps> = (props) => {
                       when={projectsFetchError()}
                       fallback={
                         <select
-                          class={styles.projectSelect}
+                          class={styles.filterSelect}
                           value={selectedProject()}
                           onChange={(e) => setSelectedProject(e.currentTarget.value)}
                         >
@@ -326,20 +370,35 @@ const JiraImport: Component<JiraImportProps> = (props) => {
                     </Show>
                   }
                 >
-                  <select class={styles.projectSelect} disabled>
+                  <select class={styles.filterSelect} disabled>
                     <option>Loading projects…</option>
                   </select>
                 </Show>
 
+                <select
+                  class={styles.filterSelect}
+                  value={selectedStatus()}
+                  onChange={(e) => setSelectedStatus(e.currentTarget.value)}
+                >
+                  <option value="">
+                    {statuses.loading ? "Loading statuses…" : "Any status"}
+                  </option>
+                  <For each={statusOptions()}>
+                    {(name) => <option value={name}>{name}</option>}
+                  </For>
+                </select>
+              </div>
+
+              {/* Search */}
+              <div class={styles.searchRow}>
                 <input
-                  class={styles.jqlInput}
+                  class={styles.searchInput}
                   type="text"
-                  placeholder="JQL query (e.g. status = 'In Progress')"
+                  placeholder="Search by issue key, title, or JQL…"
                   value={jql()}
                   onInput={(e) => setJql(e.currentTarget.value)}
                   onKeyDown={handleKeyDown}
                 />
-
                 <button
                   class={styles.searchBtn}
                   disabled={isSearching()}
