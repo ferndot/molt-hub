@@ -11,7 +11,7 @@ import type { Component } from "solid-js";
 import { Show, onCleanup, createSignal } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { TbOutlineArrowLeft } from "solid-icons/tb";
-import { getAgent, setupAgentSubscription, clearAuthError } from "./agentStore";
+import { getAgent, setupAgentSubscription, clearAuthError, hydrateAgentOutput } from "./agentStore";
 import { api } from "../../lib/api";
 import OutputStream from "./OutputStream";
 import AgentMeta from "./AgentMeta";
@@ -47,6 +47,8 @@ const AgentDetailView: Component = () => {
   // Wire up WebSocket subscription for real-time output
   const unsub = setupAgentSubscription(params.id);
   onCleanup(unsub);
+  // Fetch buffered output from the server for this agent
+  void hydrateAgentOutput(params.id);
 
   return (
     <Show

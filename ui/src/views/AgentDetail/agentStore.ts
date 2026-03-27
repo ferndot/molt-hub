@@ -99,6 +99,10 @@ export function useAgentDetailStore() {
 // WebSocket subscription (stub)
 // ---------------------------------------------------------------------------
 
+// Tracks which agent IDs already have an active WS subscription so that
+// fetchAgents() does not set up duplicate listeners on every poll.
+const subscribedAgentIds = new Set<string>();
+
 // ---------------------------------------------------------------------------
 // API fetch — load real agents from the backend
 // ---------------------------------------------------------------------------
@@ -143,6 +147,16 @@ export async function fetchAgents(): Promise<void> {
         return m;
       });
     });
+    // Auto-subscribe to any newly seen agents
+    for (const raw of agents) {
+      const id = raw.agent_id;
+      if (!subscribedAgentIds.has(id)) {
+        subscribedAgentIds.add(id);
+        setupAgentSubscription(id);
+        // Note: no cleanup needed — agent subscriptions live until the page unloads
+        // or the agent is removed from the store
+      }
+    }
   } catch {
     // API unreachable — keep existing state
   }
@@ -211,6 +225,7 @@ export async function hydrateAgentOutput(agentId: string): Promise<void> {
 
 export function removeAgentFromStore(agentId: string): void {
   setState("agents", (agents) => agents.filter((a) => a.id !== agentId));
+  subscribedAgentIds.delete(agentId);
 }
 
 /**
