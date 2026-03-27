@@ -6,10 +6,17 @@
  *
  * - Enter sends with "normal" priority
  * - Shift+Enter sends with "urgent" priority
+ *
+ * When the chat is fresh (no messages), initial suggestion buttons are shown.
+ * Two kinds:
+ * - "complete": clicking immediately sends the full text as a message
+ * - "partial": clicking populates the input with the text (minus trailing "…")
+ *   and focuses the input so the user can finish the sentence
  */
 
 import type { Component } from "solid-js";
 import { For, Show, createSignal, createEffect, onMount } from "solid-js";
+import { FaSolidCommentAlt } from "solid-icons/fa";
 import {
   getMessages,
   sendMessage,
@@ -18,6 +25,31 @@ import {
   type SteerPriority,
 } from "./steerStore";
 import styles from "./SteerChat.module.css";
+
+// ---------------------------------------------------------------------------
+// Suggestion types
+// ---------------------------------------------------------------------------
+
+export type SuggestionKind = "complete" | "partial";
+
+export interface Suggestion {
+  kind: SuggestionKind;
+  /** Display text shown on the button */
+  text: string;
+  /**
+   * Full message sent (complete) or pre-filled in input (partial).
+   * Defaults to `text` if omitted.
+   */
+  value?: string;
+}
+
+/** Default suggestions shown when no messages exist yet. */
+const DEFAULT_SUGGESTIONS: Suggestion[] = [
+  { kind: "complete", text: "What is your current status?" },
+  { kind: "complete", text: "Summarise what you have done so far." },
+  { kind: "partial", text: "Explain why you chose…" },
+  { kind: "partial", text: "Show me the code for…" },
+];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -38,6 +70,8 @@ function formatTime(isoString: string): string {
 
 interface Props {
   agentId: string;
+  /** Override the default initial suggestions. Pass [] to hide them. */
+  suggestions?: Suggestion[];
 }
 
 const SteerChat: Component<Props> = (props) => {
@@ -48,6 +82,7 @@ const SteerChat: Component<Props> = (props) => {
 
   const messages = () => getMessages(props.agentId);
   const sending = () => isSending(props.agentId);
+  const suggestions = () => props.suggestions ?? DEFAULT_SUGGESTIONS;
 
   // Auto-scroll to bottom when messages change
   function scrollToBottom(): void {
@@ -84,6 +119,25 @@ const SteerChat: Component<Props> = (props) => {
     await sendMessage(props.agentId, content, priority);
   }
 
+  async function handleSuggestionClick(suggestion: Suggestion): Promise<void> {
+    const value = suggestion.value ?? suggestion.text;
+    if (suggestion.kind === "complete") {
+      await sendMessage(props.agentId, value, "normal");
+    } else {
+      // Partial: strip trailing "…" or "..." and populate the input
+      const seed = value.replace(/[…\.]{1,3}\s*$/, "").trimEnd();
+      setInputValue(seed);
+      if (textareaRef) {
+        textareaRef.style.height = "auto";
+        textareaRef.style.height = `${Math.min(textareaRef.scrollHeight, 120)}px`;
+        textareaRef.focus();
+        // Move cursor to end
+        const len = textareaRef.value.length;
+        textareaRef.setSelectionRange(len, len);
+      }
+    }
+  }
+
   function handleKeyDown(e: KeyboardEvent): void {
     if (e.key === "Enter" && !e.ctrlKey && !e.altKey && !e.metaKey) {
       e.preventDefault();
@@ -113,9 +167,26 @@ const SteerChat: Component<Props> = (props) => {
           when={messages().length > 0}
           fallback={
             <div class={styles.empty}>
-              Send a message to steer this agent.
-              <br />
-              Enter to send, Shift+Enter for urgent.
+              <p class={styles.emptyHint}>
+                Send a message to steer this agent.
+              </p>
+              <Show when={suggestions().length > 0}>
+                <div class={styles.suggestions}>
+                  <For each={suggestions()}>
+                    {(s) => (
+                      <button
+                        type="button"
+                        class={styles.suggestionBtn}
+                        onClick={() => handleSuggestionClick(s)}
+                        disabled={sending()}
+                      >
+                        <FaSolidCommentAlt class={styles.suggestionIcon} />
+                        <span>{s.text}</span>
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </div>
           }
         >
