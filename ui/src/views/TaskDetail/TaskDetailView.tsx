@@ -102,7 +102,13 @@ const TaskDetailView: Component = () => {
                 >
                   {t().priority.toUpperCase()}
                 </span>
-                <span class={styles.stagePill}>{stageLabel(t().current_stage)}</span>
+                <span
+                  class={styles.stagePill}
+                  style={(() => {
+                    const c = boardState.pipelineStages.find(s => s.id === t().current_stage)?.color;
+                    return c ? { "--stage-color": c, background: `color-mix(in srgb, ${c} 15%, transparent)`, color: c, "border-color": `color-mix(in srgb, ${c} 40%, transparent)` } : {};
+                  })()}
+                >{stageLabel(t().current_stage)}</span>
               </div>
 
               {/* Body */}

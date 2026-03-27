@@ -36,12 +36,14 @@
 .main {
   flex: 1;
   min-width: 0;
-  overflow-y: auto;
+  min-height: 0;
+  overflow: hidden;
   background: var(--bg-secondary);
   color: var(--text-primary);
   transition: var(--transition-theme);
 }
 
 .pageEnter {
+  height: 100%;
   animation: pageEnter 0.2s ease both;
 }

@@ -2,7 +2,7 @@
 
 .card {
   background: var(--bg-elevated);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--col-color, var(--border)) 28%, transparent);
   border-radius: 6px;
   padding: 0.3125rem 0.625rem;
   cursor: pointer;
@@ -11,7 +11,7 @@
 }
 
 .card:hover {
-  border-color: var(--border-strong);
+  border-color: color-mix(in srgb, var(--col-color, var(--border-strong)) 50%, transparent);
 }
 
 /* Attention left-border accent — default uses p0 color */

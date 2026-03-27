@@ -149,9 +149,9 @@
   width: 100%;
   padding: 0.5rem;
   background: none;
-  border: 1px dashed var(--border);
+  border: 1px dashed color-mix(in srgb, var(--col-color, var(--border)) 35%, transparent);
   border-radius: 6px;
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--col-color, var(--text-muted)) 60%, var(--text-muted));
   font-size: 0.8125rem;
   font-family: inherit;
   cursor: pointer;
@@ -159,8 +159,8 @@
 }
 
 .addIssueBtn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: color-mix(in srgb, var(--col-color, var(--accent)) 70%, transparent);
+  color: color-mix(in srgb, var(--col-color, var(--accent)) 80%, var(--text-primary));
 }
 
 /* Add issue — inline panel in first column (no modal; works in Tauri/WebKit) */

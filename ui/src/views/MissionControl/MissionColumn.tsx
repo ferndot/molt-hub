@@ -14,6 +14,7 @@ import styles from "./MissionColumn.module.css";
 
 export interface MissionColumnProps {
   stage: string;
+  color?: string;
   items: MissionControlItem[];
   attentionCount: number;
   filterActive: boolean;
@@ -91,6 +92,7 @@ const MissionColumn: Component<MissionColumnProps> = (props) => {
   return (
     <div
       class={`${styles.column}${isDragOver() ? ` ${styles.dropZone}` : ""}${props.filterActive && props.items.length === 0 ? ` ${styles.columnEmpty}` : ""}`}
+      style={props.color ? { "--col-color": props.color } as any : undefined}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}

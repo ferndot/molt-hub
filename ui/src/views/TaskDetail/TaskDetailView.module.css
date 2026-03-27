@@ -70,9 +70,9 @@
   border-radius: 20px;
   font-size: 0.72rem;
   font-weight: 500;
-  background: rgba(42, 157, 143, 0.12);
-  color: var(--priority-p2);
-  border: 1px solid rgba(42, 157, 143, 0.3);
+  background: rgba(148, 163, 184, 0.12);
+  color: var(--text-secondary);
+  border: 1px solid rgba(148, 163, 184, 0.3);
   flex-shrink: 0;
 }
 

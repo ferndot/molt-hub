@@ -146,6 +146,7 @@ const BoardView: Component = () => {
             {(stageDef) => (
               <MissionColumn
                 stage={stageDef.id}
+                color={stageDef.color}
                 items={mc.visibleItemsForStage(stageDef.id)}
                 attentionCount={mc.attentionCountForStage(stageDef.id)}
                 filterActive={mc.globalFilterActive()}

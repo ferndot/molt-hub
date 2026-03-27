@@ -5,6 +5,9 @@
   display: flex;
   flex-direction: column;
   height: 100%;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--col-color, transparent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--col-color, var(--border)) 22%, transparent);
 }
 
 .columnHeader {
