@@ -74,7 +74,9 @@
 .boardRegion {
   flex: 1;
   display: flex;
+  height: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   padding: 1rem;
   gap: 1rem;
   /* Ensure card DnD works — opt out of window drag region */
