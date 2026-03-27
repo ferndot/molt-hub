@@ -23,7 +23,7 @@ use tokio::time::timeout;
 use tracing::{debug, info, warn};
 
 use molt_hub_core::config::{HookDefinition, HookKind, HookTrigger, StageDefinition};
-use molt_hub_core::model::{AgentId, AgentStatus, SessionId, TaskId};
+use molt_hub_core::model::{AgentId, SessionId, TaskId};
 
 use molt_hub_harness::adapter::{AdapterError, AgentAdapter, SpawnConfig};
 
@@ -439,52 +439,15 @@ impl HookExecutor {
             }
         };
 
-        // Poll until the agent terminates or the timeout expires.
-        let poll_result = timeout(Duration::from_secs(timeout_secs), async {
-            loop {
-                match adapter.status(&handle).await {
-                    Ok(AgentStatus::Completed) | Ok(AgentStatus::Terminated) => {
-                        return Ok(());
-                    }
-                    Ok(AgentStatus::Failed) => {
-                        return Err("sub-agent exited with non-zero status".to_string());
-                    }
-                    Ok(AgentStatus::Crashed { error }) => {
-                        return Err(format!("sub-agent crashed: {error}"));
-                    }
-                    Ok(_) => {
-                        tokio::time::sleep(Duration::from_millis(500)).await;
-                    }
-                    Err(e) => {
-                        return Err(format!("status check error: {e}"));
-                    }
-                }
-            }
-        })
-        .await;
-
-        match poll_result {
-            Ok(Ok(())) => {
-                info!(
-                    task_id = %ctx.task_id,
-                    sub_agent_id = %handle.agent_id(),
-                    "agent_dispatch: sub-agent completed successfully"
-                );
-                HookResult::Success {
-                    output: Some(format!(
-                        "agent_dispatch completed (agent {})",
-                        handle.agent_id()
-                    )),
-                }
-            }
-            Ok(Err(msg)) => HookResult::Failed {
-                error: format!("agent_dispatch: {msg}"),
-                retryable: false,
-            },
-            Err(_) => HookResult::Failed {
-                error: format!("agent_dispatch: sub-agent timed out after {timeout_secs}s"),
-                retryable: false,
-            },
+        // Fire-and-forget: agent runs in background; status tracked via WebSocket events.
+        tracing::info!(
+            task_id = %ctx.task_id,
+            stage = %ctx.stage_name,
+            agent_id = %handle.agent_id(),
+            "agent_dispatch: sub-agent spawned (fire-and-forget)"
+        );
+        HookResult::Success {
+            output: Some(format!("agent spawned: {}", handle.agent_id())),
         }
     }
 
@@ -1137,7 +1100,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn agent_dispatch_crashed_agent_returns_failed() {
+    async fn agent_dispatch_crashed_agent_returns_success_fire_and_forget() {
+        // With fire-and-forget dispatch, we return Success immediately after spawn
+        // regardless of eventual agent status; crash detection happens via WS events.
         let adapter: Arc<dyn AgentAdapter> = Arc::new(MockAdapter::crashing());
         let executor = HookExecutor::with_adapter(adapter);
         let hook = HookDefinition {
@@ -1147,14 +1112,8 @@ mod tests {
         };
         let result = executor.execute_single(&hook, &make_ctx()).await;
         assert!(
-            matches!(
-                result,
-                HookResult::Failed {
-                    retryable: false,
-                    ..
-                }
-            ),
-            "expected Failed, got {result:?}"
+            matches!(result, HookResult::Success { .. }),
+            "expected Success (fire-and-forget), got {result:?}"
         );
     }
 
