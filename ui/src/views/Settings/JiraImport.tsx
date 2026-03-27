@@ -127,25 +127,13 @@ async function importIssues(
 // ---------------------------------------------------------------------------
 
 function statusClass(issue: JiraIssue): string {
-  // Use Jira's native status category color when available
-  if (issue.status_color) {
-    switch (issue.status_color) {
-      case "blue-grey":   return "jira-status-todo";
-      case "yellow":      return "jira-status-inprogress";
-      case "green":       return "jira-status-done";
-      case "medium-gray": return "jira-status-closed";
-      default: break;
-    }
+  switch (issue.status_color) {
+    case "blue-grey":   return "jira-status-todo";
+    case "yellow":      return "jira-status-inprogress";
+    case "green":       return "jira-status-done";
+    case "medium-gray": return "jira-status-closed";
+    default:            return "";
   }
-  // Fallback: name-based matching
-  const s = issue.status.toLowerCase().replace(/\s+/g, "");
-  if (s === "todo" || s === "open" || s === "new") return "jira-status-todo";
-  if (s === "inprogress" || s === "doing" || s === "active") return "jira-status-inprogress";
-  if (s === "inreview" || s === "pullrequest" || s === "review") return "jira-status-inreview";
-  if (s === "done" || s === "resolved" || s === "complete" || s === "completed") return "jira-status-done";
-  if (s === "closed" || s === "cancelled" || s === "canceled" || s === "wontfix") return "jira-status-closed";
-  if (s === "waiting" || s === "blocked" || s === "onhold") return "jira-status-waiting";
-  return "";
 }
 
 function priorityClass(priority: string): string {

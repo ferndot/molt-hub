@@ -365,6 +365,81 @@ impl JiraClient {
             .collect())
     }
 
+    /// List all statuses configured for a project, deduplicated across issue types.
+    ///
+    /// Calls `GET /rest/api/3/project/{projectKey}/statuses`.
+    pub async fn list_statuses(&self, project_key: &str) -> Result<Vec<JiraStatus>, JiraError> {
+        let url = format!("{}/project/{}/statuses", self.base_url, project_key);
+        let response = self
+            .client
+            .get(&url)
+            .bearer_auth(&self.access_token)
+            .header("Accept", "application/json")
+            .send()
+            .await?;
+
+        let text = Self::response_text(response).await?;
+
+        #[derive(serde::Deserialize)]
+        struct IssueTypeStatuses {
+            statuses: Vec<StatusRaw>,
+        }
+        #[derive(serde::Deserialize)]
+        struct StatusRaw {
+            id: String,
+            name: String,
+        }
+
+        let issue_types: Vec<IssueTypeStatuses> =
+            serde_json::from_str(text.trim()).map_err(|e| {
+                JiraError::ParseError(format!("invalid statuses response JSON: {e}"))
+            })?;
+
+        let mut seen = std::collections::HashSet::new();
+        let mut statuses = Vec::new();
+        for it in issue_types {
+            for s in it.statuses {
+                if seen.insert(s.id.clone()) {
+                    statuses.push(JiraStatus { id: s.id, name: s.name });
+                }
+            }
+        }
+        Ok(statuses)
+    }
+
+    /// List all statuses in the Jira instance (no project filter).
+    ///
+    /// Calls `GET /rest/api/3/status`.
+    pub async fn list_global_statuses(&self) -> Result<Vec<JiraStatus>, JiraError> {
+        let url = format!("{}/status", self.base_url);
+        let response = self
+            .client
+            .get(&url)
+            .bearer_auth(&self.access_token)
+            .header("Accept", "application/json")
+            .send()
+            .await?;
+
+        let text = Self::response_text(response).await?;
+
+        #[derive(serde::Deserialize)]
+        struct StatusItem {
+            id: String,
+            name: String,
+        }
+
+        let items: Vec<StatusItem> = serde_json::from_str(text.trim()).map_err(|e| {
+            JiraError::ParseError(format!("invalid global statuses response JSON: {e}"))
+        })?;
+
+        let mut seen = std::collections::HashSet::new();
+        Ok(items
+            .into_iter()
+            .filter(|s| seen.insert(s.id.clone()))
+            .map(|s| JiraStatus { id: s.id, name: s.name })
+            .collect())
+    }
+
     /// Check for 401/403 status codes and return an `AuthError`.
     fn check_auth_response(response: &reqwest::Response) -> Result<(), JiraError> {
         let status = response.status();

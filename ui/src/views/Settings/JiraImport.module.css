@@ -402,10 +402,6 @@
   color: #d97706;
 }
 
-:global(.jira-status-inreview) {
-  color: #7c3aed;
-}
-
 :global(.jira-status-done) {
   color: #059669;
 }
@@ -413,10 +409,6 @@
 :global(.jira-status-closed) {
   color: var(--text-muted);
   opacity: 0.6;
-}
-
-:global(.jira-status-waiting) {
-  color: #dc2626;
 }
 
 .priorityCritical {
