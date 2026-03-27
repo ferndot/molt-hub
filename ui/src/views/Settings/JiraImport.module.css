@@ -91,7 +91,15 @@
 
 .filtersRow {
   display: flex;
-  gap: 0.625rem;
+  gap: 0.5rem;
+}
+
+.filtersRow .filterSelect:first-child {
+  flex: 2;
+}
+
+.filtersRow .filterSelect:last-child {
+  flex: 1;
 }
 
 .filterSelect {
@@ -115,8 +123,7 @@
 }
 
 .filterSelect:hover {
-  background-color: color-mix(in srgb, var(--bg-secondary) 85%, var(--text-primary) 15%);
-  border-color: color-mix(in srgb, var(--border-subtle) 50%, var(--text-muted) 50%);
+  border-color: var(--text-muted, #6b7280);
 }
 
 .filterSelect:focus {
