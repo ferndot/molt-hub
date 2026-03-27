@@ -25,11 +25,132 @@ import styles from "./AgentChat.module.css";
 // Configure marked for GitHub-flavored markdown
 marked.setOptions({ gfm: true, breaks: true });
 
-function renderMarkdown(lines: OutputLine[]): string {
-  const raw = lines.map((l) => l.text).join("\n");
+// ---------------------------------------------------------------------------
+// Tool call parsing
+// ---------------------------------------------------------------------------
+// Claude Code emits tool calls using Unicode bullets:
+//   ⏺ ToolName(args)        ← tool invocation  (U+23FA)
+//     ⎿  result line 1      ← result start      (U+23BF, 2-space indent)
+//        result line 2      ← result cont.      (5-space indent)
+//
+// We also accept ● (U+25CF) as an alternate invocation bullet.
+
+const TOOL_CALL_RE = /^[⏺●]\s+([\w:]+)\((.*)\)\s*$/;
+const RESULT_START_RE = /^[ \t]{0,3}⎿\s{0,2}/;
+const RESULT_CONT_RE = /^[ \t]{5}/;
+
+// Strip ANSI escape sequences that Claude Code may emit
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
+function stripAnsi(s: string): string {
+  return s.replace(ANSI_RE, "");
+}
+
+interface TextSegment   { kind: "text";     lines: string[] }
+interface ToolCallSegment {
+  kind:   "toolcall";
+  name:   string;
+  args:   string;
+  result: string[];
+}
+type OutputSegment = TextSegment | ToolCallSegment;
+
+function parseOutputSegments(lines: OutputLine[]): OutputSegment[] {
+  const segments: OutputSegment[] = [];
+  let textBuf: string[] = [];
+  let i = 0;
+
+  const flushText = () => {
+    if (textBuf.length > 0) {
+      segments.push({ kind: "text", lines: textBuf });
+      textBuf = [];
+    }
+  };
+
+  while (i < lines.length) {
+    const raw = stripAnsi(lines[i].text);
+    const toolMatch = raw.match(TOOL_CALL_RE);
+
+    if (toolMatch) {
+      flushText();
+      const name   = toolMatch[1];
+      const args   = toolMatch[2];
+      const result: string[] = [];
+      i++;
+
+      // Collect result lines
+      while (i < lines.length) {
+        const rRaw = stripAnsi(lines[i].text);
+        if (RESULT_START_RE.test(rRaw)) {
+          result.push(rRaw.replace(RESULT_START_RE, ""));
+          i++;
+        } else if (result.length > 0 && RESULT_CONT_RE.test(rRaw)) {
+          // Continuation — strip the leading 5 spaces
+          result.push(rRaw.replace(/^[ \t]{5}/, ""));
+          i++;
+        } else {
+          break;
+        }
+      }
+
+      segments.push({ kind: "toolcall", name, args, result });
+    } else {
+      textBuf.push(raw);
+      i++;
+    }
+  }
+
+  flushText();
+  return segments;
+}
+
+// ---------------------------------------------------------------------------
+// Markdown renderer (plain text segments)
+// ---------------------------------------------------------------------------
+
+function renderMarkdownText(lines: string[]): string {
+  const raw  = lines.join("\n");
   const html = marked.parse(raw) as string;
   return DOMPurify.sanitize(html);
 }
+
+// ---------------------------------------------------------------------------
+// OutputBlock — renders an output chunk (text + tool calls interleaved)
+// ---------------------------------------------------------------------------
+
+const OutputBlock: Component<{ lines: OutputLine[] }> = (props) => {
+  const segments = createMemo(() => parseOutputSegments(props.lines));
+
+  return (
+    <For each={segments()}>
+      {(seg) => (
+        <Show
+          when={seg.kind === "toolcall"}
+          fallback={
+            <div
+              class={styles.outputBlock}
+              innerHTML={renderMarkdownText((seg as TextSegment).lines)}
+            />
+          }
+        >
+          <details class={styles.toolCall}>
+            <summary class={styles.toolCallSummary}>
+              <span class={styles.toolCallBullet}>⏺</span>
+              <span class={styles.toolCallName}>{(seg as ToolCallSegment).name}</span>
+              <Show when={(seg as ToolCallSegment).args}>
+                <span class={styles.toolCallArgs}>({(seg as ToolCallSegment).args})</span>
+              </Show>
+            </summary>
+            <Show when={(seg as ToolCallSegment).result.join("\n").trim()}>
+              <div class={styles.toolCallResult}>
+                <pre class={styles.toolCallPre}><code>{(seg as ToolCallSegment).result.join("\n")}</code></pre>
+              </div>
+            </Show>
+          </details>
+        </Show>
+      )}
+    </For>
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Stream block types
@@ -44,7 +165,7 @@ interface SteerInsertion {
 
 type StreamBlock =
   | { kind: "output"; lines: OutputLine[] }
-  | { kind: "user"; text: string; priority: SteerPriority };
+  | { kind: "user";   text: string; priority: SteerPriority };
 
 // ---------------------------------------------------------------------------
 // Props
@@ -66,6 +187,10 @@ const AgentChat: Component<AgentChatProps> = (props) => {
   // Input state
   const [inputText, setInputText] = createSignal("");
   const [sending, setSending] = createSignal(false);
+
+  // Thinking indicator — true from when the user's steer is sent until new agent output arrives.
+  const [waitingForResponse, setWaitingForResponse] = createSignal(false);
+  const [waitingAfterLine, setWaitingAfterLine] = createSignal(0);
 
   // Ref for the stream scroll container
   let streamRef: HTMLDivElement | undefined;
@@ -95,10 +220,17 @@ const AgentChat: Component<AgentChatProps> = (props) => {
 
   // Auto-scroll to bottom whenever blocks change.
   createEffect(() => {
-    // Access blocks() to track reactivity.
     blocks();
     if (streamRef) {
       streamRef.scrollTop = streamRef.scrollHeight;
+    }
+  });
+
+  // Clear thinking indicator when new output arrives after the steer point.
+  createEffect(() => {
+    const lines = getAgent(props.agentId)?.outputLines ?? [];
+    if (waitingForResponse() && lines.length > waitingAfterLine()) {
+      setWaitingForResponse(false);
     }
   });
 
@@ -121,6 +253,9 @@ const AgentChat: Component<AgentChatProps> = (props) => {
     setSending(true);
     try {
       await sendMessage(props.agentId, text, priority);
+      // Show the thinking indicator from this line index onwards.
+      setWaitingAfterLine(atLineIndex);
+      setWaitingForResponse(true);
     } finally {
       setSending(false);
     }
@@ -156,25 +291,24 @@ const AgentChat: Component<AgentChatProps> = (props) => {
             <Show
               when={block.kind === "user"}
               fallback={
-                <div
-                  class={styles.outputBlock}
-                  innerHTML={renderMarkdown((block as { kind: "output"; lines: OutputLine[] }).lines)}
-                />
+                <OutputBlock lines={(block as { kind: "output"; lines: OutputLine[] }).lines} />
               }
             >
-              {() => {
-                const b = block as { kind: "user"; text: string; priority: SteerPriority };
-                return (
-                  <div class={styles.userBlock}>
-                    <div class={`${styles.userBubble} ${b.priority === "urgent" ? styles.userBubbleUrgent : ""}`}>
-                      {b.text}
-                    </div>
-                  </div>
-                );
-              }}
+              <div class={styles.userBlock}>
+                <div class={`${styles.userBubble} ${(block as { kind: "user"; text: string; priority: SteerPriority }).priority === "urgent" ? styles.userBubbleUrgent : ""}`}>
+                  {(block as { kind: "user"; text: string; priority: SteerPriority }).text}
+                </div>
+              </div>
             </Show>
           )}
         </For>
+        <Show when={waitingForResponse()}>
+          <div class={styles.thinkingRow}>
+            <span class={styles.thinkingDot} />
+            <span class={styles.thinkingDot} />
+            <span class={styles.thinkingDot} />
+          </div>
+        </Show>
       </div>
 
       {/* Input bar */}
