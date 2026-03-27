@@ -24,24 +24,14 @@ import {
   type SteerMessage,
   type SteerPriority,
 } from "./steerStore";
+import type { Suggestion } from "../../types/chat";
 import styles from "./SteerChat.module.css";
 
 // ---------------------------------------------------------------------------
-// Suggestion types
+// Re-export for consumers that import from this module
 // ---------------------------------------------------------------------------
 
-export type SuggestionKind = "complete" | "partial";
-
-export interface Suggestion {
-  kind: SuggestionKind;
-  /** Display text shown on the button */
-  text: string;
-  /**
-   * Full message sent (complete) or pre-filled in input (partial).
-   * Defaults to `text` if omitted.
-   */
-  value?: string;
-}
+export type { SuggestionKind, Suggestion } from "../../types/chat";
 
 /** Default suggestions shown when no messages exist yet. */
 const DEFAULT_SUGGESTIONS: Suggestion[] = [
