@@ -58,6 +58,10 @@ pub struct JiraIssue {
     pub priority: Option<String>,
     /// Issue labels.
     pub labels: Vec<String>,
+    /// Epic link key (e.g. "PROJ-5"), if present.
+    pub epic_link: Option<String>,
+    /// Epic name (summary of the epic issue), if available.
+    pub epic_name: Option<String>,
     /// Browser URL to the issue.
     pub url: String,
 }
@@ -91,13 +95,37 @@ struct IssueRaw {
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
 struct IssueFields {
     summary: String,
     description: Option<serde_json::Value>,
     status: StatusField,
     priority: Option<PriorityField>,
+    #[serde(default)]
     labels: Option<Vec<String>>,
+    /// customfield_10014 is the Epic Link field in Jira Cloud (older) or a nested object (newer).
+    #[serde(rename = "customfield_10014")]
+    customfield_epic_link: Option<serde_json::Value>,
+    /// Parent issue field (present in next-gen / team-managed projects).
+    parent: Option<ParentField>,
+}
+
+#[derive(Deserialize)]
+struct ParentField {
+    key: String,
+    fields: Option<ParentFieldInner>,
+}
+
+#[derive(Deserialize)]
+struct ParentFieldInner {
+    #[serde(rename = "issuetype")]
+    issue_type: Option<IssueTypeField>,
+    #[serde(default)]
+    summary: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct IssueTypeField {
+    name: String,
 }
 
 #[derive(Deserialize)]
@@ -161,6 +189,8 @@ const SEARCH_ISSUE_FIELDS: &[&str] = &[
     "status",
     "priority",
     "labels",
+    "customfield_10014",
+    "parent",
 ];
 
 /// Use POST `/search/jql` when JQL is longer than this to avoid URL / proxy limits on GET.
@@ -234,7 +264,7 @@ impl JiraClient {
                     ("maxResults", &max_results.to_string()),
                     (
                         "fields",
-                        "summary,description,status,priority,labels",
+                        "summary,description,status,priority,labels,customfield_10014,parent",
                     ),
                 ])
                 .send()
@@ -271,7 +301,7 @@ impl JiraClient {
             .get(&url)
             .bearer_auth(&self.access_token)
             .header("Accept", "application/json")
-            .query(&[("fields", "summary,description,status,priority,labels")])
+            .query(&[("fields", "summary,description,status,priority,labels,customfield_10014,parent")])
             .send()
             .await?;
 
@@ -366,6 +396,48 @@ fn raw_to_issue(raw: IssueRaw) -> JiraIssue {
 
     let description = raw.fields.description.map(|v| extract_plain_text(&v));
 
+    let custom_field = raw.fields.customfield_epic_link;
+    let parent_field = raw.fields.parent;
+
+    // customfield_10014 is a plain string in older Jira Cloud (the epic key), but a
+    // `{key, name, ...}` object in newer instances after Atlassian migrated Epic Link.
+    let epic_from_custom: Option<(String, Option<String>)> = custom_field.and_then(|v| match v {
+        serde_json::Value::String(s) if !s.is_empty() => Some((s, None)),
+        serde_json::Value::Object(obj) => {
+            let key = obj
+                .get("key")
+                .and_then(|k| k.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_owned())?;
+            let name = obj
+                .get("name")
+                .and_then(|n| n.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_owned());
+            Some((key, name))
+        }
+        _ => None,
+    });
+
+    let (epic_link, epic_name) = if let Some((key, name)) = epic_from_custom {
+        (Some(key), name)
+    } else if let Some(p) = parent_field {
+        let is_epic = p
+            .fields
+            .as_ref()
+            .and_then(|f| f.issue_type.as_ref())
+            .map(|it| it.name.to_lowercase() == "epic")
+            .unwrap_or(true); // if type unknown, assume parent is an epic
+        if is_epic {
+            let name = p.fields.and_then(|f| f.summary);
+            (Some(p.key), name)
+        } else {
+            (None, None)
+        }
+    } else {
+        (None, None)
+    };
+
     JiraIssue {
         key: raw.key,
         summary: raw.fields.summary,
@@ -373,6 +445,8 @@ fn raw_to_issue(raw: IssueRaw) -> JiraIssue {
         status: raw.fields.status.name,
         priority: raw.fields.priority.map(|p| p.name),
         labels: raw.fields.labels.unwrap_or_default(),
+        epic_link,
+        epic_name,
         url,
     }
 }
@@ -470,6 +544,8 @@ mod tests {
                     name: "High".into(),
                 }),
                 labels: Some(vec!["bug".into()]),
+                customfield_epic_link: None,
+                parent: None,
             },
         };
 
@@ -496,6 +572,8 @@ mod tests {
                 },
                 priority: None,
                 labels: None,
+                customfield_epic_link: None,
+                parent: None,
             },
         };
 
@@ -518,6 +596,8 @@ mod tests {
                 },
                 priority: None,
                 labels: None,
+                customfield_epic_link: None,
+                parent: None,
             },
         };
         let issue = raw_to_issue(raw);

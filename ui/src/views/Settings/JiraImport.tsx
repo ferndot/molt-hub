@@ -31,6 +31,10 @@ export interface JiraIssue {
   status: string;
   /** Server may omit or null when Jira has no priority. */
   priority?: string | null;
+  /** Epic link key (e.g. "PROJ-5"), if present. */
+  epic_link?: string | null;
+  /** Epic summary/name, if available. */
+  epic_name?: string | null;
 }
 
 export interface JiraImportProps {
@@ -114,6 +118,25 @@ async function importIssues(
     body: JSON.stringify(body),
   });
   return parseJsonOrThrow<{ imported: string[] }>(response);
+}
+
+// ---------------------------------------------------------------------------
+// Badge helpers
+// ---------------------------------------------------------------------------
+
+function statusClass(status: string): string {
+  const s = status.toLowerCase();
+  if (s === "done" || s === "closed" || s === "resolved") return styles.statusDone;
+  if (s.includes("progress") || s.includes("review")) return styles.statusInProgress;
+  return styles.statusTodo;
+}
+
+function priorityClass(priority: string): string {
+  const p = priority.toLowerCase();
+  if (p === "highest" || p === "critical" || p === "blocker") return styles.priorityCritical;
+  if (p === "high") return styles.priorityHigh;
+  if (p === "low" || p === "lowest" || p === "minor") return styles.priorityLow;
+  return "";
 }
 
 // ---------------------------------------------------------------------------
@@ -362,16 +385,27 @@ const JiraImport: Component<JiraImportProps> = (props) => {
                               onClick={(e) => e.stopPropagation()}
                             />
                             <div class={styles.resultContent}>
-                              <div>
+                              <div class={styles.resultHeader}>
                                 <span class={styles.resultKey}>{issue.key}</span>
-                                <span class={styles.resultSummary}>{issue.summary}</span>
-                              </div>
-                              <div class={styles.resultMeta}>
-                                <span class={styles.resultStatus}>{issue.status}</span>
-                                <span class={styles.resultPriority}>
-                                  {issue.priority ?? "—"}
+                                <span
+                                  class={`${styles.resultStatus} ${statusClass(issue.status)}`}
+                                >
+                                  {issue.status}
                                 </span>
+                                <Show when={issue.priority && issue.priority.toLowerCase() !== "normal" && issue.priority !== "—"}>
+                                  <span class={`${styles.resultPriority} ${priorityClass(issue.priority!)}`}>
+                                    {issue.priority}
+                                  </span>
+                                </Show>
                               </div>
+                              <div class={styles.resultSummary}>{issue.summary}</div>
+                              <Show when={issue.epic_link}>
+                                <div class={styles.epicRow}>
+                                  <span class={styles.epicBadge}>
+                                    ⚡ {issue.epic_link}{issue.epic_name ? ` · ${issue.epic_name}` : ""}
+                                  </span>
+                                </div>
+                              </Show>
                             </div>
                           </li>
                         );
