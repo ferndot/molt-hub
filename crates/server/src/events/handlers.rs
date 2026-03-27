@@ -1022,6 +1022,7 @@ pub async fn get_task_detail(
                 description: d,
                 initial_stage,
                 priority: p,
+                ..
             } => {
                 title = t.clone();
                 description = d.clone();
@@ -1476,6 +1477,7 @@ pub async fn get_task(
                 description: d,
                 initial_stage,
                 priority: p,
+                ..
             } => {
                 title = t.clone();
                 description = d.clone();

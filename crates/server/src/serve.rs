@@ -14,9 +14,7 @@ use tower_http::services::{ServeDir, ServeFile};
 use tracing::{debug, info, warn};
 
 use molt_hub_core::events::SqliteEventStore;
-use molt_hub_harness::acp::AcpAdapter;
 use molt_hub_harness::adapter::AgentEvent;
-use molt_hub_harness::adapter::AgentAdapter;
 use molt_hub_harness::supervisor::{Supervisor, SupervisorConfig};
 
 use crate::agents::handlers::{agent_router, AgentState};
@@ -147,10 +145,7 @@ pub async fn build_router(
 
     let supervisor = Arc::new(Supervisor::new(SupervisorConfig::default(), event_tx));
 
-    let acp_adapter = Arc::new(AcpAdapter::new());
-    let hook_executor = Arc::new(HookExecutor::with_adapter(
-        Arc::clone(&acp_adapter) as Arc<dyn AgentAdapter>,
-    ));
+    let hook_executor = Arc::new(HookExecutor::with_supervisor(Arc::clone(&supervisor)));
 
     // Audit log writer
     let audit_handle = start_audit_writer();

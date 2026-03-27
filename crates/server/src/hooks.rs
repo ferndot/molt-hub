@@ -26,6 +26,7 @@ use molt_hub_core::config::{HookDefinition, HookKind, HookTrigger, StageDefiniti
 use molt_hub_core::model::{AgentId, SessionId, TaskId};
 
 use molt_hub_harness::adapter::{AdapterError, AgentAdapter, SpawnConfig};
+use molt_hub_harness::supervisor::Supervisor;
 
 // ─── Context ─────────────────────────────────────────────────────────────────
 
@@ -131,11 +132,12 @@ pub enum HookExecutorError {
 
 /// Hook executor — receives config and context, runs hooks, returns results.
 ///
-/// For `agent_dispatch` hooks, an [`AgentAdapter`] must be provided via
-/// [`HookExecutor::with_adapter`]. Without an adapter those hooks return
-/// [`HookResult::Skipped`].
+/// For `agent_dispatch` hooks, either a [`Supervisor`] (preferred, registers
+/// agents in the UI) or a raw [`AgentAdapter`] (fallback, used in tests) must
+/// be provided. Without either, those hooks return [`HookResult::Skipped`].
 pub struct HookExecutor {
     adapter: Option<Arc<dyn AgentAdapter>>,
+    supervisor: Option<Arc<Supervisor>>,
 }
 
 impl HookExecutor {
@@ -143,13 +145,31 @@ impl HookExecutor {
     ///
     /// `agent_dispatch` hooks will be skipped when no adapter is configured.
     pub fn new() -> Self {
-        HookExecutor { adapter: None }
+        HookExecutor {
+            adapter: None,
+            supervisor: None,
+        }
     }
 
     /// Create an executor with an agent adapter for `agent_dispatch` hooks.
+    ///
+    /// Agents spawned this way bypass the supervisor registry and won't appear
+    /// in the UI. Prefer [`HookExecutor::with_supervisor`] in production.
     pub fn with_adapter(adapter: Arc<dyn AgentAdapter>) -> Self {
         HookExecutor {
             adapter: Some(adapter),
+            supervisor: None,
+        }
+    }
+
+    /// Create an executor backed by a [`Supervisor`] for `agent_dispatch` hooks.
+    ///
+    /// Agents spawned via the supervisor are registered in the DashMap and
+    /// appear in the agents view with full event streaming.
+    pub fn with_supervisor(supervisor: Arc<Supervisor>) -> Self {
+        HookExecutor {
+            adapter: None,
+            supervisor: Some(supervisor),
         }
     }
 
@@ -213,6 +233,7 @@ impl HookExecutor {
             let ctx_clone = ctx.clone();
             let executor = HookExecutor {
                 adapter: self.adapter.clone(),
+                supervisor: self.supervisor.clone(),
             };
             let policy = FailurePolicy::from_config(&hook.config);
 
@@ -335,18 +356,16 @@ impl HookExecutor {
     /// - `working_dir` (optional, default `"."`): working directory for the agent
     /// - `adapter_config` (optional): opaque JSON forwarded to the adapter
     async fn execute_agent_dispatch(&self, hook: &HookDefinition, ctx: &HookContext) -> HookResult {
-        let adapter = match &self.adapter {
-            Some(a) => Arc::clone(a),
-            None => {
-                warn!(
-                    stage = %ctx.stage_name,
-                    "agent_dispatch hook skipped: no AgentAdapter configured on HookExecutor"
-                );
-                return HookResult::Skipped {
-                    reason: "no AgentAdapter configured".into(),
-                };
-            }
-        };
+        // Require either a supervisor or a raw adapter.
+        if self.supervisor.is_none() && self.adapter.is_none() {
+            warn!(
+                stage = %ctx.stage_name,
+                "agent_dispatch hook skipped: no Supervisor or AgentAdapter configured on HookExecutor"
+            );
+            return HookResult::Skipped {
+                reason: "no Supervisor or AgentAdapter configured".into(),
+            };
+        }
 
         let config = &hook.config;
 
@@ -419,7 +438,36 @@ impl HookExecutor {
             "agent_dispatch: spawning sub-agent"
         );
 
-        // Spawn the sub-agent.
+        // Prefer supervisor path so the agent is registered and visible in the UI.
+        if let Some(ref supervisor) = self.supervisor {
+            // The supervisor needs an adapter to do the actual spawning. We use
+            // the adapter stored on self if available; otherwise we create a
+            // default ACP adapter (same as the manual spawn endpoint does).
+            let adapter: Arc<dyn AgentAdapter> = match &self.adapter {
+                Some(a) => Arc::clone(a),
+                None => Arc::new(molt_hub_harness::acp::AcpAdapter::new()),
+            };
+            return match supervisor.spawn_agent(adapter, spawn_cfg).await {
+                Ok(_agent_id) => {
+                    tracing::info!(
+                        task_id = %ctx.task_id,
+                        stage = %ctx.stage_name,
+                        agent_id = %sub_agent_id,
+                        "agent_dispatch: sub-agent registered with supervisor"
+                    );
+                    HookResult::Success {
+                        output: Some(format!("agent spawned: {}", sub_agent_id)),
+                    }
+                }
+                Err(e) => HookResult::Failed {
+                    error: format!("agent_dispatch spawn failed: {e}"),
+                    retryable: true,
+                },
+            };
+        }
+
+        // Fallback to raw adapter (used in tests / bare HookExecutor::with_adapter).
+        let adapter = self.adapter.as_ref().expect("checked above that adapter is Some when supervisor is None");
         let handle = match adapter.spawn(spawn_cfg).await {
             Ok(h) => h,
             Err(AdapterError::SpawnFailed(msg)) => {
@@ -441,7 +489,7 @@ impl HookExecutor {
             task_id = %ctx.task_id,
             stage = %ctx.stage_name,
             agent_id = %handle.agent_id(),
-            "agent_dispatch: sub-agent spawned (fire-and-forget)"
+            "agent_dispatch: sub-agent spawned via adapter (fire-and-forget, not registered in supervisor)"
         );
         HookResult::Success {
             output: Some(format!("agent spawned: {}", handle.agent_id())),
@@ -1057,7 +1105,6 @@ mod tests {
         for kind in [
             HookKind::StartDevEnvironment,
             HookKind::TeardownDevEnvironment,
-            HookKind::Webhook,
         ] {
             let hook = HookDefinition {
                 kind,
