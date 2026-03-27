@@ -1,7 +1,7 @@
 /**
  * AgentDetailView — split-pane detail page for a single running agent.
  *
- * Left pane: terminal-style output stream.
+ * Left pane: terminal-style output stream with steering input pinned at bottom.
  * Right pane: task metadata, stage history, action buttons.
  *
  * Route: /agents/:id
@@ -12,10 +12,11 @@ import { Show, onCleanup, createSignal } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { TbOutlineArrowLeft } from "solid-icons/tb";
 import { getAgent, setupAgentSubscription, clearAuthError, hydrateAgentOutput } from "./agentStore";
+import { sendMessage, isSending } from "./steerStore";
+import type { SteerPriority } from "./steerStore";
 import { api } from "../../lib/api";
 import OutputStream from "./OutputStream";
 import AgentMeta from "./AgentMeta";
-import SteerChat from "./SteerChat";
 import styles from "./AgentDetailView.module.css";
 
 // ---------------------------------------------------------------------------
@@ -33,16 +34,87 @@ function duration(isoString: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Component
+// SteerInput — inline steering textarea + send button
 // ---------------------------------------------------------------------------
 
-type LeftTab = "output" | "chat";
+interface SteerInputProps {
+  agentId: string;
+}
+
+const SteerInput: Component<SteerInputProps> = (props) => {
+  let textareaRef: HTMLTextAreaElement | undefined;
+  const [inputValue, setInputValue] = createSignal("");
+  const sending = () => isSending(props.agentId);
+
+  function adjustTextarea(): void {
+    if (textareaRef) {
+      textareaRef.style.height = "auto";
+      textareaRef.style.height = `${Math.min(textareaRef.scrollHeight, 120)}px`;
+    }
+  }
+
+  async function handleSend(priority: SteerPriority = "normal"): Promise<void> {
+    const content = inputValue().trim();
+    if (!content || sending()) return;
+
+    setInputValue("");
+    if (textareaRef) {
+      textareaRef.style.height = "auto";
+    }
+
+    await sendMessage(props.agentId, content, priority);
+  }
+
+  function handleKeyDown(e: KeyboardEvent): void {
+    if (e.key === "Enter" && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      e.preventDefault();
+      if (e.shiftKey) {
+        void handleSend("urgent");
+      } else {
+        void handleSend("normal");
+      }
+    }
+  }
+
+  return (
+    <div class={styles.steerInputWrapper}>
+      <div class={styles.steerHint}>Shift+Enter = urgent</div>
+      <div class={styles.steerInputArea}>
+        <textarea
+          ref={textareaRef}
+          class={styles.steerTextInput}
+          placeholder="Message this agent..."
+          value={inputValue()}
+          onInput={(e) => {
+            setInputValue(e.currentTarget.value);
+            adjustTextarea();
+          }}
+          onKeyDown={handleKeyDown}
+          rows={1}
+          disabled={sending()}
+        />
+        <button
+          class={styles.steerSendBtn}
+          onClick={() => void handleSend("normal")}
+          disabled={!inputValue().trim() || sending()}
+          type="button"
+          title="Send message (Enter)"
+        >
+          {sending() ? "\u2026" : "\u2191"}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 const AgentDetailView: Component = () => {
   const params = useParams<{ id: string }>();
 
   const agent = () => getAgent(params.id);
-  const [leftTab, setLeftTab] = createSignal<LeftTab>("output");
 
   // Wire up WebSocket subscription for real-time output
   const unsub = setupAgentSubscription(params.id);
@@ -116,33 +188,13 @@ const AgentDetailView: Component = () => {
 
           {/* Split-pane body */}
           <div class={styles.body}>
-            {/* Left — output stream / steering chat */}
+            {/* Left — output stream + steering input */}
             <div class={styles.leftPane}>
-              <div class={styles.tabBar}>
-                <button
-                  class={`${styles.tab} ${leftTab() === "output" ? styles.tabActive : ""}`}
-                  onClick={() => setLeftTab("output")}
-                  type="button"
-                >
-                  Output
-                </button>
-                <button
-                  class={`${styles.tab} ${leftTab() === "chat" ? styles.tabActive : ""}`}
-                  onClick={() => setLeftTab("chat")}
-                  type="button"
-                >
-                  Chat
-                </button>
-              </div>
-              <Show when={leftTab() === "output"}>
-                <OutputStream
-                  lines={a().outputLines}
-                  status={a().status}
-                />
-              </Show>
-              <Show when={leftTab() === "chat"}>
-                <SteerChat agentId={a().id} />
-              </Show>
+              <OutputStream
+                lines={a().outputLines}
+                status={a().status}
+              />
+              <SteerInput agentId={a().id} />
             </div>
 
             <div class={styles.divider} />
