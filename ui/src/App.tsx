@@ -24,6 +24,7 @@ import {
 } from "./views/Settings/settingsStore";
 import { initAgents, startAgentRefresh, stopAgentRefresh } from "./layout/AgentList";
 import HowItWorksView from "./views/HowItWorks/HowItWorksView";
+import AiTutorView from "./views/AiTutor/AiTutorView";
 
 // ---------------------------------------------------------------------------
 // Route views
@@ -103,6 +104,7 @@ const App: Component = () => {
       <Route path="/tasks/:id" component={TaskDetailView} />
       <Route path="/settings" component={SettingsPage} />
       <Route path="/how-it-works" component={HowItWorksView} />
+      <Route path="/tutor" component={AiTutorView} />
     </Router>
   );
 };
