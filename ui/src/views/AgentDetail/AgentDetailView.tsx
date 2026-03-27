@@ -11,7 +11,7 @@ import type { Component } from "solid-js";
 import { Show, onCleanup, createSignal } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { TbOutlineArrowLeft } from "solid-icons/tb";
-import { getAgent, setupAgentSubscription, clearAuthError, hydrateAgentOutput } from "./agentStore";
+import { getAgent, setupAgentSubscription, registerAgentPlaceholder, fetchAgents, clearAuthError, hydrateAgentOutput } from "./agentStore";
 import { api } from "../../lib/api";
 import AgentChat from "../../components/AgentChat/AgentChat";
 import AgentMeta from "./AgentMeta";
@@ -40,10 +40,14 @@ const AgentDetailView: Component = () => {
 
   const agent = () => getAgent(params.id);
 
-  // Wire up WebSocket subscription for real-time output
+  // Ensure agent row exists immediately (synchronous placeholder so Show renders)
+  registerAgentPlaceholder(params.id);
+  // Kick off a fresh agent list fetch so status/name populate without waiting for next poll
+  void fetchAgents();
+  // Subscribe to live output (idempotent — safe even if fetchAgents also subscribes)
   const unsub = setupAgentSubscription(params.id);
   onCleanup(unsub);
-  // Fetch buffered output from the server for this agent
+  // Hydrate buffered output from the server
   void hydrateAgentOutput(params.id);
 
   return (
@@ -114,7 +118,7 @@ const AgentDetailView: Component = () => {
           <div class={styles.body}>
             {/* Left — unified output + steering */}
             <div class={styles.leftPane}>
-              <AgentChat agentId={a().id} />
+              <AgentChat agentId={a().id} status={a().status} />
             </div>
 
             <div class={styles.divider} />

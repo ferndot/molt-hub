@@ -53,8 +53,23 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 0.5rem;
   color: var(--text-muted);
   font-size: 0.875rem;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.25; }
+}
+
+.runningDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--priority-p2, #22c55e);
+  flex-shrink: 0;
+  animation: pulse 1.4s ease-in-out infinite;
 }
 
 /* ------------------------------------------------------------------ */

@@ -147,15 +147,9 @@ export async function fetchAgents(): Promise<void> {
         return m;
       });
     });
-    // Auto-subscribe to any newly seen agents
+    // Auto-subscribe to any newly seen agents (setupAgentSubscription is idempotent)
     for (const raw of agents) {
-      const id = raw.agent_id;
-      if (!subscribedAgentIds.has(id)) {
-        subscribedAgentIds.add(id);
-        setupAgentSubscription(id);
-        // Note: no cleanup needed — agent subscriptions live until the page unloads
-        // or the agent is removed from the store
-      }
+      setupAgentSubscription(raw.agent_id);
     }
   } catch {
     // API unreachable — keep existing state
@@ -240,6 +234,13 @@ export function startAgentPolling(intervalMs = 3000): () => void {
 }
 
 export function setupAgentSubscription(agentId: string): () => void {
+  // Idempotent — skip if already subscribed (prevents duplicates when called
+  // from both fetchAgents() and AgentDetailView mount).
+  if (subscribedAgentIds.has(agentId)) {
+    return () => {};
+  }
+  subscribedAgentIds.add(agentId);
+
   const topic = `agent:${agentId}`;
   const unsubscribe = subscribe(topic, (msg) => {
     if (msg.type !== "event") return;

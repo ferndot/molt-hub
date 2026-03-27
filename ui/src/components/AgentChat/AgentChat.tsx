@@ -41,6 +41,7 @@ type StreamBlock =
 
 interface AgentChatProps {
   agentId: string;
+  status?: "running" | "paused" | "terminated" | "idle";
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +130,15 @@ const AgentChat: Component<AgentChatProps> = (props) => {
       {/* Unified terminal stream */}
       <div class={styles.stream} ref={streamRef}>
         <Show when={blocks().length === 0}>
-          <span class={styles.emptyState}>Waiting for output…</span>
+          <div class={styles.emptyState}>
+            <Show
+              when={props.status === "running" || props.status === undefined}
+              fallback={<span>No output</span>}
+            >
+              <span class={styles.runningDot} />
+              <span>Agent is running…</span>
+            </Show>
+          </div>
         </Show>
         <For each={blocks()}>
           {(block) => (
