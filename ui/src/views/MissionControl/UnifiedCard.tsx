@@ -3,7 +3,7 @@
  * with a glowing left-border accent and inline action buttons.
  */
 
-import { Show, type Component } from "solid-js";
+import { Show, type Component, type JSX } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { TbOutlineCheck, TbOutlineX, TbOutlineArrowRight, TbOutlineClock } from "solid-icons/tb";
 import type { MissionControlItem } from "./missionControlStore";
@@ -32,6 +32,28 @@ export interface UnifiedCardProps {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Agent status helpers
+// ---------------------------------------------------------------------------
+
+const statusLabel = (s: string): string =>
+  ({
+    waiting: 'Waiting for agent',
+    working: 'Agent working',
+    succeeded: 'Completed',
+    errored: 'Agent error',
+    'needs-attention': 'Needs review',
+  } as Record<string, string>)[s] ?? s;
+
+const statusColor = (s: string): string =>
+  ({
+    waiting: '#f59e0b',
+    working: '#6366f1',
+    succeeded: '#22c55e',
+    errored: '#e63946',
+    'needs-attention': '#f4a261',
+  } as Record<string, string>)[s] ?? 'transparent';
 
 const priorityBadgeClass = (priority: string): string => {
   switch (priority) {
@@ -113,6 +135,14 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
       {/* Header */}
       <div class={styles.header}>
         <span class={styles.taskName}>{props.item.name}</span>
+        <Show when={props.item.agentStatus}>
+          <span
+            class={styles.agentStatusDot}
+            data-status={props.item.agentStatus}
+            title={statusLabel(props.item.agentStatus!)}
+            style={{ "background-color": statusColor(props.item.agentStatus!) } as JSX.CSSProperties}
+          />
+        </Show>
         <span
           class={`${styles.priorityBadge} ${priorityBadgeClass(props.item.priority)}`}
         >

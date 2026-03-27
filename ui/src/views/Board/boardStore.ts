@@ -21,6 +21,13 @@ export type BoardTaskStatus =
   | "blocked"
   | "complete";
 
+export type AgentStatus =
+  | 'waiting'
+  | 'working'
+  | 'succeeded'
+  | 'errored'
+  | 'needs-attention';
+
 export interface BoardTask {
   id: string;
   name: string;
@@ -31,6 +38,7 @@ export interface BoardTask {
   summary: string;
   timeInStage: string;
   expanded: boolean;
+  agentStatus?: AgentStatus;
 }
 
 export type { PipelineStage } from "../../lib/api";
@@ -192,6 +200,19 @@ async function applyNoActiveBoard(): Promise<void> {
   setBoardState("stagesLoaded", true);
 }
 
+/** Derive the UI agent status from a task status string and optional agent name. */
+function deriveAgentStatus(
+  status: string | undefined,
+  agentName: string | undefined,
+): AgentStatus | undefined {
+  if (!status) return undefined;
+  if (status === 'needs_review') return 'needs-attention';
+  if (status === 'completed') return 'succeeded';
+  if (status === 'failed') return 'errored';
+  if (status === 'in_progress') return agentName ? 'working' : 'waiting';
+  return undefined;
+}
+
 /** Map a raw BoardTaskItem from the REST API into a BoardTask for the store. */
 function boardTaskFromItem(t: BoardTaskItem): BoardTask {
   return {
@@ -204,6 +225,7 @@ function boardTaskFromItem(t: BoardTaskItem): BoardTask {
     summary: t.summary ?? "",
     timeInStage: "",
     expanded: false,
+    agentStatus: deriveAgentStatus(t.status, t.agent_name ?? undefined),
   };
 }
 
@@ -539,36 +561,48 @@ export function handleBoardWsMessage(msg: ServerMessage): void {
     setBoardState("tasks", (tasks) =>
       tasks.map((t) => {
         if (t.id !== taskId) return t;
+        const updatedStatus = payload.status != null
+          ? payload.status as BoardTaskStatus
+          : t.status;
+        const updatedAgentName = payload.agent_name != null
+          ? payload.agent_name as string
+          : t.agentName;
         return {
           ...t,
           ...(payload.stage != null ? { stage: payload.stage as string } : {}),
           ...(payload.status != null
-            ? { status: payload.status as BoardTaskStatus }
+            ? { status: updatedStatus }
             : {}),
           ...(payload.priority != null
             ? { priority: payload.priority as Priority }
             : {}),
           ...(payload.name != null ? { name: payload.name as string } : {}),
           ...(payload.agent_name != null
-            ? { agentName: payload.agent_name as string }
+            ? { agentName: updatedAgentName }
             : {}),
           ...(payload.summary != null
             ? { summary: payload.summary as string }
+            : {}),
+          ...(payload.status != null || payload.agent_name != null
+            ? { agentStatus: deriveAgentStatus(updatedStatus, updatedAgentName) }
             : {}),
         };
       }),
     );
   } else if (payload.stage && payload.status) {
+    const newAgentName = (payload.agent_name as string) ?? "";
+    const newStatus = payload.status as BoardTaskStatus;
     const newTask: BoardTask = {
       id: taskId,
       name: (payload.name as string) ?? "Untitled",
-      agentName: (payload.agent_name as string) ?? "",
+      agentName: newAgentName,
       priority: (payload.priority as Priority) ?? "p2",
-      status: payload.status as BoardTaskStatus,
+      status: newStatus,
       stage: payload.stage as string,
       summary: (payload.summary as string) ?? "",
       timeInStage: "0m",
       expanded: false,
+      agentStatus: deriveAgentStatus(newStatus, newAgentName),
     };
     setBoardState("tasks", (tasks) => [...tasks, newTask]);
   }
