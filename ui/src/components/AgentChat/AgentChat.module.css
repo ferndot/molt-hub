@@ -11,12 +11,97 @@
 }
 
 .outputBlock {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+
+/* Reset / style child elements produced by marked */
+.outputBlock p {
+  margin: 0.25rem 0;
+}
+.outputBlock p:first-child { margin-top: 0; }
+.outputBlock p:last-child  { margin-bottom: 0; }
+
+.outputBlock h1, .outputBlock h2, .outputBlock h3,
+.outputBlock h4, .outputBlock h5, .outputBlock h6 {
+  font-weight: 600;
+  margin: 0.75rem 0 0.25rem;
+  color: var(--text-primary);
+}
+.outputBlock h1 { font-size: 1.1rem; }
+.outputBlock h2 { font-size: 1rem; }
+.outputBlock h3 { font-size: 0.9rem; }
+
+.outputBlock strong { font-weight: 600; }
+.outputBlock em     { font-style: italic; }
+
+.outputBlock code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
   font-size: 0.8125rem;
-  white-space: pre-wrap;
-  word-break: break-word;
-  color: var(--text-primary);
-  line-height: 1.55;
+  background: var(--bg-elevated, #1e2433);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+.outputBlock pre {
+  background: var(--bg-elevated, #1e2433);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+.outputBlock pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #94a3b8);
+}
+
+.outputBlock ul, .outputBlock ol {
+  padding-left: 1.25rem;
+  margin: 0.25rem 0;
+}
+.outputBlock li { margin: 0.15rem 0; }
+
+.outputBlock blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 0.75rem;
+  margin: 0.5rem 0;
+  color: var(--text-muted);
+}
+
+.outputBlock a {
+  color: var(--accent, #3b82f6);
+  text-decoration: none;
+}
+.outputBlock a:hover { text-decoration: underline; }
+
+.outputBlock hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0.5rem 0;
+}
+
+.outputBlock table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 0.8125rem;
+  margin: 0.5rem 0;
+}
+.outputBlock th, .outputBlock td {
+  border: 1px solid var(--border);
+  padding: 0.3rem 0.6rem;
+  text-align: left;
+}
+.outputBlock th {
+  background: var(--bg-elevated, #1e2433);
+  font-weight: 600;
 }
 
 .outputLine {

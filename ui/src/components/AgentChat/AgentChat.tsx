@@ -14,11 +14,22 @@ import {
   createSignal,
   type Component,
 } from "solid-js";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 import { getAgent } from "../../views/AgentDetail/agentStore";
 import type { OutputLine } from "../../views/AgentDetail/agentStore";
 import { sendMessage } from "../../views/AgentDetail/steerStore";
 import type { SteerPriority } from "../../views/AgentDetail/steerStore";
 import styles from "./AgentChat.module.css";
+
+// Configure marked for GitHub-flavored markdown
+marked.setOptions({ gfm: true, breaks: true });
+
+function renderMarkdown(lines: OutputLine[]): string {
+  const raw = lines.map((l) => l.text).join("\n");
+  const html = marked.parse(raw) as string;
+  return DOMPurify.sanitize(html);
+}
 
 // ---------------------------------------------------------------------------
 // Stream block types
@@ -145,11 +156,10 @@ const AgentChat: Component<AgentChatProps> = (props) => {
             <Show
               when={block.kind === "user"}
               fallback={
-                <div class={styles.outputBlock}>
-                  <For each={(block as { kind: "output"; lines: OutputLine[] }).lines}>
-                    {(line) => <span class={styles.outputLine}>{line.text}{"\n"}</span>}
-                  </For>
-                </div>
+                <div
+                  class={styles.outputBlock}
+                  innerHTML={renderMarkdown((block as { kind: "output"; lines: OutputLine[] }).lines)}
+                />
               }
             >
               {() => {
