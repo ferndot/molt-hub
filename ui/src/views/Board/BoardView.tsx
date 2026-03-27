@@ -259,11 +259,13 @@ const BoardView: Component = () => {
         isOpen={jiraImportOpen()}
         onClose={() => setJiraImportOpen(false)}
         targetStageId={firstStageId()}
+        targetBoardId={boardState.activeBoardId || undefined}
       />
       <GitHubImport
         isOpen={githubImportOpen()}
         onClose={() => setGitHubImportOpen(false)}
         targetStageId={firstStageId()}
+        targetBoardId={boardState.activeBoardId || undefined}
       />
     </div>
   );

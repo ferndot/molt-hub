@@ -68,10 +68,11 @@ impl<S: EventStore + 'static> ImportService<S> {
         &self,
         issue_key: &str,
         initial_stage: &str,
+        board_id: Option<&str>,
         broadcast: Option<(&ConnectionManager, &str)>,
     ) -> Result<TaskId, ImportError> {
         let issue = self.client.get_issue(issue_key).await?;
-        self.import_one(issue, initial_stage, broadcast).await
+        self.import_one(issue, initial_stage, board_id, broadcast).await
     }
 
     /// Search using JQL and import all matching issues.
@@ -86,7 +87,7 @@ impl<S: EventStore + 'static> ImportService<S> {
 
         let mut ids = Vec::with_capacity(issues.len());
         for issue in issues {
-            let id = self.import_one(issue, "backlog", None).await?;
+            let id = self.import_one(issue, "backlog", None, None).await?;
             ids.push(id);
         }
 
@@ -111,6 +112,7 @@ impl<S: EventStore + 'static> ImportService<S> {
         &self,
         issue: JiraIssue,
         initial_stage: &str,
+        board_id: Option<&str>,
         broadcast: Option<(&ConnectionManager, &str)>,
     ) -> Result<TaskId, ImportError> {
         let task_id = TaskId::new();
@@ -133,7 +135,7 @@ impl<S: EventStore + 'static> ImportService<S> {
                 description: issue.description.clone().unwrap_or_default(),
                 initial_stage: stage_owned.clone(),
                 priority: map_priority(issue.priority.as_deref()),
-                board_id: None,
+                board_id: board_id.map(str::to_owned),
             },
         };
 
@@ -177,7 +179,7 @@ impl<S: EventStore + 'static> ImportService<S> {
                     name: Some(issue.summary.clone()),
                     agent_name: Some("Jira".to_owned()),
                     summary: None,
-                    board_id: None,
+                    board_id: board_id.map(str::to_owned),
                 },
             );
         }
@@ -340,7 +342,7 @@ mod tests {
         let client = JiraClient::from_oauth("test-cloud-id", "test-access-token");
         let svc = ImportService::new(client, Arc::clone(&store), session_id);
 
-        let task_id = svc.import_one(issue, "backlog", None).await.unwrap();
+        let task_id = svc.import_one(issue, "backlog", None, None).await.unwrap();
 
         let events = store.get_events_for_task(&task_id).await.unwrap();
         assert_eq!(events.len(), 2, "expected TaskCreated + AgentOutput events");

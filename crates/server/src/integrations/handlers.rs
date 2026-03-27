@@ -87,6 +87,8 @@ pub struct ImportRequest {
     /// Pipeline stage id on the active board (e.g. first column). Defaults to `backlog`.
     #[serde(default, rename = "initialStage")]
     pub initial_stage: Option<String>,
+    #[serde(default, rename = "boardId")]
+    pub board_id: Option<String>,
 }
 
 /// Response body for a successful import.
@@ -156,7 +158,7 @@ pub async fn import_issues(
 
     let mut imported = Vec::with_capacity(body.issue_keys.len());
     for key in &body.issue_keys {
-        match svc.import_issue(key, stage, broadcast).await {
+        match svc.import_issue(key, stage, body.board_id.as_deref(), broadcast).await {
             Ok(task_id) => imported.push(task_id.to_string()),
             Err(e) => {
                 return (

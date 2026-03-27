@@ -33,6 +33,8 @@ export interface GitHubImportProps {
   onClose: () => void;
   /** Active board column id for `TaskCreated.initial_stage` (first column). Omit for default `backlog`. */
   targetStageId?: string;
+  /** Active board id so imported tasks appear on the correct board. */
+  targetBoardId?: string;
 }
 
 type IssueStateFilter = "open" | "closed" | "all";
@@ -92,10 +94,12 @@ async function importIssues(
   repo: string,
   issueNumbers: number[],
   targetStageId?: string,
+  boardId?: string,
 ): Promise<{ imported: number; message?: string }> {
   const body: Record<string, unknown> = { owner, repo, issues: issueNumbers };
   const stage = targetStageId?.trim();
   if (stage) body.initialStage = stage;
+  if (boardId) body.boardId = boardId;
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
@@ -211,6 +215,7 @@ const GitHubImport: Component<GitHubImportProps> = (props) => {
         trigger.repo,
         nums,
         props.targetStageId,
+        props.targetBoardId,
       );
       setImportedCount(result.imported);
       setImportStatus("success");

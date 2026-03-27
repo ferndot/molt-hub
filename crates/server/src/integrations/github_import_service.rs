@@ -63,6 +63,7 @@ impl<S: EventStore + 'static> GithubImportService<S> {
         repo: &str,
         issue_numbers: &[i64],
         initial_stage: &str,
+        board_id: Option<&str>,
         broadcast: Option<(&ConnectionManager, &str)>,
     ) -> Result<(usize, usize), GithubImportError> {
         let mut seen = load_github_imported_external_ids(self.store.as_ref()).await?;
@@ -84,6 +85,7 @@ impl<S: EventStore + 'static> GithubImportService<S> {
                 &issue,
                 &ext_id,
                 initial_stage,
+                board_id,
                 broadcast,
             )
             .await?;
@@ -102,6 +104,7 @@ impl<S: EventStore + 'static> GithubImportService<S> {
         issue: &GitHubIssue,
         external_id: &str,
         initial_stage: &str,
+        board_id: Option<&str>,
         broadcast: Option<(&ConnectionManager, &str)>,
     ) -> Result<(), GithubImportError> {
         let task_id = TaskId::new();
@@ -124,7 +127,7 @@ impl<S: EventStore + 'static> GithubImportService<S> {
                 description: issue.body.clone().unwrap_or_default(),
                 initial_stage: stage_owned.clone(),
                 priority: github_priority(issue),
-                board_id: None,
+                board_id: board_id.map(str::to_owned),
             },
         };
 
@@ -157,7 +160,7 @@ impl<S: EventStore + 'static> GithubImportService<S> {
                     name: Some(issue.title.clone()),
                     agent_name: Some("GitHub".to_owned()),
                     summary: None,
-                    board_id: None,
+                    board_id: board_id.map(str::to_owned),
                 },
             );
         }
@@ -340,7 +343,7 @@ mod tests {
 
         let issue = sample_issue(42);
         let ext = github_external_id("o", "r", 42);
-        svc.persist_new_issue("o", "r", &issue, &ext, "backlog", None)
+        svc.persist_new_issue("o", "r", &issue, &ext, "backlog", None, None)
             .await
             .unwrap();
 

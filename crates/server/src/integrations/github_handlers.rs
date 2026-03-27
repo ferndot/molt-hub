@@ -113,6 +113,8 @@ pub struct ImportRequest {
     /// Pipeline stage id on the active board (e.g. first column). Defaults to `backlog`.
     #[serde(default, rename = "initialStage")]
     pub initial_stage: Option<String>,
+    #[serde(default, rename = "boardId")]
+    pub board_id: Option<String>,
 }
 
 /// Response body for a successful import.
@@ -250,7 +252,7 @@ pub async fn import_issues(
     let broadcast = Some((manager.as_ref(), project_id));
 
     match svc
-        .import_issues(&body.owner, &body.repo, &body.issues, stage, broadcast)
+        .import_issues(&body.owner, &body.repo, &body.issues, stage, body.board_id.as_deref(), broadcast)
         .await
     {
         Ok((new_count, skipped)) => {
