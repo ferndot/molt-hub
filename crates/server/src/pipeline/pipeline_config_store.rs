@@ -117,6 +117,75 @@ impl PipelineConfigSqliteStore {
         Ok(())
     }
 
+    /// Startup migration: for every stored board config, copy hooks from `board_defaults()`
+    /// into any stage whose hook list is empty, matched by stage name.
+    ///
+    /// This upgrades configs that were created before default hooks were introduced.
+    pub async fn migrate_default_hooks(&self) {
+        use molt_hub_core::config::PipelineConfig;
+
+        let defaults = PipelineConfig::board_defaults();
+
+        // Fetch all (project_id, board_id, config_json) rows
+        let rows: Vec<(String, String, String)> = match sqlx::query_as(
+            "SELECT project_id, board_id, config_json FROM pipeline_configs",
+        )
+        .fetch_all(&self.pool)
+        .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!("migrate_default_hooks: failed to fetch rows: {e}");
+                return;
+            }
+        };
+
+        for (project_id, board_id, json) in rows {
+            let mut cfg = match serde_json::from_str::<PipelineConfig>(&json) {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!(
+                        project_id = %project_id,
+                        board_id = %board_id,
+                        error = %e,
+                        "migrate_default_hooks: skipping board with unparseable config"
+                    );
+                    continue;
+                }
+            };
+
+            let mut changed = false;
+            for stage in &mut cfg.stages {
+                if stage.hooks.is_empty() {
+                    if let Some(default_stage) = defaults.stages.iter().find(|s| s.name == stage.name) {
+                        if !default_stage.hooks.is_empty() {
+                            stage.hooks = default_stage.hooks.clone();
+                            changed = true;
+                            tracing::info!(
+                                project_id = %project_id,
+                                board_id = %board_id,
+                                stage = %stage.name,
+                                "migrate_default_hooks: patched {} hook(s) into stage",
+                                stage.hooks.len()
+                            );
+                        }
+                    }
+                }
+            }
+
+            if changed {
+                if let Err(e) = self.set(&project_id, &board_id, &cfg).await {
+                    tracing::warn!(
+                        project_id = %project_id,
+                        board_id = %board_id,
+                        error = %e,
+                        "migrate_default_hooks: failed to save patched config"
+                    );
+                }
+            }
+        }
+    }
+
     /// Migration shim: if no record exists in SQLite for `(project_id, board_id)`,
     /// attempt to load from the legacy YAML file path and seed the DB.
     ///

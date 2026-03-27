@@ -324,8 +324,11 @@ mod tests {
             summary: "Fix the bug".into(),
             description: Some("Details here".into()),
             status: "To Do".into(),
+            status_color: None,
             priority: Some("High".into()),
             labels: vec!["bug".into()],
+            epic_link: None,
+            epic_name: None,
             url: "https://org.atlassian.net/browse/PROJ-1".into(),
         };
 

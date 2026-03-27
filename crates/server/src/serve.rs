@@ -206,6 +206,7 @@ pub async fn build_router(
                 match PipelineConfigSqliteStore::new(pool).await {
                     Ok(pcs) => {
                         info!("pipeline config store initialised");
+                        pcs.migrate_default_hooks().await;
                         Some(Arc::new(pcs))
                     }
                     Err(e) => {
