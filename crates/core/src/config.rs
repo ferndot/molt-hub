@@ -228,7 +228,7 @@ impl PipelineConfig {
                             kind: HookKind::AgentDispatch,
                             on: HookTrigger::Enter,
                             config: serde_json::json!({
-                                "instruction": "You are an AI software agent. Work on the following task:\n\nTitle: {{task_title}}\n\nDescription:\n{{task_description}}\n\nPriority: {{priority}}\nStage: {{stage_name}}\n\nComplete the task, commit your changes, and report back with a summary of what you did."
+                                "instruction": "You are an AI planning agent. Your job is to produce a clear implementation plan — do NOT write any code or make any changes yet.\n\nTask:\nTitle: {{task_title}}\nDescription: {{task_description}}\nPriority: {{priority}}\n\nPlease:\n1. Explore the codebase to understand the relevant code, patterns, and conventions\n2. Break the work into numbered implementation steps\n3. Identify risks, unknowns, or decisions that need human input\n4. Estimate complexity (small / medium / large)\n5. Write your plan to PLAN.md in the repo root\n\nEnd your output with a concise summary of the plan. A human will review and approve before any implementation begins."
                             }),
                         }
                     ],
@@ -251,7 +251,7 @@ impl PipelineConfig {
                             kind: HookKind::AgentDispatch,
                             on: HookTrigger::Enter,
                             config: serde_json::json!({
-                                "instruction": "You are an AI software agent. Work on the following task:\n\nTitle: {{task_title}}\n\nDescription:\n{{task_description}}\n\nPriority: {{priority}}\nStage: {{stage_name}}\n\nComplete the task, commit your changes, and report back with a summary of what you did."
+                                "instruction": "You are an AI implementation agent. A human has approved the plan for this task — now implement it.\n\nTask:\nTitle: {{task_title}}\nDescription: {{task_description}}\nPriority: {{priority}}\n\nIf PLAN.md exists in the repo root, follow it step by step. Otherwise implement based on the description above.\n\nPlease:\n1. Implement the changes following the codebase's existing patterns and conventions\n2. Write or update tests as appropriate\n3. Commit your changes with clear, descriptive commit messages\n4. Report a summary of what you implemented\n\nIf you hit a blocker or need a decision, stop and describe it clearly rather than guessing."
                             }),
                         }
                     ],
@@ -269,7 +269,15 @@ impl PipelineConfig {
                     approvers: vec![],
                     timeout_seconds: None,
                     terminal: false,
-                    hooks: vec![],
+                    hooks: vec![
+                        HookDefinition {
+                            kind: HookKind::AgentDispatch,
+                            on: HookTrigger::Enter,
+                            config: serde_json::json!({
+                                "instruction": "You are an AI code review agent. Review the recent changes for this task and prepare a summary for human sign-off.\n\nTask:\nTitle: {{task_title}}\nDescription: {{task_description}}\nPriority: {{priority}}\n\nPlease:\n1. Examine the diff of recent commits related to this task\n2. Check for correctness, edge cases, error handling, and security issues\n3. Assess code quality and consistency with existing conventions\n4. Flag any risks, concerns, or areas that need human attention\n5. Give an overall recommendation: Approve / Approve with notes / Request changes\n\nDo NOT modify any files — this is a read-only review. Your output will be shown to a human who makes the final approval decision."
+                            }),
+                        }
+                    ],
                     transition_rules: vec![],
                     color: Some("#f59e0b".into()),
                     order: 3,
@@ -284,7 +292,15 @@ impl PipelineConfig {
                     approvers: vec![],
                     timeout_seconds: None,
                     terminal: false,
-                    hooks: vec![],
+                    hooks: vec![
+                        HookDefinition {
+                            kind: HookKind::AgentDispatch,
+                            on: HookTrigger::Enter,
+                            config: serde_json::json!({
+                                "instruction": "You are an AI testing agent. Run the automated test suite for this task and report results.\n\nTask:\nTitle: {{task_title}}\nDescription: {{task_description}}\nPriority: {{priority}}\n\nPlease:\n1. Run the existing test suite and capture results\n2. Identify and run any tests directly related to the changes in this task\n3. If tests are missing for changed code, write them\n4. Run the full suite again and confirm the final result\n5. Report a clear PASS or FAIL summary with details\n\nIf tests fail, describe exactly what failed and why so the task can be returned to In Progress for fixes."
+                            }),
+                        }
+                    ],
                     transition_rules: vec![],
                     color: Some("#10b981".into()),
                     order: 4,
@@ -299,7 +315,15 @@ impl PipelineConfig {
                     approvers: vec![],
                     timeout_seconds: None,
                     terminal: true,
-                    hooks: vec![],
+                    hooks: vec![
+                        HookDefinition {
+                            kind: HookKind::AgentDispatch,
+                            on: HookTrigger::Enter,
+                            config: serde_json::json!({
+                                "instruction": "You are an AI deployment agent. This task has passed review and testing — ship it.\n\nTask:\nTitle: {{task_title}}\nDescription: {{task_description}}\nPriority: {{priority}}\n\nPlease:\n1. Ensure all changes are committed and the working tree is clean\n2. Open a pull request to the main branch (or update the existing one) with a clear title and description summarising what was done\n3. Report the PR URL and a summary of what was shipped\n\nDo not merge — open the PR and let the human merge when ready."
+                            }),
+                        }
+                    ],
                     transition_rules: vec![],
                     color: Some("#22c55e".into()),
                     order: 5,

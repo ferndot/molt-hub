@@ -156,19 +156,17 @@ impl PipelineConfigSqliteStore {
 
             let mut changed = false;
             for stage in &mut cfg.stages {
-                if stage.hooks.is_empty() {
-                    if let Some(default_stage) = defaults.stages.iter().find(|s| s.name == stage.name) {
-                        if !default_stage.hooks.is_empty() {
-                            stage.hooks = default_stage.hooks.clone();
-                            changed = true;
-                            tracing::info!(
-                                project_id = %project_id,
-                                board_id = %board_id,
-                                stage = %stage.name,
-                                "migrate_default_hooks: patched {} hook(s) into stage",
-                                stage.hooks.len()
-                            );
-                        }
+                if let Some(default_stage) = defaults.stages.iter().find(|s| s.name == stage.name) {
+                    if stage.hooks != default_stage.hooks {
+                        stage.hooks = default_stage.hooks.clone();
+                        changed = true;
+                        tracing::info!(
+                            project_id = %project_id,
+                            board_id = %board_id,
+                            stage = %stage.name,
+                            "migrate_default_hooks: patched {} hook(s) into stage",
+                            stage.hooks.len()
+                        );
                     }
                 }
             }
