@@ -77,6 +77,13 @@ pub struct JiraProject {
     pub name: String,
 }
 
+/// A Jira issue status as returned by the status list endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JiraStatus {
+    pub id: String,
+    pub name: String,
+}
+
 // ---------------------------------------------------------------------------
 // Internal API response shapes (not exported)
 // ---------------------------------------------------------------------------

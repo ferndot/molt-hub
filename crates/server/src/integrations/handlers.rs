@@ -4,6 +4,7 @@
 //!   GET  /search   — search / preview issues
 //!   POST /import   — import selected issues
 //!   GET  /projects — list projects
+//!   GET  /statuses — list statuses for a project
 //!
 //! OAuth routes (`/auth`, `/oauth/callback`, `/status`, `/disconnect`) share
 //! [`JiraOAuthState`] with these handlers via [`JiraAppState`] so import/search
@@ -59,6 +60,17 @@ impl FromRef<JiraAppState> for JiraOAuthStateRef {
 pub struct SearchQuery {
     pub jql: String,
     /// Optional cloud ID override; defaults to the first accessible site.
+    pub cloud_id: Option<String>,
+    #[serde(default, rename = "projectId")]
+    pub project_id: Option<String>,
+}
+
+/// Query parameters for the statuses endpoint.
+#[derive(Debug, Deserialize)]
+pub struct StatusesQuery {
+    /// Project key. When omitted, returns all statuses in the Jira instance.
+    #[serde(default)]
+    pub project: Option<String>,
     pub cloud_id: Option<String>,
     #[serde(default, rename = "projectId")]
     pub project_id: Option<String>,
@@ -191,6 +203,36 @@ pub async fn list_projects(
 }
 
 // ---------------------------------------------------------------------------
+// Handler: GET /api/integrations/jira/statuses
+// ---------------------------------------------------------------------------
+
+/// List statuses for a Jira project (or all instance statuses if no project given).
+#[instrument(skip_all, fields(project = ?query.project))]
+pub async fn list_statuses(
+    State(state): State<JiraAppState>,
+    Query(query): Query<StatusesQuery>,
+) -> impl IntoResponse {
+    let scope = credential_scope_for_integration(query.project_id.as_deref());
+    let client = match build_client(&state.oauth, query.cloud_id.as_deref(), &scope).await {
+        Ok(c) => c,
+        Err(resp) => return resp,
+    };
+
+    let result: Result<Vec<crate::integrations::jira_client::JiraStatus>, _> =
+        match query.project.as_deref().filter(|s| !s.is_empty()) {
+            Some(key) => client.list_statuses(key).await,
+            None => client.list_global_statuses().await,
+        };
+    match result {
+        Ok(statuses) => Json(statuses).into_response(),
+        Err(e) => {
+            let (status, msg) = jira_error_to_http(&e);
+            (status, Json(serde_json::json!({ "error": msg }))).into_response()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Router builders
 // ---------------------------------------------------------------------------
 
@@ -206,6 +248,7 @@ pub fn jira_integrations_router(state: JiraAppState) -> Router {
         .route("/search", get(search_issues))
         .route("/import", post(import_issues))
         .route("/projects", get(list_projects))
+        .route("/statuses", get(list_statuses))
         .with_state(state)
 }
 
@@ -248,10 +291,37 @@ async fn build_client(
         })?
     };
 
-    Ok(JiraClient::from_oauth(
-        &selected_cloud_id,
-        &tokens.access_token,
-    ))
+    // Check if token is expired or about to expire (within 5 minutes).
+    let access_token = tokens.access_token.clone();
+    let should_refresh = tokens.expires_at.map_or(false, |ea| {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        ea <= now + 300 // refresh if expiring within 5 minutes
+    });
+    drop(map); // release lock before async refresh
+
+    let access_token = if should_refresh {
+        match oauth.try_refresh(scope).await {
+            Ok(()) => {
+                oauth.ensure_tokens_loaded(scope).await;
+                let map = oauth.stored_tokens.lock().await;
+                map.get(scope)
+                    .map(|t| t.access_token.clone())
+                    .unwrap_or(access_token)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "token refresh failed; using existing token");
+                access_token
+            }
+        }
+    } else {
+        access_token
+    };
+
+    Ok(JiraClient::from_oauth(&selected_cloud_id, &access_token))
 }
 
 fn jira_error_to_http(e: &JiraError) -> (StatusCode, String) {
@@ -342,6 +412,7 @@ mod tests {
                     access_token: "tok".into(),
                     refresh_token: None,
                     expires_in: 3600,
+                    expires_at: None,
                     scope: "read:jira-work".into(),
                     cloud_id: None,
                     site_url: None,
@@ -368,6 +439,7 @@ mod tests {
                     access_token: "my-token".into(),
                     refresh_token: Some("ref".into()),
                     expires_in: 3600,
+                    expires_at: None,
                     scope: "read:jira-work".into(),
                     cloud_id: Some("cloud-abc".into()),
                     site_url: Some("https://my-org.atlassian.net".into()),
@@ -397,6 +469,7 @@ mod tests {
                     access_token: "tok".into(),
                     refresh_token: None,
                     expires_in: 3600,
+                    expires_at: None,
                     scope: "read:jira-work".into(),
                     cloud_id: Some("default-cloud".into()),
                     site_url: None,
