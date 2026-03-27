@@ -35,6 +35,7 @@ const KEY_SCOPE: &str = "jira/scope";
 const KEY_SITE_URL: &str = "jira/site_url";
 const KEY_SITE_NAME: &str = "jira/site_name";
 const KEY_CLOUD_ID: &str = "jira/cloud_id";
+const KEY_EXPIRES_AT: &str = "jira/expires_at";
 
 // ---------------------------------------------------------------------------
 // Shared OAuth state
@@ -69,6 +70,8 @@ pub struct JiraStoredTokens {
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub expires_in: u64,
+    /// Unix timestamp (seconds) when the access token expires. `None` when unknown.
+    pub expires_at: Option<u64>,
     pub scope: String,
     /// Atlassian cloud ID for REST URLs (`/ex/jira/{cloud_id}/...`).
     pub cloud_id: Option<String>,
@@ -108,12 +111,18 @@ impl JiraOAuthState {
             let site_url = self.credential_store.retrieve(KEY_SITE_URL, scope).ok();
             let site_name = self.credential_store.retrieve(KEY_SITE_NAME, scope).ok();
             let cloud_id = self.credential_store.retrieve(KEY_CLOUD_ID, scope).ok();
+            let expires_at = self
+                .credential_store
+                .retrieve(KEY_EXPIRES_AT, scope)
+                .ok()
+                .and_then(|s| s.parse::<u64>().ok());
             map.insert(
                 scope.clone(),
                 JiraStoredTokens {
                     access_token,
                     refresh_token,
                     expires_in: 0,
+                    expires_at,
                     scope: oauth_scope,
                     cloud_id,
                     site_url,
@@ -121,6 +130,55 @@ impl JiraOAuthState {
                 },
             );
         }
+    }
+
+    /// Attempt to refresh the access token for `scope` using the stored refresh token.
+    ///
+    /// Updates both the in-memory cache and the credential store.
+    /// Returns `Ok(())` on success, or an error if no refresh token is stored or the
+    /// refresh request fails.
+    pub async fn try_refresh(&self, scope: &CredentialScope) -> Result<(), super::oauth::OAuthError> {
+        let refresh_token = {
+            let map = self.stored_tokens.lock().await;
+            map.get(scope).and_then(|t| t.refresh_token.clone())
+        };
+
+        let Some(rt) = refresh_token else {
+            return Err(super::oauth::OAuthError::ParseError(
+                "no refresh token stored".into(),
+            ));
+        };
+
+        let tokens = self.service.refresh_token(&rt).await?;
+
+        // Persist new tokens.
+        let _ = self.credential_store.store(KEY_ACCESS_TOKEN, scope, &tokens.access_token);
+        if let Some(ref new_rt) = tokens.refresh_token {
+            let _ = self.credential_store.store(KEY_REFRESH_TOKEN, scope, new_rt);
+        }
+        let expires_at = {
+            use std::time::{SystemTime, UNIX_EPOCH};
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .ok()
+                .map(|d| d.as_secs() + tokens.expires_in.saturating_sub(60))
+        };
+        if let Some(ts) = expires_at {
+            let _ = self.credential_store.store(KEY_EXPIRES_AT, scope, &ts.to_string());
+        }
+
+        // Update in-memory cache.
+        let mut map = self.stored_tokens.lock().await;
+        if let Some(entry) = map.get_mut(scope) {
+            entry.access_token = tokens.access_token;
+            if let Some(new_rt) = tokens.refresh_token {
+                entry.refresh_token = Some(new_rt);
+            }
+            entry.expires_in = tokens.expires_in;
+            entry.expires_at = expires_at;
+        }
+
+        Ok(())
     }
 }
 
@@ -254,11 +312,21 @@ pub async fn jira_oauth_callback(
         Err(_) => (None, None, None),
     };
 
+    // Compute expiry timestamp.
+    let expires_at = {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .ok()
+            .map(|d| d.as_secs() + tokens.expires_in.saturating_sub(60))
+    };
+
     // Build token struct.
     let new_tokens = JiraStoredTokens {
         access_token: tokens.access_token.clone(),
         refresh_token: tokens.refresh_token.clone(),
         expires_in: tokens.expires_in,
+        expires_at,
         scope: tokens.scope.clone(),
         cloud_id: cloud_id.clone(),
         site_url: site_url.clone(),
@@ -310,6 +378,11 @@ pub async fn jira_oauth_callback(
         {
             warn!(error = %e, "failed to persist Jira cloud_id to credential store");
         }
+    }
+    if let Some(ts) = expires_at {
+        let _ = app_state
+            .credential_store
+            .store(KEY_EXPIRES_AT, &cred_scope, &ts.to_string());
     }
 
     // Cache in-memory.
@@ -378,6 +451,7 @@ pub async fn jira_disconnect(
         KEY_SITE_URL,
         KEY_SITE_NAME,
         KEY_CLOUD_ID,
+        KEY_EXPIRES_AT,
     ] {
         if let Err(e) = app_state.credential_store.delete(key, &cred_scope) {
             warn!(error = %e, key, "failed to delete Jira credential from store");
@@ -548,6 +622,7 @@ mod tests {
                     access_token: "tok".into(),
                     refresh_token: Some("ref".into()),
                     expires_in: 3600,
+                    expires_at: None,
                     scope: "read:jira-work".into(),
                     cloud_id: Some("cloud-1".into()),
                     site_url: Some("https://my-org.atlassian.net".into()),
@@ -593,6 +668,7 @@ mod tests {
                     access_token: "tok".into(),
                     refresh_token: None,
                     expires_in: 3600,
+                    expires_at: None,
                     scope: "read:jira-work".into(),
                     cloud_id: Some("cloud-1".into()),
                     site_url: Some("https://my-org.atlassian.net".into()),
