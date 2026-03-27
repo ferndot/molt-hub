@@ -143,6 +143,34 @@
   50% { opacity: 0.35; }
 }
 
+/* Delete button — shown on card hover */
+.deleteBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: none;
+  border-radius: 3px;
+  padding: 0;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.1s, color 0.1s;
+}
+
+.card:hover .deleteBtn {
+  opacity: 1;
+}
+
+.deleteBtn:hover {
+  background: var(--color-reject, #e63946);
+  color: #fff;
+  opacity: 1;
+}
+
 /* Action buttons */
 .actions {
   display: flex;

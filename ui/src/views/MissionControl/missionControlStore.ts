@@ -55,7 +55,7 @@ function mergeItems(): MissionControlItem[] {
   const { state: triageState } = useTriageStore();
   const items: MissionControlItem[] = boardState.tasks
     .filter((task) => allowedStages.has(task.stage))
-    .filter((task) => !task.boardId || task.boardId === activeBoardId)
+    .filter((task) => task.boardId === activeBoardId)
     .map((task) => {
     const triageMatch = triageState.items.find((ti) => ti.taskId === task.id);
     if (triageMatch) {

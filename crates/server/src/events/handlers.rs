@@ -1247,6 +1247,55 @@ pub async fn get_task_events(
         .into_response()
 }
 
+/// DELETE /api/tasks/:id — physically remove all events for a task.
+#[instrument(skip_all)]
+pub async fn delete_task(
+    State(state): State<Arc<EventStoreState>>,
+    Extension(manager): Extension<Arc<ConnectionManager>>,
+    Path(task_id_str): Path<String>,
+) -> impl IntoResponse {
+    let task_id_ulid = match Ulid::from_str(task_id_str.trim()) {
+        Ok(u) => u,
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("invalid task id: {e}") })),
+            )
+                .into_response();
+        }
+    };
+    let task_id = TaskId(task_id_ulid);
+
+    // Get the project_id before deleting so we can broadcast removal.
+    let events = state.store.get_events_for_task(&task_id).await;
+    let project_id = events
+        .ok()
+        .and_then(|ev| ev.last().map(|e| e.project_id.clone()))
+        .unwrap_or_else(|| "default".to_owned());
+
+    match state.store.delete_task(&task_id).await {
+        Ok(()) => {
+            // Broadcast a board update with status "deleted" so clients remove the card.
+            broadcast_board_update_full(
+                manager.as_ref(),
+                &project_id,
+                &BoardUpdate {
+                    task_id: task_id.to_string(),
+                    stage: String::new(),
+                    status: "deleted".to_owned(),
+                    priority: None,
+                    name: None,
+                    agent_name: None,
+                    summary: None,
+                    board_id: None,
+                },
+            );
+            (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response()
+        }
+        Err(e) => error_response(e),
+    }
+}
+
 /// GET /api/tasks/board — derive current board-task state from all stored events.
 ///
 /// Returns a flat list of tasks with the fields the board UI needs: id, name,
@@ -1372,7 +1421,7 @@ pub async fn list_board_tasks(
             // If filter provided, include tasks matching that board OR tasks with no board.
             match filter_board_id {
                 None => true,
-                Some(bid) => p.board_id.as_deref().map_or(true, |t| t == bid),
+                Some(bid) => p.board_id.as_deref().map_or(false, |t| t == bid),
             }
         })
         .map(|p| {
@@ -1539,7 +1588,7 @@ pub fn tasks_router(state: Arc<EventStoreState>) -> Router {
         .route("/board", get(list_board_tasks))
         .route("/triage", get(list_triage_tasks))
         .route("/create", post(create_task))
-        .route("/:id", get(get_task_detail))
+        .route("/:id", get(get_task_detail).delete(delete_task))
         .route("/:id/events", get(get_task_events))
         .route("/:id/move", post(move_task_stage))
         .route("/:id/decision", post(submit_human_decision))

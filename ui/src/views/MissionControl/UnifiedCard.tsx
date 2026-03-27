@@ -7,6 +7,7 @@ import { Show, type Component, type JSX } from "solid-js";
 import { useNavigate } from "@solidjs/router";
 import { TbOutlineCheck, TbOutlineX, TbOutlineArrowRight, TbOutlineClock } from "solid-icons/tb";
 import type { MissionControlItem } from "./missionControlStore";
+import { deleteTask } from "../Board/boardStore";
 import styles from "./UnifiedCard.module.css";
 
 // ---------------------------------------------------------------------------
@@ -148,6 +149,13 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
         >
           {props.item.priority}
         </span>
+        <button
+          class={styles.deleteBtn}
+          title="Delete task"
+          onClick={(e) => stopProp(e, () => { void deleteTask(props.item.id); })}
+        >
+          <TbOutlineX size={11} />
+        </button>
       </div>
 
       {/* Meta — stage chip omitted; column header already shows the stage */}

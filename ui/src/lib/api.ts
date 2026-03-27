@@ -241,6 +241,8 @@ export const api = {
   }> }>("/tasks/triage"),
   getTask: (id: string) =>
     get<TaskDetail>(`/tasks/${id}`),
+  deleteTask: (taskId: string) =>
+    del<{ ok: boolean }>(`/tasks/${encodeURIComponent(taskId)}`),
   getTaskEvents: (id: string) =>
     get<{ events: TaskEvent[] }>(`/tasks/${id}/events`),
   createTask: (body: {

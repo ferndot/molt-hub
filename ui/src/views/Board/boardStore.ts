@@ -460,6 +460,14 @@ export function moveTask(
   })();
 }
 
+export function deleteTask(taskId: string): Promise<void> {
+  setBoardState("tasks", (tasks) => tasks.filter((t) => t.id !== taskId));
+  return api.deleteTask(taskId).then(() => undefined).catch(() => {
+    // If deletion fails, reload tasks to restore state
+    void loadBoardTasksFromApi(boardState.activeBoardId);
+  });
+}
+
 export function expandCard(taskId: string): void {
   setBoardState("tasks", (tasks) =>
     tasks.map((t) => (t.id === taskId ? { ...t, expanded: true } : t)),
@@ -546,6 +554,11 @@ export function handleBoardWsMessage(msg: ServerMessage): void {
   const payload = msg.payload as Record<string, unknown>;
   const taskId = payload.task_id as string | undefined;
   if (!taskId) return;
+
+  if (payload.status === "deleted") {
+    setBoardState("tasks", (tasks) => tasks.filter((t) => t.id !== taskId));
+    return;
+  }
 
   const existing = boardState.tasks.find((t) => t.id === taskId);
 

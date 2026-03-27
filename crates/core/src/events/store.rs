@@ -88,6 +88,12 @@ pub trait EventStore: Send + Sync {
         &self,
         project_id: &str,
     ) -> impl std::future::Future<Output = Result<Vec<EventEnvelope>, EventStoreError>> + Send;
+
+    /// Delete all events for a given task from the store.
+    fn delete_task(
+        &self,
+        task_id: &TaskId,
+    ) -> impl std::future::Future<Output = Result<(), EventStoreError>> + Send;
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +419,16 @@ impl EventStore for SqliteEventStore {
 
         chain.reverse();
         Ok(chain)
+    }
+
+    #[instrument(skip(self), fields(task_id = %task_id.0))]
+    async fn delete_task(&self, task_id: &TaskId) -> Result<(), EventStoreError> {
+        let id_str = task_id.0.to_string();
+        sqlx::query("DELETE FROM events WHERE task_id = ?1")
+            .bind(id_str)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 
     #[instrument(skip(self), fields(project_id = %project_id))]
