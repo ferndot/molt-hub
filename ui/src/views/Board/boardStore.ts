@@ -9,7 +9,6 @@ import { createStore } from "solid-js/store";
 import type { ServerMessage } from "../../types";
 import { api, type BoardSummary, type BoardTaskItem, type PipelineStage } from "../../lib/api";
 import type { Priority } from "../../types/domain";
-import { emitHookToast } from "../../lib/hookToasts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -554,9 +553,7 @@ export function handleBoardWsMessage(msg: ServerMessage): void {
   if (existing) {
     const newStage = payload.stage != null ? payload.stage as string : null;
     if (newStage && existing.stage !== newStage) {
-      // on_exit the old stage, on_enter the new stage
-      emitHookToast(existing.stage, "on_exit", existing.name);
-      emitHookToast(newStage, "on_enter", existing.name);
+      // Stage changed — toasts are driven by real hook_fired WS events (project:*:hooks)
     }
     setBoardState("tasks", (tasks) =>
       tasks.map((t) => {

@@ -261,6 +261,43 @@ pub fn broadcast_metrics_update(manager: &ConnectionManager, payload: &MetricsUp
 }
 
 // ---------------------------------------------------------------------------
+// Hook fired events
+// ---------------------------------------------------------------------------
+
+/// Payload for a hook_fired event pushed to `project:{pid}:hooks`.
+#[derive(Debug, Serialize)]
+pub struct HookFiredPayload {
+    #[serde(rename = "type")]
+    pub msg_type: &'static str,
+    pub task_id: String,
+    pub stage: String,
+    /// One of: "enter", "exit", "on_stall"
+    pub trigger: String,
+    /// One of: "agent_dispatch", "shell", "webhook", "start_dev_environment", "teardown_dev_environment"
+    pub hook_kind: String,
+}
+
+/// Broadcast a hook_fired event to clients subscribed to `project:{pid}:hooks`.
+pub fn broadcast_hook_fired(
+    manager: &ConnectionManager,
+    project_id: &str,
+    task_id: &str,
+    stage: &str,
+    trigger: &str,
+    hook_kind: &str,
+) {
+    let payload = HookFiredPayload {
+        msg_type: "hook_fired",
+        task_id: task_id.to_owned(),
+        stage: stage.to_owned(),
+        trigger: trigger.to_owned(),
+        hook_kind: hook_kind.to_owned(),
+    };
+    let topic = format!("project:{project_id}:hooks");
+    broadcast_json(manager, &topic, &payload);
+}
+
+// ---------------------------------------------------------------------------
 // Settings events
 // ---------------------------------------------------------------------------
 

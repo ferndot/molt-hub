@@ -501,10 +501,10 @@ const HowItWorksView: Component = () => {
                 <span class={styles.hookTileArrow}>→</span>
                 <span class={styles.hookTileAction}>📡 Webhook</span>
               </div>
-              <div class={styles.hookTile} style={{ "--ht": "#ef4444" }}>
+              <div class={styles.hookTile} style={{ "--ht": "#ef4444", opacity: 0.5 }}>
                 <span class={styles.hookTileEvent}>on_stall</span>
                 <span class={styles.hookTileArrow}>→</span>
-                <span class={styles.hookTileAction}>🔔 Triage alert</span>
+                <span class={styles.hookTileAction}>🔔 Coming soon</span>
               </div>
             </div>
             <div class={styles.hookFlow}>
@@ -517,7 +517,7 @@ const HowItWorksView: Component = () => {
               <div class={styles.hookFlowStep}>📡 Output → UI</div>
             </div>
             <ul class={styles.vizBullets}>
-              <li>Fires on enter, exit, or stall</li>
+              <li>Fires on enter or exit (on_stall coming soon)</li>
               <li>Runs agents, scripts, or webhooks</li>
               <li>Configured per column as JSON</li>
             </ul>

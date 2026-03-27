@@ -21,7 +21,7 @@ import styles from "./ColumnEditor.module.css";
 // Hook builder types
 // ---------------------------------------------------------------------------
 
-type HookTrigger = "enter" | "exit" | "on_stall";
+type HookTrigger = "enter" | "exit"; // TODO: add "on_stall" when stall detection is implemented
 type HookKind = "agent_dispatch" | "shell" | "webhook";
 
 interface HookFormState {
@@ -140,7 +140,7 @@ const HookForm: Component<HookFormProps> = (props) => {
         >
           <option value="enter">enter</option>
           <option value="exit">exit</option>
-          <option value="on_stall">on_stall</option>
+          {/* on_stall is not yet implemented — omitted until stall detection is wired */}
         </select>
       </div>
 

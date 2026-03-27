@@ -7,7 +7,7 @@ import { createSignal } from "solid-js";
 export interface HookToast {
   id: number;
   stage: string;
-  event: "on_enter" | "on_exit";
+  event: "on_enter" | "on_exit" | "on_stall";
   taskName: string;
 }
 
@@ -18,7 +18,7 @@ export { toasts };
 
 export function emitHookToast(
   stage: string,
-  event: "on_enter" | "on_exit",
+  event: "on_enter" | "on_exit" | "on_stall",
   taskName: string,
 ): void {
   const id = ++_nextId;

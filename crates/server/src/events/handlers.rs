@@ -522,6 +522,11 @@ pub async fn move_task_stage(
             }
         }).unwrap_or_else(|| ("".to_string(), "".to_string(), "p2".to_string()));
 
+    let ws_project = events
+        .last()
+        .map(|e| e.project_id.as_str())
+        .unwrap_or("default");
+
     if let Err(source) = run_lifecycle_hooks_for_event(
         hook_executor.as_ref(),
         &pipeline,
@@ -534,6 +539,8 @@ pub async fn move_task_stage(
         &hook_task_title,
         &hook_task_description,
         &hook_priority,
+        Some(&manager),
+        ws_project,
     )
     .await
     {
@@ -547,11 +554,6 @@ pub async fn move_task_stage(
     if let Err(e) = state.store.append(envelope).await {
         return error_response(e);
     }
-
-    let ws_project = events
-        .last()
-        .map(|e| e.project_id.as_str())
-        .unwrap_or("default");
 
     broadcast_board_update_full(
         manager.as_ref(),
@@ -769,6 +771,11 @@ pub async fn submit_human_decision(
             }
         }).unwrap_or_else(|| ("".to_string(), "".to_string(), "p2".to_string()));
 
+    let ws_project = events
+        .last()
+        .map(|e| e.project_id.as_str())
+        .unwrap_or("default");
+
     if let Err(source) = run_lifecycle_hooks_for_event(
         hook_executor.as_ref(),
         &pipeline,
@@ -781,6 +788,8 @@ pub async fn submit_human_decision(
         &hook_task_title2,
         &hook_task_description2,
         &hook_priority2,
+        Some(&manager),
+        ws_project,
     )
     .await
     {
@@ -794,11 +803,6 @@ pub async fn submit_human_decision(
     if let Err(e) = state.store.append(envelope).await {
         return error_response(e);
     }
-
-    let ws_project = events
-        .last()
-        .map(|e| e.project_id.as_str())
-        .unwrap_or("default");
 
     broadcast_board_update_full(
         manager.as_ref(),

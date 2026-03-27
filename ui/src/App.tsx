@@ -6,8 +6,10 @@ import {
   handleBoardWsMessage,
   homeRedirectBoardPath,
   initBoardStages,
+  boardState,
 } from "./views/Board/boardStore";
 import { subscribe, projectTopic } from "./lib/ws";
+import { emitHookToast } from "./lib/hookToasts";
 import AppLayout from "./layout/AppLayout";
 import TriageView from "./views/Triage/TriageView";
 import AgentDetailView from "./views/AgentDetail/AgentDetailView";
@@ -61,6 +63,31 @@ const App: Component = () => {
   createEffect(() => {
     const topic = projectTopic(WORKSPACE_ID, "board:update");
     const unsub = subscribe(topic, handleBoardWsMessage);
+    onCleanup(unsub);
+  });
+
+  createEffect(() => {
+    const hooksTopic = projectTopic(WORKSPACE_ID, "hooks");
+    const unsub = subscribe(hooksTopic, (msg) => {
+      if (msg.type !== "event") return;
+      const payload = msg.payload as Record<string, unknown>;
+      if (payload.type !== "hook_fired") return;
+      const taskId = payload.task_id as string | undefined;
+      const stage = payload.stage as string | undefined;
+      const trigger = payload.trigger as string | undefined;
+      if (!stage || !trigger) return;
+      // Map backend trigger to toast event label
+      const event =
+        trigger === "enter"
+          ? "on_enter"
+          : trigger === "exit"
+            ? "on_exit"
+            : "on_stall";
+      // Resolve task name from board state
+      const task = boardState.tasks.find((t) => t.id === taskId);
+      const taskName = task?.name ?? taskId ?? "Unknown task";
+      emitHookToast(stage, event as "on_enter" | "on_exit" | "on_stall", taskName);
+    });
     onCleanup(unsub);
   });
 

@@ -29,7 +29,7 @@ use molt_hub_core::model::{AgentId, SessionId, TaskId, TaskState};
 use crate::hooks::{HookContext, HookExecutor, HookExecutorError};
 use crate::ws::ConnectionManager;
 use crate::ws_broadcast::{
-    broadcast_agent_output, broadcast_board_update, broadcast_triage_new,
+    broadcast_agent_output, broadcast_board_update, broadcast_hook_fired, broadcast_triage_new,
     broadcast_triage_resolved, TriageItemPayload,
 };
 
@@ -64,9 +64,16 @@ async fn run_hooks_for_named_stage(
     task_title: &str,
     task_description: &str,
     priority: &str,
+    ws_manager: Option<&Arc<ConnectionManager>>,
+    project_id: &str,
 ) -> Result<(), HookExecutorError> {
     let Some(stage) = stage_by_name(pipeline, stage_name) else {
         return Ok(());
+    };
+    let trigger_str = match &trigger {
+        HookTrigger::Enter => "enter",
+        HookTrigger::Exit => "exit",
+        HookTrigger::OnStall => "on_stall",
     };
     let ctx = HookContext {
         task_id: task_id.clone(),
@@ -81,6 +88,28 @@ async fn run_hooks_for_named_stage(
         priority: priority.to_string(),
     };
     executor.execute_hooks(stage, trigger, &ctx).await?;
+    // Broadcast hook_fired for each hook that ran.
+    if let Some(mgr) = ws_manager {
+        for hook in &stage.hooks {
+            let hook_kind_str = match hook.kind {
+                molt_hub_core::config::HookKind::AgentDispatch => "agent_dispatch",
+                molt_hub_core::config::HookKind::Shell => "shell",
+                molt_hub_core::config::HookKind::Webhook => "webhook",
+                molt_hub_core::config::HookKind::StartDevEnvironment => "start_dev_environment",
+                molt_hub_core::config::HookKind::TeardownDevEnvironment => "teardown_dev_environment",
+            };
+            if hook.on == ctx.trigger {
+                broadcast_hook_fired(
+                    mgr,
+                    project_id,
+                    &task_id.to_string(),
+                    stage_name,
+                    trigger_str,
+                    hook_kind_str,
+                );
+            }
+        }
+    }
     Ok(())
 }
 
@@ -96,6 +125,8 @@ pub(crate) async fn run_lifecycle_hooks_for_event(
     task_title: &str,
     task_description: &str,
     priority: &str,
+    ws_manager: Option<&Arc<ConnectionManager>>,
+    project_id: &str,
 ) -> Result<(), HookExecutorError> {
     let aid = agent_id_from_event(&envelope.payload);
     match &envelope.payload {
@@ -115,6 +146,8 @@ pub(crate) async fn run_lifecycle_hooks_for_event(
                 task_title,
                 task_description,
                 priority,
+                ws_manager,
+                project_id,
             )
             .await?;
             run_hooks_for_named_stage(
@@ -128,6 +161,8 @@ pub(crate) async fn run_lifecycle_hooks_for_event(
                 task_title,
                 task_description,
                 priority,
+                ws_manager,
+                project_id,
             )
             .await?;
         }
@@ -146,6 +181,8 @@ pub(crate) async fn run_lifecycle_hooks_for_event(
                 task_title,
                 task_description,
                 priority,
+                ws_manager,
+                project_id,
             )
             .await?;
             run_hooks_for_named_stage(
@@ -159,6 +196,8 @@ pub(crate) async fn run_lifecycle_hooks_for_event(
                 task_title,
                 task_description,
                 priority,
+                ws_manager,
+                project_id,
             )
             .await?;
         }
@@ -174,6 +213,8 @@ pub(crate) async fn run_lifecycle_hooks_for_event(
                 task_title,
                 task_description,
                 priority,
+                ws_manager,
+                project_id,
             )
             .await?;
         }
@@ -192,6 +233,8 @@ pub(crate) async fn run_lifecycle_hooks_for_event(
                 task_title,
                 task_description,
                 priority,
+                ws_manager,
+                project_id,
             )
             .await?;
         }
@@ -402,6 +445,8 @@ impl<S: EventStore + 'static> TaskActor<S> {
                 &self.task_title,
                 &self.task_description,
                 &self.priority,
+                self.ws_manager.as_ref(),
+                &self.project_id,
             )
             .await
             {
