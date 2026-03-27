@@ -54,6 +54,8 @@ pub struct JiraIssue {
     pub description: Option<String>,
     /// Status category name (e.g. "To Do", "In Progress", "Done").
     pub status: String,
+    /// Jira status category color name (e.g. "blue-grey", "yellow", "green", "medium-gray").
+    pub status_color: Option<String>,
     /// Priority name (e.g. "High", "Medium", "Low").
     pub priority: Option<String>,
     /// Issue labels.
@@ -129,8 +131,16 @@ struct IssueTypeField {
 }
 
 #[derive(Deserialize)]
+struct StatusCategoryField {
+    #[serde(rename = "colorName", default)]
+    color_name: String,
+}
+
+#[derive(Deserialize)]
 struct StatusField {
     name: String,
+    #[serde(rename = "statusCategory", default)]
+    category: Option<StatusCategoryField>,
 }
 
 #[derive(Deserialize)]
@@ -438,11 +448,15 @@ fn raw_to_issue(raw: IssueRaw) -> JiraIssue {
         (None, None)
     };
 
+    let status_color = raw.fields.status.category.as_ref().map(|c| c.color_name.clone()).filter(|s| !s.is_empty());
+    let status_name = raw.fields.status.name;
+
     JiraIssue {
         key: raw.key,
         summary: raw.fields.summary,
         description,
-        status: raw.fields.status.name,
+        status: status_name,
+        status_color,
         priority: raw.fields.priority.map(|p| p.name),
         labels: raw.fields.labels.unwrap_or_default(),
         epic_link,
@@ -539,6 +553,7 @@ mod tests {
                 description: None,
                 status: StatusField {
                     name: "To Do".into(),
+                    category: None,
                 },
                 priority: Some(PriorityField {
                     name: "High".into(),
@@ -569,6 +584,7 @@ mod tests {
                 description: None,
                 status: StatusField {
                     name: "Done".into(),
+                    category: None,
                 },
                 priority: None,
                 labels: None,
@@ -593,6 +609,7 @@ mod tests {
                 description: Some(serde_json::json!("plain text description")),
                 status: StatusField {
                     name: "Done".into(),
+                    category: None,
                 },
                 priority: None,
                 labels: None,
