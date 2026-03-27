@@ -97,7 +97,7 @@
 .filterSelect {
   flex: 1;
   min-width: 0;
-  padding: 0.5rem 0.75rem;
+  padding: 0.5rem 2rem 0.5rem 0.75rem;
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   background: var(--bg-secondary);
@@ -105,12 +105,28 @@
   font-size: 0.875rem;
   outline: none;
   cursor: pointer;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.6rem center;
+  background-size: 12px;
+}
+
+.filterSelect:hover {
+  background-color: color-mix(in srgb, var(--bg-secondary) 85%, var(--text-primary) 15%);
+  border-color: color-mix(in srgb, var(--border-subtle) 50%, var(--text-muted) 50%);
 }
 
 .filterSelect:focus {
   border-color: var(--accent, #3b82f6);
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+
+.filterSelect:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ---- Search row (text input + button) ---- */
