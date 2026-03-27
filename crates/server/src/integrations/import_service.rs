@@ -133,6 +133,7 @@ impl<S: EventStore + 'static> ImportService<S> {
                 description: issue.description.clone().unwrap_or_default(),
                 initial_stage: stage_owned.clone(),
                 priority: map_priority(issue.priority.as_deref()),
+                board_id: None,
             },
         };
 
@@ -176,6 +177,7 @@ impl<S: EventStore + 'static> ImportService<S> {
                     name: Some(issue.summary.clone()),
                     agent_name: Some("Jira".to_owned()),
                     summary: None,
+                    board_id: None,
                 },
             );
         }

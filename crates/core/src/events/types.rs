@@ -63,6 +63,9 @@ pub enum DomainEvent {
         initial_stage: String,
         /// Initial priority assigned at creation.
         priority: Priority,
+        /// The board this task belongs to (if any).
+        #[serde(default)]
+        board_id: Option<String>,
     },
 
     /// A task moved from one stage to another within its pipeline.

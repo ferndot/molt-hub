@@ -81,6 +81,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                 .into(),
             initial_stage: "backlog".into(),
             priority: Priority::P1,
+            board_id: None,
         },
     ));
 
@@ -99,6 +100,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                 .into(),
             initial_stage: "backlog".into(),
             priority: Priority::P2,
+            board_id: None,
         },
     ));
 
@@ -117,6 +119,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                 .into(),
             initial_stage: "backlog".into(),
             priority: Priority::P3,
+            board_id: None,
         },
     ));
 
@@ -136,6 +139,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                 .into(),
             initial_stage: "backlog".into(),
             priority: Priority::P1,
+            board_id: None,
         },
     ));
     b.push(ev(
@@ -197,6 +201,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                 .into(),
             initial_stage: "backlog".into(),
             priority: Priority::P2,
+            board_id: None,
         },
     ));
     b.push(ev(
@@ -259,6 +264,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                 .into(),
             initial_stage: "backlog".into(),
             priority: Priority::P0,
+            board_id: None,
         },
     ));
     b.push(ev(
@@ -329,6 +335,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                 .into(),
             initial_stage: "backlog".into(),
             priority: Priority::P1,
+            board_id: None,
         },
     ));
     b.push(ev(
@@ -400,6 +407,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                 .into(),
             initial_stage: "backlog".into(),
             priority: Priority::P2,
+            board_id: None,
         },
     ));
     b.push(ev(
@@ -460,6 +468,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                 .into(),
             initial_stage: "backlog".into(),
             priority: Priority::P1,
+            board_id: None,
         },
     ));
     b.push(ev(
@@ -550,6 +559,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                 .into(),
             initial_stage: "backlog".into(),
             priority: Priority::P1,
+            board_id: None,
         },
     ));
     b.push(ev(
@@ -639,6 +649,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                 .into(),
             initial_stage: "backlog".into(),
             priority: Priority::P2,
+            board_id: None,
         },
     ));
     b.push(ev(
@@ -726,6 +737,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                 .into(),
             initial_stage: "backlog".into(),
             priority: Priority::P2,
+            board_id: None,
         },
     ));
     b.push(ev(

@@ -51,6 +51,8 @@ pub struct BoardUpdate {
     pub agent_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub board_id: Option<String>,
 }
 
 /// Broadcast a board task update to all clients subscribed to `project:{pid}:board:update`.
@@ -69,6 +71,7 @@ pub fn broadcast_board_update(
         name: None,
         agent_name: None,
         summary: None,
+        board_id: None,
     };
     let topic = format!("project:{project_id}:board:update");
     broadcast_json(manager, &topic, &payload);

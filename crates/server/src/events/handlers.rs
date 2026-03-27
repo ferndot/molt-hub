@@ -84,6 +84,8 @@ pub struct CreateTaskRequest {
     pub initial_stage: Option<String>,
     #[serde(default, rename = "projectId")]
     pub project_id: Option<String>,
+    #[serde(default, rename = "boardId")]
+    pub board_id: Option<String>,
 }
 
 /// Body for `POST /api/tasks/:id/move` — persisted stage change + pipeline hooks.
@@ -334,6 +336,7 @@ pub async fn create_task(
             description,
             initial_stage: stage_owned.clone(),
             priority: Priority::P2,
+            board_id: body.board_id.clone(),
         },
     };
 
@@ -350,6 +353,7 @@ pub async fn create_task(
                     name: Some(title.to_owned()),
                     agent_name: None,
                     summary: None,
+                    board_id: body.board_id.clone(),
                 },
             );
             (
@@ -566,6 +570,7 @@ pub async fn move_task_stage(
             name: task_title,
             agent_name: None,
             summary: None,
+            board_id: Some(body.board_id.clone()),
         },
     );
 
@@ -815,6 +820,7 @@ pub async fn submit_human_decision(
             name: task_title,
             agent_name: None,
             summary: None,
+            board_id: Some(body.board_id.clone()),
         },
     );
 
@@ -1251,7 +1257,10 @@ pub async fn get_task_events(
 /// - `complete` — `AgentCompleted` while in the terminal `deployed` stage
 /// - `waiting`  — everything else (pending, code-review, testing, etc.)
 #[instrument(skip_all)]
-pub async fn list_board_tasks(State(state): State<Arc<EventStoreState>>) -> impl IntoResponse {
+pub async fn list_board_tasks(
+    State(state): State<Arc<EventStoreState>>,
+    Query(params): Query<HashMap<String, String>>,
+) -> impl IntoResponse {
     use std::collections::HashMap;
 
     let since = DateTime::<Utc>::MIN_UTC;
@@ -1270,6 +1279,7 @@ pub async fn list_board_tasks(State(state): State<Arc<EventStoreState>>) -> impl
         summary: String,
         /// Derived from the last status-affecting event.
         status: String,
+        board_id: Option<String>,
     }
 
     let mut tasks: HashMap<String, Proj> = HashMap::new();
@@ -1290,12 +1300,14 @@ pub async fn list_board_tasks(State(state): State<Arc<EventStoreState>>) -> impl
                 title,
                 priority,
                 initial_stage,
+                board_id,
                 ..
             } => {
                 proj.title = title.clone();
                 proj.stage = initial_stage.clone();
                 proj.priority = format!("{priority:?}").to_ascii_lowercase();
                 proj.status = "waiting".to_owned();
+                proj.board_id = board_id.clone();
             }
             DomainEvent::TaskStageChanged { to_stage, .. } => {
                 proj.stage = to_stage.clone();
@@ -1350,9 +1362,18 @@ pub async fn list_board_tasks(State(state): State<Arc<EventStoreState>>) -> impl
         }
     }
 
+    let filter_board_id = params.get("boardId").map(|s| s.as_str());
     let mut task_list: Vec<serde_json::Value> = tasks
         .into_values()
         .filter(|p| !p.title.is_empty())
+        .filter(|p| {
+            // If no filter, include all tasks (backwards compat).
+            // If filter provided, include tasks matching that board OR tasks with no board.
+            match filter_board_id {
+                None => true,
+                Some(bid) => p.board_id.as_deref().map_or(true, |t| t == bid),
+            }
+        })
         .map(|p| {
             serde_json::json!({
                 "task_id":    p.id,
@@ -1362,6 +1383,7 @@ pub async fn list_board_tasks(State(state): State<Arc<EventStoreState>>) -> impl
                 "priority":   p.priority,
                 "agent_name": p.agent_name,
                 "summary":    p.summary,
+                "board_id":   p.board_id,
             })
         })
         .collect();
@@ -1594,6 +1616,7 @@ mod tests {
                 description: "test description".to_string(),
                 initial_stage: "backlog".to_string(),
                 priority: Priority::P2,
+                board_id: None,
             },
         }
     }

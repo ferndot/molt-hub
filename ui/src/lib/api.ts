@@ -229,7 +229,10 @@ export const api = {
   // Tasks
   getTasks: () => get<{ tasks: TaskSummary[] }>("/tasks"),
   /** Derive current board state for all tasks from the event store. */
-  getBoardTasks: () => get<{ tasks: BoardTaskItem[] }>("/tasks/board"),
+  getBoardTasks: (boardId?: string) =>
+    get<{ tasks: BoardTaskItem[] }>(
+      boardId ? `/tasks/board?boardId=${encodeURIComponent(boardId)}` : "/tasks/board"
+    ),
   /** Derive triage items (blocked or awaiting approval) from the event store. */
   getTriage: () => get<{ items: Array<{
     id: string; task_id: string; task_name: string; agent_name: string;
@@ -244,6 +247,7 @@ export const api = {
     title: string;
     description?: string;
     initialStage?: string;
+    boardId?: string;
   }) => post<{ taskId: string }>("/tasks/create", body),
 
   /** Persisted kanban move + pipeline enter/exit hooks (requires active board id). */
@@ -362,6 +366,7 @@ export interface BoardTaskItem {
   priority?: string;
   agent_name?: string | null;
   summary?: string;
+  board_id?: string | null;
 }
 
 export interface AgentSummary {

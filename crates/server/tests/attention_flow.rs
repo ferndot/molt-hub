@@ -114,6 +114,7 @@ fn route_p3_lands_in_passive_dashboard_not_pending() {
         description: "Implement X".into(),
         initial_stage: "triage".into(),
         priority: Priority::P3,
+        board_id: None,
     };
     let notification = router.route(&event);
 

@@ -91,6 +91,7 @@ const BoardView: Component = () => {
         title,
         description,
         initialStage: stageId,
+        boardId: boardState.activeBoardId || undefined,
       });
       collapseAddIssue();
     } catch (e) {

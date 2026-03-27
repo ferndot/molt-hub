@@ -234,6 +234,7 @@ mod tests {
             description: "Do something".into(),
             initial_stage: "triage".into(),
             priority: Priority::P3,
+            board_id: None,
         };
         assert_eq!(classifier().classify(&event), InterruptLevel::P3);
     }
@@ -250,6 +251,7 @@ mod tests {
                 description: "d".into(),
                 initial_stage: "s".into(),
                 priority: Priority::P2,
+            board_id: None,
             },
             DomainEvent::TaskStageChanged {
                 from_stage: "a".into(),

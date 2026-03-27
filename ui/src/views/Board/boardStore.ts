@@ -38,6 +38,7 @@ export interface BoardTask {
   timeInStage: string;
   expanded: boolean;
   agentStatus?: AgentStatus;
+  boardId?: string;
 }
 
 export type { PipelineStage } from "../../lib/api";
@@ -188,6 +189,7 @@ async function applySetActiveBoard(boardId: string): Promise<void> {
   const fetched = await fetchBoardStages(boardId);
   await applyStagesFromFetch(fetched);
   setBoardState("stagesLoaded", true);
+  await loadBoardTasksFromApi(boardId);
 }
 
 /** Clear selection when there are no boards (or last board removed). */
@@ -225,6 +227,7 @@ function boardTaskFromItem(t: BoardTaskItem): BoardTask {
     timeInStage: "",
     expanded: false,
     agentStatus: deriveAgentStatus(t.status, t.agent_name ?? undefined),
+    boardId: t.board_id ?? undefined,
   };
 }
 
@@ -232,9 +235,9 @@ function boardTaskFromItem(t: BoardTaskItem): BoardTask {
  * Fetch the current board task list from the event store and populate the
  * shared task list.  Silently ignored if the endpoint is unavailable.
  */
-async function loadBoardTasksFromApi(): Promise<void> {
+async function loadBoardTasksFromApi(boardId?: string): Promise<void> {
   try {
-    const data = await api.getBoardTasks();
+    const data = await api.getBoardTasks(boardId);
     if (Array.isArray(data.tasks)) {
       setBoardState("tasks", data.tasks.map(boardTaskFromItem));
     }
@@ -269,10 +272,6 @@ export function initBoardStages(): Promise<void> {
       await applyNoActiveBoard();
     }
     setBoardState("boardsSynced", true);
-
-    // Populate tasks from the persisted event store so the board is non-empty
-    // on first load (and after restarts).  WS updates continue to apply on top.
-    await loadBoardTasksFromApi();
   });
 }
 
@@ -600,6 +599,7 @@ export function handleBoardWsMessage(msg: ServerMessage): void {
       timeInStage: "0m",
       expanded: false,
       agentStatus: deriveAgentStatus(newStatus, newAgentName),
+      boardId: (payload.board_id as string) ?? undefined,
     };
     setBoardState("tasks", (tasks) => [...tasks, newTask]);
   }

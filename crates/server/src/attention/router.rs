@@ -369,6 +369,7 @@ mod tests {
             description: "Desc".into(),
             initial_stage: "triage".into(),
             priority: Priority::P2,
+            board_id: None,
         };
         let n = r.route(&event);
         assert_eq!(n.interrupt_level, InterruptLevel::P3);

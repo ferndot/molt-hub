@@ -124,6 +124,7 @@ impl<S: EventStore + 'static> GithubImportService<S> {
                 description: issue.body.clone().unwrap_or_default(),
                 initial_stage: stage_owned.clone(),
                 priority: github_priority(issue),
+                board_id: None,
             },
         };
 
@@ -156,6 +157,7 @@ impl<S: EventStore + 'static> GithubImportService<S> {
                     name: Some(issue.title.clone()),
                     agent_name: Some("GitHub".to_owned()),
                     summary: None,
+                    board_id: None,
                 },
             );
         }
