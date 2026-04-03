@@ -144,6 +144,17 @@ pub enum DomainEvent {
         note: Option<String>,
     },
 
+    /// A human sent a steering message to a running agent.
+    HumanInput {
+        /// The agent that received the message.
+        agent_id: AgentId,
+        /// The message content.
+        content: String,
+        /// The turn this input is associated with, if known.
+        #[serde(default)]
+        turn_id: Option<String>,
+    },
+
     // ------------------------------------------------------------------
     // Integration events
     // ------------------------------------------------------------------

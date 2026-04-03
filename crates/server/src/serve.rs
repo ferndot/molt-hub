@@ -141,8 +141,9 @@ pub async fn build_router(
                                 broadcast_agent_output(&ws_fanout_manager, &id, buf.trim_end_matches('\r'));
                             }
                         }
-                        let auth_required = message.starts_with("auth_required:");
-                        broadcast_agent_error(&ws_fanout_manager, &id, &message, auth_required);
+                        tracing::error!(agent_id = %id, raw_error = %message, "agent error (internal)");
+                        let (client_message, auth_required) = sanitize_agent_error(&message);
+                        broadcast_agent_error(&ws_fanout_manager, &id, &client_message, auth_required);
                     }
                     Ok(_) => {}
                     Err(broadcast::error::RecvError::Lagged(n)) => {
@@ -513,6 +514,27 @@ fn macos_rss() -> Option<u64> {
 }
 
 // ---------------------------------------------------------------------------
+// Error sanitization
+// ---------------------------------------------------------------------------
+
+/// Translate a raw agent error message into a client-safe message and an
+/// `auth_required` flag.
+///
+/// * `auth_required:` prefixed messages are user-actionable and passed
+///   through unchanged.
+/// * All other messages are replaced with a generic string so that internal
+///   infrastructure details (provider names, IAM errors, model IDs, …) are
+///   never exposed to end users.  The raw message is expected to have been
+///   logged at `tracing::error!` level before calling this function.
+fn sanitize_agent_error(raw: &str) -> (String, bool) {
+    if raw.starts_with("auth_required:") {
+        (raw.to_owned(), true)
+    } else {
+        ("Something went wrong. Please try again.".to_string(), false)
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -545,5 +567,40 @@ mod tests {
         let (cpu, mem) = collect_system_metrics();
         assert!(cpu >= 0.0 && cpu <= 100.0, "cpu out of range: {cpu}");
         assert!(mem > 0, "memory should be > 0, got {mem}");
+    }
+
+    // --- sanitize_agent_error -------------------------------------------------
+
+    #[test]
+    fn sanitize_provider_error_returns_generic_message() {
+        let raw = "ACP error: status_code: 403, body: {'message': 'Model access denied'}";
+        let (msg, auth_required) = sanitize_agent_error(raw);
+        assert_eq!(msg, "Something went wrong. Please try again.");
+        assert!(!auth_required);
+    }
+
+    #[test]
+    fn sanitize_auth_required_passes_through_unchanged() {
+        let raw = "auth_required: Run `claude login` to authenticate";
+        let (msg, auth_required) = sanitize_agent_error(raw);
+        assert_eq!(msg, raw);
+        assert!(auth_required);
+    }
+
+    #[test]
+    fn sanitize_generic_internal_error_returns_generic_message() {
+        let raw = "thread 'tokio-runtime-worker' panicked at 'connection reset'";
+        let (msg, auth_required) = sanitize_agent_error(raw);
+        assert_eq!(msg, "Something went wrong. Please try again.");
+        assert!(!auth_required);
+    }
+
+    #[test]
+    fn sanitize_auth_required_prefix_only_triggers_on_exact_prefix() {
+        // A message that merely *contains* "auth_required:" in the middle must NOT pass through.
+        let raw = "some prefix auth_required: details here";
+        let (msg, auth_required) = sanitize_agent_error(raw);
+        assert_eq!(msg, "Something went wrong. Please try again.");
+        assert!(!auth_required);
     }
 }
