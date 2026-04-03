@@ -141,6 +141,25 @@ pub enum AgentEvent {
         agent_id: AgentId,
         timestamp: DateTime<Utc>,
     },
+    /// The agent is requesting permission to use a tool. Pauses until approved/rejected.
+    ToolApprovalRequired {
+        agent_id: AgentId,
+        /// Opaque identifier for correlating the decision back to this request.
+        request_id: String,
+        /// Human-readable tool name (from ACP tool_call.fields.title if available).
+        tool_name: String,
+        /// Human-readable labels for each permission option (e.g. "AllowOnce: opt_123").
+        options: Vec<String>,
+        timestamp: DateTime<Utc>,
+    },
+    /// Permission decision sent back to an agent (approve/reject).
+    ToolApprovalDecision {
+        agent_id: AgentId,
+        /// Matches the `request_id` from the corresponding `ToolApprovalRequired` event.
+        request_id: String,
+        approved: bool,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 // ---------------------------------------------------------------------------
