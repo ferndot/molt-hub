@@ -39,6 +39,8 @@ export interface AgentDetail {
   assignedAt: string;
   outputLines: OutputLine[];
   authError?: string;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -120,6 +122,8 @@ function mapApiAgent(a: AgentSummary): AgentDetail {
     priority: "p2" as Priority,
     assignedAt: new Date().toISOString(),
     outputLines: [],
+    inputTokens: 0,
+    outputTokens: 0,
   };
 }
 
@@ -142,6 +146,8 @@ export async function fetchAgents(): Promise<void> {
             ...m,
             outputLines: old.outputLines.length > 0 ? old.outputLines : m.outputLines,
             authError: old.authError,
+            inputTokens: old.inputTokens,
+            outputTokens: old.outputTokens,
           };
         }
         return m;
@@ -194,6 +200,8 @@ export function registerAgentPlaceholder(
       priority: "p2" as Priority,
       assignedAt: new Date().toISOString(),
       outputLines: [],
+      inputTokens: 0,
+      outputTokens: 0,
     },
   ]);
 }
@@ -245,6 +253,20 @@ export function setupAgentSubscription(agentId: string): () => void {
   const unsubscribe = subscribe(topic, (msg) => {
     if (msg.type !== "event") return;
     const payload = msg.payload as Record<string, unknown>;
+
+    // Accumulate token counts from TurnEnd events.
+    if (payload.type === "turn_end") {
+      const inputTokens = (payload.input_tokens as number | undefined) ?? 0;
+      const outputTokens = (payload.output_tokens as number | undefined) ?? 0;
+      setState("agents", (agents) =>
+        agents.map((a) =>
+          a.id === agentId
+            ? { ...a, inputTokens: a.inputTokens + inputTokens, outputTokens: a.outputTokens + outputTokens }
+            : a,
+        ),
+      );
+      return;
+    }
 
     // Handle auth errors.
     if (payload.type === "agent_error") {
