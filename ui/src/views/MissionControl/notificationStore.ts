@@ -344,7 +344,6 @@ export {
   handleAction,
   addNotification,
   connectNotificationsWs,
-  registerNavigate,
 };
 
 export type { FilterTab as NotificationFilterTab };
