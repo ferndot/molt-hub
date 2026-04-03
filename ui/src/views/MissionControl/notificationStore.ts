@@ -5,6 +5,8 @@
 
 import { createSignal, createMemo } from "solid-js";
 import { subscribe } from "../../lib/ws";
+import { boardState } from "../Board/boardStore";
+import { api } from "../../lib/api";
 
 // ---------------------------------------------------------------------------
 // Tauri native push — only active when running inside the desktop app.
@@ -203,7 +205,6 @@ export function registerNavigate(fn: (path: string) => void): void {
 }
 
 function handleAction(notifId: string, action: NotificationAction): void {
-  // Mark as read on any action
   markRead(notifId);
   if (action.kind === "dismiss") {
     dismissNotification(notifId);
@@ -214,7 +215,37 @@ function handleAction(notifId: string, action: NotificationAction): void {
     _navigateFn?.(path);
     return;
   }
-  // approve/reject handlers: wiring to approval API is a separate task
+  const parts = action.handler.split(":");
+  const prefix = parts[0]; // "approve", "reject", "defer", "ack"
+  if (parts.length >= 3) {
+    // Tool approval: approve:{request_id}:{agent_id}[:{option}]
+    const requestId = parts[1];
+    const agentId = parts[2];
+    const approved = prefix === "approve";
+    void api.respondToolApproval(agentId, { requestId, approved }).then(() => {
+      dismissNotification(notifId);
+    }).catch(() => {
+      // silently ignore — agent may have already timed out
+    });
+    return;
+  }
+  if (parts.length === 2 && (prefix === "approve" || prefix === "reject")) {
+    const taskId = parts[1];
+    const boardId = boardState.activeBoardId?.trim() ?? "";
+    if (!boardId) return;
+    void api.submitTaskHumanDecision(taskId, {
+      boardId,
+      kind: prefix === "approve" ? "approved" : "rejected",
+    }).then(() => {
+      dismissNotification(notifId);
+    }).catch(() => {
+      // silently ignore server errors — notification stays visible
+    });
+    return;
+  }
+  if (prefix === "defer" || prefix === "ack") {
+    dismissNotification(notifId);
+  }
 }
 
 function addNotification(notif: Notification): void {

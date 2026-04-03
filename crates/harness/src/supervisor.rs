@@ -12,6 +12,7 @@ use tracing::{debug, error, info, warn};
 
 use molt_hub_core::model::{AgentId, AgentStatus, TaskId};
 
+use crate::acp::AcpInternal;
 use crate::adapter::{
     AdapterError, AgentAdapter, AgentEvent, AgentHandle, AgentMessage, SpawnConfig,
 };
@@ -297,6 +298,25 @@ impl Supervisor {
             )
             .await?;
 
+        Ok(())
+    }
+
+    /// Send a tool-use approval decision to a waiting agent.
+    ///
+    /// Returns `Ok(())` even if the agent has no pending approval (send to
+    /// a broadcast channel with no active receivers is a no-op).
+    pub async fn approve_tool(
+        &self,
+        agent_id: &AgentId,
+        approved: bool,
+    ) -> Result<(), SupervisorError> {
+        let managed = self
+            .agents
+            .get(agent_id)
+            .ok_or_else(|| SupervisorError::AgentNotFound(agent_id.clone()))?;
+        if let Some(internal) = managed.handle.downcast_internal::<AcpInternal>() {
+            let _ = internal.approve_tx.send(approved);
+        }
         Ok(())
     }
 

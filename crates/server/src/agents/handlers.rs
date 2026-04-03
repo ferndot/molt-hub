@@ -1052,6 +1052,63 @@ async fn get_agent_history(
 /// Mounts:
 ///   GET  /                  — list all agents
 ///   POST /spawn             — spawn a new agent
+/// POST /api/agents/:id/tool-approval — respond to a pending tool-use approval request.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ToolApprovalBody {
+    request_id: String,
+    approved: bool,
+}
+
+#[instrument(skip(state))]
+async fn respond_tool_approval(
+    State(state): State<Arc<AgentState>>,
+    Path(agent_id_str): Path<String>,
+    Json(body): Json<ToolApprovalBody>,
+) -> impl IntoResponse {
+    let ulid = match ulid::Ulid::from_string(&agent_id_str) {
+        Ok(u) => u,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(MessageResponse {
+                    message: format!("invalid agent ID: {agent_id_str}"),
+                }),
+            )
+                .into_response();
+        }
+    };
+    let agent_id = AgentId(ulid);
+
+    tracing::info!(
+        agent_id = %agent_id_str,
+        request_id = %body.request_id,
+        approved = body.approved,
+        "tool approval decision received"
+    );
+
+    match state.supervisor.approve_tool(&agent_id, body.approved).await {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(MessageResponse {
+                message: format!(
+                    "approval decision ({}) sent to agent {}",
+                    if body.approved { "approved" } else { "rejected" },
+                    agent_id_str
+                ),
+            }),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::NOT_FOUND,
+            Json(MessageResponse {
+                message: format!("failed to send approval: {e}"),
+            }),
+        )
+            .into_response(),
+    }
+}
+
 ///   POST /suggest-task-title — suggest a short title via the harness
 ///   POST /:id/terminate     — terminate an agent
 ///   POST /:id/pause         — pause an agent
@@ -1073,6 +1130,7 @@ pub fn agent_router(state: Arc<AgentState>) -> Router {
         .route("/:id/output", get(get_agent_output))
         .route("/:id/steer-history", get(get_steer_history))
         .route("/:id/history", get(get_agent_history))
+        .route("/:id/tool-approval", post(respond_tool_approval))
         .with_state(state)
 }
 

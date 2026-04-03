@@ -274,6 +274,10 @@ export const api = {
       body,
     ),
 
+  /** Respond to a pending tool-use approval request from a running agent. */
+  respondToolApproval: (agentId: string, body: { requestId: string; approved: boolean }) =>
+    post<{ message: string }>(`/agents/${encodeURIComponent(agentId)}/tool-approval`, body),
+
   /** Uses the same harness as agents (Claude CLI by default; CLI adapter if set in settings). */
   suggestTaskTitle: (body: { text: string; adapterConfig?: unknown }) =>
     post<{ title: string; source: string }>("/agents/suggest-task-title", body),
