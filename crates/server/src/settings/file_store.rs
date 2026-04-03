@@ -86,10 +86,6 @@ impl SettingsFileStore {
                 guard.agent_defaults = serde_json::from_value(value)
                     .map_err(|e| SettingsPatchError::Deserialize(e.to_string()))?;
             }
-            "kanban_columns" | "kanbanColumns" => {
-                guard.kanban_columns = serde_json::from_value(value)
-                    .map_err(|e| SettingsPatchError::Deserialize(e.to_string()))?;
-            }
             "sidebar_widths" | "sidebarWidths" => {
                 guard.sidebar_widths = Some(
                     serde_json::from_value(value)

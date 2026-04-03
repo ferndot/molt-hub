@@ -112,8 +112,7 @@ async fn settings_put_then_get_round_trip() {
     let settings_json = serde_json::json!({
         "appearance": { "theme": "dark", "colorblindMode": true },
         "notifications": { "attentionLevel": "all" },
-        "agentDefaults": { "timeoutMinutes": 60, "adapter": "claude-code" },
-        "kanban_columns": []
+        "agentDefaults": { "timeoutMinutes": 60, "adapter": "claude-code" }
     });
 
     let put_resp = app

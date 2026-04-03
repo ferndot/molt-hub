@@ -49,6 +49,34 @@ export interface Notification {
 export type FilterTab = "all" | "decisions" | "updates" | "alerts";
 
 // ---------------------------------------------------------------------------
+// localStorage persistence for read/dismissed state
+// ---------------------------------------------------------------------------
+
+const NOTIF_READ_KEY = "molt:notif-read";
+const NOTIF_DISMISSED_KEY = "molt:notif-dismissed";
+
+function loadSet(key: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return new Set();
+    return new Set(JSON.parse(raw) as string[]);
+  } catch {
+    return new Set();
+  }
+}
+
+function saveSet(key: string, set: Set<string>): void {
+  try {
+    localStorage.setItem(key, JSON.stringify([...set]));
+  } catch {
+    // localStorage unavailable; silently ignore
+  }
+}
+
+const _readIds = loadSet(NOTIF_READ_KEY);
+const _dismissedIds = loadSet(NOTIF_DISMISSED_KEY);
+
+// ---------------------------------------------------------------------------
 // Store signals
 // ---------------------------------------------------------------------------
 
@@ -114,14 +142,23 @@ function markRead(id: string): void {
   setNotifications((prev) =>
     prev.map((n) => (n.id === id ? { ...n, read: true } : n)),
   );
+  _readIds.add(id);
+  saveSet(NOTIF_READ_KEY, _readIds);
 }
 
 function markAllRead(): void {
   setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  notifications().forEach((n) => _readIds.add(n.id));
+  saveSet(NOTIF_READ_KEY, _readIds);
 }
 
 function dismissNotification(id: string): void {
   setNotifications((prev) => prev.filter((n) => n.id !== id));
+  _dismissedIds.add(id);
+  saveSet(NOTIF_DISMISSED_KEY, _dismissedIds);
+  // Also clean up read tracking for dismissed items
+  _readIds.delete(id);
+  saveSet(NOTIF_READ_KEY, _readIds);
 }
 
 function handleAction(notifId: string, action: NotificationAction): void {
@@ -178,7 +215,10 @@ function connectNotificationsWs(): () => void {
   return subscribe("notification:*", (msg) => {
     if (msg.type !== "event") return;
     const notif = parseWsNotification(msg.payload);
-    if (notif) addNotification(notif);
+    if (!notif) return;
+    if (_dismissedIds.has(notif.id)) return;
+    if (_readIds.has(notif.id)) notif.read = true;
+    addNotification(notif);
   });
 }
 
@@ -210,6 +250,7 @@ export async function initNotificationsFromTriage(): Promise<void> {
     const existing = new Set(notifications().map((n) => n.id));
     for (const item of data.items) {
       if (existing.has(item.id)) continue;
+      if (_dismissedIds.has(item.id)) continue;
       const notif: Notification = {
         id: item.id,
         type: item.type === "decision" ? "decision" : "agent_update",
@@ -218,7 +259,7 @@ export async function initNotificationsFromTriage(): Promise<void> {
         subtitle: item.summary || (item.stage ? `Stage: ${item.stage}` : undefined),
         agentName: item.agent_name || undefined,
         timestamp: item.created_at,
-        read: false,
+        read: _readIds.has(item.id),
         actions: item.type === "decision"
           ? [
               { label: "Approve", kind: "approve" as ActionKind, handler: `approve:${item.task_id}` },

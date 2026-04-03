@@ -17,8 +17,6 @@ pub struct ServerSettings {
     pub appearance: AppearanceSettings,
     pub notifications: NotificationSettings,
     pub agent_defaults: AgentDefaultSettings,
-    #[serde(default = "default_kanban_columns")]
-    pub kanban_columns: Vec<KanbanColumn>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sidebar_widths: Option<SidebarWidths>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -33,7 +31,6 @@ impl Default for ServerSettings {
             appearance: AppearanceSettings::default(),
             notifications: NotificationSettings::default(),
             agent_defaults: AgentDefaultSettings::default(),
-            kanban_columns: default_kanban_columns(),
             sidebar_widths: None,
             jira_config: None,
             github_config: None,
@@ -132,63 +129,6 @@ impl Default for AgentDefaultSettings {
 }
 
 // ---------------------------------------------------------------------------
-// Section: kanban_columns
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct KanbanColumn {
-    pub id: String,
-    pub title: String,
-    pub stage_match: String,
-    pub color: Option<String>,
-    pub order: u32,
-    pub wip_limit: Option<u32>,
-    pub require_approval: bool,
-}
-
-/// Sensible default kanban columns matching common development workflows.
-fn default_kanban_columns() -> Vec<KanbanColumn> {
-    vec![
-        KanbanColumn {
-            id: "backlog".to_owned(),
-            title: "Backlog".to_owned(),
-            stage_match: "backlog".to_owned(),
-            color: None,
-            order: 0,
-            wip_limit: None,
-            require_approval: false,
-        },
-        KanbanColumn {
-            id: "in-progress".to_owned(),
-            title: "In Progress".to_owned(),
-            stage_match: "in_progress".to_owned(),
-            color: None,
-            order: 1,
-            wip_limit: Some(5),
-            require_approval: false,
-        },
-        KanbanColumn {
-            id: "review".to_owned(),
-            title: "Review".to_owned(),
-            stage_match: "review".to_owned(),
-            color: None,
-            order: 2,
-            wip_limit: Some(3),
-            require_approval: true,
-        },
-        KanbanColumn {
-            id: "done".to_owned(),
-            title: "Done".to_owned(),
-            stage_match: "done".to_owned(),
-            color: None,
-            order: 3,
-            wip_limit: None,
-            require_approval: false,
-        },
-    ]
-}
-
-// ---------------------------------------------------------------------------
 // Section: sidebar_widths
 // ---------------------------------------------------------------------------
 
@@ -246,7 +186,7 @@ mod tests {
         let s = ServerSettings::default();
         let json = serde_json::to_string_pretty(&s).unwrap();
         assert!(json.contains("system"));
-        assert!(json.contains("claude-code"));
+        assert!(json.contains("claude"));
     }
 
     #[test]
@@ -255,12 +195,6 @@ mod tests {
         let json = serde_json::to_string(&original).unwrap();
         let restored: ServerSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(original, restored);
-    }
-
-    #[test]
-    fn default_has_four_kanban_columns() {
-        let s = ServerSettings::default();
-        assert_eq!(s.kanban_columns.len(), 4);
     }
 
     #[test]
@@ -334,13 +268,11 @@ mod tests {
     }
 
     #[test]
-    fn deserialise_without_new_sections_uses_none() {
-        // JSON without optional sections
+    fn deserialise_without_optional_sections_uses_none() {
         let json = serde_json::json!({
             "appearance": { "theme": "system", "colorblindMode": false },
             "notifications": { "attentionLevel": "p0p1" },
-            "agentDefaults": { "timeoutMinutes": 30, "adapter": "claude-code" },
-            "kanban_columns": []
+            "agentDefaults": { "timeoutMinutes": 30, "adapter": "claude-code" }
         });
         let s: ServerSettings = serde_json::from_value(json).unwrap();
         assert!(s.sidebar_widths.is_none());
