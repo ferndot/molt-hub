@@ -139,6 +139,10 @@ pub enum AgentEvent {
     /// Signals that the agent finished one prompt/turn (output for this turn is complete).
     TurnEnd {
         agent_id: AgentId,
+        stop_reason: Option<String>,
+        input_tokens: Option<u32>,
+        output_tokens: Option<u32>,
+        cost: Option<f64>,
         timestamp: DateTime<Utc>,
     },
     /// A tool call initiated by the agent.
