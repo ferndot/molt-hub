@@ -196,7 +196,7 @@ impl agent_client_protocol::Client for AcpClientImpl {
         &self,
         args: agent_client_protocol::SessionNotification,
     ) -> agent_client_protocol::Result<()> {
-        use agent_client_protocol::{ContentBlock, SessionUpdate};
+        use agent_client_protocol::{ContentBlock, SessionUpdate, ToolCallStatus};
 
         match args.update {
             SessionUpdate::AgentMessageChunk(chunk) => {
@@ -214,6 +214,28 @@ impl agent_client_protocol::Client for AcpClientImpl {
                             });
                         }
                     }
+                }
+            }
+            SessionUpdate::ToolCall(tc) => {
+                let _ = self.event_tx.send(AgentEvent::ToolCall {
+                    agent_id: self.agent_id.clone(),
+                    call_id: tc.tool_call_id.0.to_string(),
+                    tool_name: tc.title.clone(),
+                    input: tc.raw_input.unwrap_or(serde_json::Value::Null),
+                    timestamp: Utc::now(),
+                });
+            }
+            SessionUpdate::ToolCallUpdate(tcu) => {
+                let status = tcu.fields.status.unwrap_or(ToolCallStatus::Pending);
+                if matches!(status, ToolCallStatus::Completed | ToolCallStatus::Failed) {
+                    let is_error = matches!(status, ToolCallStatus::Failed);
+                    let _ = self.event_tx.send(AgentEvent::ToolResult {
+                        agent_id: self.agent_id.clone(),
+                        call_id: tcu.tool_call_id.0.to_string(),
+                        output: tcu.fields.raw_output.unwrap_or(serde_json::Value::Null),
+                        is_error,
+                        timestamp: Utc::now(),
+                    });
                 }
             }
             _other => {}
