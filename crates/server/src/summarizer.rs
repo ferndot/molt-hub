@@ -252,26 +252,40 @@ impl SummaryProvider for MockSummaryProvider {
 }
 
 // ---------------------------------------------------------------------------
-// ClaudeSummaryProvider (stub)
+// ClaudeSummaryProvider
 // ---------------------------------------------------------------------------
 
-/// Stub provider that constructs the Anthropic Messages API request shape
-/// without making real HTTP calls.
-///
-/// Useful for verifying request construction in integration tests.
+/// Provider that calls the Anthropic Messages API to produce real summaries.
+#[derive(Debug)]
 pub struct ClaudeSummaryProvider {
     /// Model identifier, e.g. `"claude-sonnet-4-20250514"`.
     pub model: String,
+    /// Anthropic API key (`x-api-key` header).
+    api_key: String,
+    /// Reusable HTTP client.
+    client: reqwest::Client,
 }
 
 impl ClaudeSummaryProvider {
-    pub fn new(model: impl Into<String>) -> Self {
-        Self {
-            model: model.into(),
-        }
+    /// Create from an explicit model name; reads `ANTHROPIC_API_KEY` from the
+    /// environment.  Returns an error if the variable is absent.
+    pub fn new(model: impl Into<String>) -> Result<Self, SummaryError> {
+        Self::new_from_env(model)
     }
 
-    /// Build the JSON request body that *would* be sent to the API.
+    /// Create from env.  `ANTHROPIC_API_KEY` must be set.
+    pub fn new_from_env(model: impl Into<String>) -> Result<Self, SummaryError> {
+        let api_key = std::env::var("ANTHROPIC_API_KEY").map_err(|_| {
+            SummaryError::Provider("ANTHROPIC_API_KEY env var is not set".to_string())
+        })?;
+        Ok(Self {
+            model: model.into(),
+            api_key,
+            client: reqwest::Client::new(),
+        })
+    }
+
+    /// Build the JSON request body sent to the Anthropic Messages API.
     pub fn build_request(&self, content: &str, max_tokens: usize) -> serde_json::Value {
         serde_json::json!({
             "model": self.model,
@@ -293,13 +307,46 @@ impl SummaryProvider for ClaudeSummaryProvider {
         content: &str,
         max_tokens: usize,
     ) -> impl Future<Output = Result<String, SummaryError>> + Send {
-        // Build the request shape for verification, but don't call the API.
-        let _request = self.build_request(content, max_tokens);
+        let body = self.build_request(content, max_tokens);
+        let client = self.client.clone();
+        let api_key = self.api_key.clone();
 
-        // Return a placeholder — real implementation would POST to the API.
-        let preview: String = content.chars().take(80).collect();
-        let summary = format!("[Claude stub] {preview}");
-        async move { Ok(summary) }
+        async move {
+            let response = client
+                .post("https://api.anthropic.com/v1/messages")
+                .header("x-api-key", &api_key)
+                .header("anthropic-version", "2023-06-01")
+                .header("content-type", "application/json")
+                .json(&body)
+                .send()
+                .await
+                .map_err(|e| SummaryError::Provider(format!("HTTP request failed: {e}")))?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let text = response.text().await.unwrap_or_default();
+                return Err(SummaryError::Provider(format!(
+                    "Anthropic API returned {status}: {text}"
+                )));
+            }
+
+            let json: serde_json::Value = response
+                .json()
+                .await
+                .map_err(|e| SummaryError::Provider(format!("Failed to parse response: {e}")))?;
+
+            let text = json["content"][0]["text"]
+                .as_str()
+                .ok_or_else(|| {
+                    SummaryError::Provider(format!(
+                        "Unexpected response shape: {}",
+                        json
+                    ))
+                })?
+                .to_string();
+
+            Ok(text)
+        }
     }
 }
 
@@ -468,7 +515,11 @@ mod tests {
 
     #[test]
     fn claude_provider_builds_correct_request_shape() {
-        let provider = ClaudeSummaryProvider::new("claude-sonnet-4-20250514");
+        // Temporarily set env var so construction succeeds.
+        std::env::set_var("ANTHROPIC_API_KEY", "test-key");
+        let provider = ClaudeSummaryProvider::new("claude-sonnet-4-20250514").unwrap();
+        std::env::remove_var("ANTHROPIC_API_KEY");
+
         let req = provider.build_request("test content", 100);
 
         assert_eq!(req["model"], "claude-sonnet-4-20250514");
@@ -478,10 +529,25 @@ mod tests {
         assert_eq!(req["messages"][0]["content"], "test content");
     }
 
+    /// Requires `ANTHROPIC_API_KEY` to be set in the environment.
+    /// Run with: ANTHROPIC_API_KEY=sk-... cargo test claude_provider_live
     #[tokio::test]
-    async fn claude_provider_returns_stub_summary() {
-        let provider = ClaudeSummaryProvider::new("claude-sonnet-4-20250514");
-        let result = provider.summarize("agent output here", 100).await.unwrap();
-        assert!(result.starts_with("[Claude stub]"));
+    #[ignore]
+    async fn claude_provider_returns_live_summary() {
+        let provider = ClaudeSummaryProvider::new("claude-haiku-4-20250514")
+            .expect("ANTHROPIC_API_KEY must be set to run this test");
+        let result = provider
+            .summarize("Agent completed: ran unit tests, all 42 passed.", 100)
+            .await
+            .unwrap();
+        assert!(!result.is_empty());
+        assert!(result.len() <= 280);
+    }
+
+    #[test]
+    fn claude_provider_new_fails_without_api_key() {
+        std::env::remove_var("ANTHROPIC_API_KEY");
+        let err = ClaudeSummaryProvider::new("claude-sonnet-4-20250514").unwrap_err();
+        assert!(matches!(err, SummaryError::Provider(_)));
     }
 }
