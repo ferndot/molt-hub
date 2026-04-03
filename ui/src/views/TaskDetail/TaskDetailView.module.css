@@ -242,7 +242,13 @@
   font-family: monospace;
   font-size: 0.78rem;
   color: var(--text-muted);
+  text-decoration: none;
   flex: 1;
+}
+
+.agentIdText:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
 }
 
 .agentStatusBadge {
@@ -266,9 +272,14 @@
   color: var(--text-subtle);
   background: transparent;
   border: 1px solid var(--border);
-  cursor: not-allowed;
-  opacity: 0.5;
+  cursor: pointer;
+  text-decoration: none;
   flex-shrink: 0;
+}
+
+.steerBtn:hover {
+  color: var(--text-primary);
+  border-color: var(--border-active, var(--text-muted));
 }
 
 /* Loading and error states */

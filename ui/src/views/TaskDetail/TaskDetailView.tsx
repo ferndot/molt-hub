@@ -123,9 +123,9 @@ const TaskDetailView: Component = () => {
                         {(agent) => (
                           <div class={styles.agentRow}>
                             <span class={styles.agentDot} />
-                            <span class={styles.agentIdText}>{agent.agent_id.slice(-8)}</span>
+                            <a href={`/agents/${agent.agent_id}`} class={styles.agentIdText}>{agent.agent_id.slice(-8)}</a>
                             <span class={styles.agentStatusBadge}>{agent.status}</span>
-                            <button class={styles.steerBtn} disabled>Steer</button>
+                            <a href={`/agents/${agent.agent_id}`} class={styles.steerBtn}>Steer</a>
                           </div>
                         )}
                       </For>
