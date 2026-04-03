@@ -5,7 +5,7 @@
  * to WebSocket topic `agent:{id}` for live output.
  */
 
-import { createStore } from "solid-js/store";
+import { createStore, produce } from "solid-js/store";
 import { subscribe } from "../../lib/ws";
 import { api } from "../../lib/api";
 import { addAgentMessage } from "./steerStore";
@@ -19,6 +19,12 @@ import type { Priority } from "../../types/domain";
 export interface OutputLine {
   timestamp: string;
   text: string;
+}
+
+export interface FileDiff {
+  path: string;
+  unifiedDiff: string;
+  timestamp: string;
 }
 
 export interface StageEntry {
@@ -38,6 +44,7 @@ export interface AgentDetail {
   priority: Priority;
   assignedAt: string;
   outputLines: OutputLine[];
+  fileDiffs: FileDiff[];
   authError?: string;
   inputTokens: number;
   outputTokens: number;
@@ -124,6 +131,7 @@ function mapApiAgent(a: AgentSummary): AgentDetail {
     outputLines: [],
     inputTokens: 0,
     outputTokens: 0,
+    fileDiffs: [],
   };
 }
 
@@ -145,6 +153,7 @@ export async function fetchAgents(): Promise<void> {
           return {
             ...m,
             outputLines: old.outputLines.length > 0 ? old.outputLines : m.outputLines,
+            fileDiffs: old.fileDiffs.length > 0 ? old.fileDiffs : m.fileDiffs,
             authError: old.authError,
             inputTokens: old.inputTokens,
             outputTokens: old.outputTokens,
@@ -202,6 +211,7 @@ export function registerAgentPlaceholder(
       outputLines: [],
       inputTokens: 0,
       outputTokens: 0,
+      fileDiffs: [],
     },
   ]);
 }
@@ -278,6 +288,23 @@ export function setupAgentSubscription(agentId: string): () => void {
         "authError",
         authRequired ? (message ?? "Authentication required") : undefined,
       );
+      return;
+    }
+
+    // Handle file diffs emitted when an agent completes.
+    if (payload.type === "file_diff") {
+      const path = payload.path as string | undefined;
+      const unifiedDiff = (payload.unified_diff ?? payload.unifiedDiff) as string | undefined;
+      const timestamp = payload.timestamp as string | undefined;
+      if (path && unifiedDiff) {
+        setState(
+          "agents",
+          (a) => a.id === agentId,
+          produce((a) => {
+            a.fileDiffs.push({ path, unifiedDiff, timestamp: timestamp ?? new Date().toISOString() });
+          }),
+        );
+      }
       return;
     }
 

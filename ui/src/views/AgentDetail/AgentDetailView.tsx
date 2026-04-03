@@ -8,7 +8,7 @@
  */
 
 import type { Component } from "solid-js";
-import { Show, onCleanup, createSignal } from "solid-js";
+import { Show, For, onCleanup, createSignal } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { TbOutlineArrowLeft } from "solid-icons/tb";
 import { getAgent, setupAgentSubscription, registerAgentPlaceholder, fetchAgents, clearAuthError, hydrateAgentOutput } from "./agentStore";
@@ -122,6 +122,19 @@ const AgentDetailView: Component = () => {
             {/* Left — unified output + steering */}
             <div class={styles.leftPane}>
               <AgentChat agentId={a().id} status={a().status} />
+              <Show when={(a().fileDiffs?.length ?? 0) > 0}>
+                <div class={styles.diffPanel}>
+                  <div class={styles.diffPanelTitle}>Changed Files</div>
+                  <For each={a().fileDiffs ?? []}>
+                    {(diff) => (
+                      <details class={styles.diffFile}>
+                        <summary class={styles.diffFilePath}>{diff.path}</summary>
+                        <pre class={styles.diffContent}>{diff.unifiedDiff}</pre>
+                      </details>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </div>
 
             <div class={styles.divider} />

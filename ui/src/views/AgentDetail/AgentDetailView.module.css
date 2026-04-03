@@ -230,3 +230,41 @@
   font-size: 0.85rem;
   color: var(--text-muted);
 }
+
+/* File diff panel */
+.diffPanel {
+  border-top: 1px solid var(--chrome-border, #333);
+  padding: var(--spacing-md, 1rem);
+  overflow-y: auto;
+}
+
+.diffPanelTitle {
+  font-size: var(--font-size-sm, 0.75rem);
+  font-weight: 600;
+  color: var(--chrome-text-muted, #888);
+  margin-bottom: var(--spacing-sm, 0.5rem);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.diffFile {
+  margin-bottom: var(--spacing-sm, 0.5rem);
+}
+
+.diffFilePath {
+  font-size: var(--font-size-sm, 0.75rem);
+  cursor: pointer;
+  color: var(--chrome-text, #ccc);
+  padding: 0.25rem 0;
+}
+
+.diffContent {
+  font-size: 0.7rem;
+  font-family: var(--font-mono, monospace);
+  overflow-x: auto;
+  color: var(--chrome-text, #ccc);
+  background: var(--sidebar-bg, #111);
+  padding: var(--spacing-sm, 0.5rem);
+  border-radius: 4px;
+  white-space: pre;
+}
