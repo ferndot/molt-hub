@@ -87,10 +87,21 @@ pub async fn build_router(
     // Process supervisor
     let (event_tx, _event_rx) = tokio::sync::broadcast::channel::<AgentEvent>(256);
 
+    // ---- SQLite event store ------------------------------------------------
+    let event_store_state = init_event_store().await;
+
+    // Extract pool for agent persistence (shared with the event store DB).
+    let agent_pool: Option<sqlx::SqlitePool> = event_store_state
+        .as_ref()
+        .map(|es| es.store.pool().clone());
+
     // Agent output buffer (shared with broadcast layer)
     let output_buffer = shared_output_buffer();
-    let _agent_output_fanout =
-        spawn_agent_output_buffer_task(event_tx.subscribe(), Arc::clone(&output_buffer));
+    let _agent_output_fanout = spawn_agent_output_buffer_task(
+        event_tx.subscribe(),
+        Arc::clone(&output_buffer),
+        agent_pool.clone(),
+    );
 
     // Wire AgentEvent → WebSocket broadcasts
     {
@@ -159,9 +170,6 @@ pub async fn build_router(
         store: settings_store,
     });
 
-    // ---- SQLite event store ------------------------------------------------
-    let event_store_state = init_event_store().await;
-
     // Agent API state (constructed after event store so we can pass it in)
     let agent_state = Arc::new(AgentState {
         supervisor: Arc::clone(&supervisor),
@@ -170,6 +178,7 @@ pub async fn build_router(
         worktree_managers: Arc::new(WorktreeManagerCache::new()),
         worktree_registry: Arc::new(WorktreeRegistry::new()),
         event_store: event_store_state.as_ref().map(|es| Arc::clone(&es.store)),
+        pool: agent_pool.clone(),
     });
     if let Some(ref es) = event_store_state {
         maybe_seed_demo_data(&es.store).await;

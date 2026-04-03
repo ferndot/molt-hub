@@ -68,6 +68,42 @@ CREATE TABLE IF NOT EXISTS task_timeline (
 )";
 
 // ---------------------------------------------------------------------------
+// Agent output and steer message tables
+// ---------------------------------------------------------------------------
+
+/// Persistent ring buffer for agent terminal output lines.
+pub const CREATE_AGENT_OUTPUT_TABLE: &str = "
+CREATE TABLE IF NOT EXISTS agent_output (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id   TEXT NOT NULL,
+    task_id    TEXT,
+    project_id TEXT NOT NULL DEFAULT 'default',
+    timestamp  TEXT NOT NULL,
+    line       TEXT NOT NULL
+)";
+
+/// Index on `agent_id` for efficient per-agent output queries.
+pub const CREATE_IDX_AGENT_OUTPUT_AGENT_ID: &str = "
+CREATE INDEX IF NOT EXISTS idx_agent_output_agent_id ON agent_output (agent_id)";
+
+/// Persistent store for steering/chat messages sent to agents.
+pub const CREATE_STEER_MESSAGES_TABLE: &str = "
+CREATE TABLE IF NOT EXISTS steer_messages (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_id   TEXT NOT NULL,
+    task_id    TEXT,
+    project_id TEXT NOT NULL DEFAULT 'default',
+    timestamp  TEXT NOT NULL,
+    role       TEXT NOT NULL,
+    content    TEXT NOT NULL,
+    priority   TEXT
+)";
+
+/// Index on `agent_id` for efficient per-agent steer message queries.
+pub const CREATE_IDX_STEER_MESSAGES_AGENT_ID: &str = "
+CREATE INDEX IF NOT EXISTS idx_steer_messages_agent_id ON steer_messages (agent_id)";
+
+// ---------------------------------------------------------------------------
 // Schema version tracking
 // ---------------------------------------------------------------------------
 
@@ -118,6 +154,24 @@ pub async fn apply_migrations(conn: &mut sqlx::SqliteConnection) -> Result<(), s
                 .await?;
         }
         record_migration(conn, 1).await?;
+    }
+
+    // --- Migration 2: create agent_output and steer_messages tables ---
+    let already_applied = migration_applied(conn, 2).await?;
+    if !already_applied {
+        sqlx::query(CREATE_AGENT_OUTPUT_TABLE)
+            .execute(&mut *conn)
+            .await?;
+        sqlx::query(CREATE_IDX_AGENT_OUTPUT_AGENT_ID)
+            .execute(&mut *conn)
+            .await?;
+        sqlx::query(CREATE_STEER_MESSAGES_TABLE)
+            .execute(&mut *conn)
+            .await?;
+        sqlx::query(CREATE_IDX_STEER_MESSAGES_AGENT_ID)
+            .execute(&mut *conn)
+            .await?;
+        record_migration(conn, 2).await?;
     }
 
     Ok(())

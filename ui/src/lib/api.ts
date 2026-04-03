@@ -213,6 +213,8 @@ export const api = {
   // Steering
   steerAgent: (id: string, message: string, priority: "normal" | "urgent" = "normal") =>
     post<Record<string, unknown>>(`/agents/${id}/steer`, { message, priority }),
+  getSteerHistory: (agentId: string) =>
+    get<{ messages: SteerMessageRecord[] }>(`/agents/${encodeURIComponent(agentId)}/steer-history`),
 
   // Auth
   loginAgent: (adapterType = "claude") =>
@@ -382,4 +384,14 @@ export interface GitHubStatus {
   scope?: string;
   /** When the server has GitHub App slug + credentials configured. */
   app_install_url?: string;
+}
+
+/** A persisted steer message row from the backend DB. */
+export interface SteerMessageRecord {
+  id: number;
+  agent_id: string;
+  timestamp: string;
+  role: "human" | "agent";
+  content: string;
+  priority?: string;
 }

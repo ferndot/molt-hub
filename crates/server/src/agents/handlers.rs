@@ -8,6 +8,7 @@
 //!   POST /api/agents/:id/resume    — resume an agent
 //!   POST /api/agents/:id/steer     — send a steering message to an agent
 //!   GET  /api/agents/:id/output    — get buffered output lines
+//!   GET  /api/agents/:id/steer-history — get persisted steer messages
 //!   POST /api/agents/suggest-task-title — one-shot title via the configured harness (Claude CLI or CLI adapter)
 
 use axum::{
@@ -33,6 +34,7 @@ use molt_hub_harness::worktree::{validate_repo, WorktreeConfig, WorktreeManager}
 
 use crate::settings::typed_handlers::TypedSettingsState;
 
+use super::history_store;
 use super::output_buffer::AgentOutputBuffer;
 use super::worktree_registry::{WorktreeManagerCache, WorktreeRegistry};
 
@@ -51,6 +53,8 @@ pub struct AgentState {
     pub worktree_registry: Arc<WorktreeRegistry>,
     /// Optional event store for deriving virtual agent entries in demo mode.
     pub event_store: Option<Arc<molt_hub_core::events::SqliteEventStore>>,
+    /// Optional SQLite pool for persisting output lines and steer messages.
+    pub pool: Option<sqlx::SqlitePool>,
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +140,12 @@ pub struct SteerRequest {
 pub struct SteerResponse {
     pub delivered: bool,
     pub agent_id: String,
+}
+
+/// Response for GET /api/agents/:id/steer-history.
+#[derive(Debug, Clone, Serialize)]
+pub struct SteerHistoryResponse {
+    pub messages: Vec<history_store::SteerMessageRow>,
 }
 
 /// Request body for POST /api/agents/suggest-task-title.
@@ -656,17 +666,42 @@ async fn steer_agent(
         _ => SteerPriority::Normal,
     };
 
+    let priority_str = body.priority.clone();
     let steer_msg = SteerMessage {
-        message: body.message,
+        message: body.message.clone(),
         priority,
     };
 
     match state.supervisor.steer(&agent_id, steer_msg).await {
-        Ok(()) => Json(SteerResponse {
-            delivered: true,
-            agent_id: agent_id_str,
-        })
-        .into_response(),
+        Ok(()) => {
+            // Persist the human steer message to DB (fire-and-forget).
+            if let Some(ref pool) = state.pool {
+                let pool = pool.clone();
+                let aid = agent_id_str.clone();
+                let content = body.message.clone();
+                let prio = priority_str.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = history_store::insert_steer_message(
+                        &pool,
+                        &aid,
+                        None,
+                        "default",
+                        "human",
+                        &content,
+                        prio.as_deref(),
+                    )
+                    .await
+                    {
+                        tracing::debug!(error = %e, "failed to persist steer message");
+                    }
+                });
+            }
+            Json(SteerResponse {
+                delivered: true,
+                agent_id: agent_id_str,
+            })
+            .into_response()
+        }
         Err(SupervisorError::AgentNotFound(_)) => (
             StatusCode::NOT_FOUND,
             Json(MessageResponse {
@@ -692,25 +727,85 @@ async fn steer_agent(
 }
 
 /// GET /api/agents/:id/output — return buffered output lines for an agent.
+///
+/// If the in-memory buffer is empty (agent terminated or server restarted),
+/// falls back to querying the `agent_output` SQLite table.
 #[instrument(skip(state))]
 async fn get_agent_output(
     State(state): State<Arc<AgentState>>,
     Path(agent_id_str): Path<String>,
 ) -> impl IntoResponse {
     let lines = state.output_buffer.get_lines(&agent_id_str);
-    let count = lines.len();
+
+    if !lines.is_empty() {
+        let count = lines.len();
+        return Json(AgentOutputResponse {
+            agent_id: agent_id_str,
+            lines: lines
+                .into_iter()
+                .map(|l| OutputLineResponse {
+                    line: l.line,
+                    timestamp: l.timestamp.to_rfc3339(),
+                })
+                .collect(),
+            count,
+        })
+        .into_response();
+    }
+
+    // Buffer empty — try DB fallback.
+    if let Some(ref pool) = state.pool {
+        match history_store::get_output_lines(pool, &agent_id_str, None).await {
+            Ok(db_lines) => {
+                let count = db_lines.len();
+                return Json(AgentOutputResponse {
+                    agent_id: agent_id_str,
+                    lines: db_lines
+                        .into_iter()
+                        .map(|(ts, line)| OutputLineResponse {
+                            line,
+                            timestamp: ts.to_rfc3339(),
+                        })
+                        .collect(),
+                    count,
+                })
+                .into_response();
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to query agent_output from DB");
+            }
+        }
+    }
 
     Json(AgentOutputResponse {
         agent_id: agent_id_str,
-        lines: lines
-            .into_iter()
-            .map(|l| OutputLineResponse {
-                line: l.line,
-                timestamp: l.timestamp.to_rfc3339(),
-            })
-            .collect(),
-        count,
+        lines: vec![],
+        count: 0,
     })
+    .into_response()
+}
+
+/// GET /api/agents/:id/steer-history — return persisted steer messages for an agent.
+#[instrument(skip(state))]
+async fn get_steer_history(
+    State(state): State<Arc<AgentState>>,
+    Path(agent_id_str): Path<String>,
+) -> impl IntoResponse {
+    let Some(ref pool) = state.pool else {
+        return Json(SteerHistoryResponse { messages: vec![] }).into_response();
+    };
+
+    match history_store::get_steer_messages(pool, &agent_id_str).await {
+        Ok(messages) => Json(SteerHistoryResponse { messages }).into_response(),
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to query steer_messages from DB");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "failed to query steer history" })),
+            )
+                .into_response()
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -816,6 +911,7 @@ async fn login_agent(
 ///   POST /:id/resume        — resume an agent
 ///   POST /:id/steer         — send a steering message to an agent
 ///   GET  /:id/output        — get buffered output lines
+///   GET  /:id/steer-history — get persisted steer messages
 ///   POST /login              — run `<tool> login` for the configured harness
 pub fn agent_router(state: Arc<AgentState>) -> Router {
     Router::new()
@@ -828,6 +924,7 @@ pub fn agent_router(state: Arc<AgentState>) -> Router {
         .route("/:id/resume", post(resume_agent))
         .route("/:id/steer", post(steer_agent))
         .route("/:id/output", get(get_agent_output))
+        .route("/:id/steer-history", get(get_steer_history))
         .with_state(state)
 }
 
@@ -919,6 +1016,7 @@ mod tests {
             worktree_managers: Arc::new(WorktreeManagerCache::new()),
             worktree_registry: Arc::new(WorktreeRegistry::new()),
             event_store: None,
+            pool: None,
         })
     }
 
@@ -1050,6 +1148,7 @@ mod tests {
             worktree_managers: Arc::new(WorktreeManagerCache::new()),
             worktree_registry: Arc::new(WorktreeRegistry::new()),
             event_store: None,
+            pool: None,
         });
         let app = agent_router(state);
 
@@ -1143,6 +1242,7 @@ mod tests {
             worktree_managers: Arc::new(WorktreeManagerCache::new()),
             worktree_registry: Arc::new(WorktreeRegistry::new()),
             event_store: None,
+            pool: None,
         });
         let app = agent_router(state);
 

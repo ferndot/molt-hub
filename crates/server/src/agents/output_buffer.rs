@@ -15,6 +15,8 @@ use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tracing::debug;
 
+use super::history_store;
+
 /// Default capacity per agent (number of lines retained).
 const DEFAULT_CAPACITY: usize = 500;
 
@@ -94,11 +96,15 @@ pub fn shared_output_buffer() -> Arc<AgentOutputBuffer> {
 
 /// Subscribe to supervisor/agent [`AgentEvent`] stream and append `Output` lines to `buffer`.
 ///
+/// When `pool` is `Some`, each completed line is also persisted to the `agent_output` table
+/// via a fire-and-forget `tokio::spawn` so the write never blocks the streaming path.
+///
 /// Late subscribers miss prior messages; this task only needs live `Output` events for REST
 /// `GET /api/agents/:id/output`.
 pub fn spawn_agent_output_buffer_task(
     mut rx: broadcast::Receiver<AgentEvent>,
     buffer: Arc<AgentOutputBuffer>,
+    pool: Option<sqlx::SqlitePool>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
         let mut partial: std::collections::HashMap<String, String> = std::collections::HashMap::new();
@@ -115,7 +121,22 @@ pub fn spawn_agent_output_buffer_task(
                         let line = buf[..nl].to_string();
                         *buf = buf[nl + 1..].to_string();
                         if !line.is_empty() {
-                            buffer.push(&id, line);
+                            let ts = Utc::now();
+                            buffer.push(&id, line.clone());
+                            if let Some(ref p) = pool {
+                                let p = p.clone();
+                                let id2 = id.clone();
+                                let line2 = line.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = history_store::insert_output_line(
+                                        &p, &id2, None, "default", &line2, ts,
+                                    )
+                                    .await
+                                    {
+                                        debug!(error = %e, "failed to persist output line");
+                                    }
+                                });
+                            }
                         }
                     }
                 }
@@ -124,7 +145,21 @@ pub fn spawn_agent_output_buffer_task(
                     if let Some(buf) = partial.remove(&id) {
                         let trimmed = buf.trim_end_matches('\r').to_string();
                         if !trimmed.is_empty() {
-                            buffer.push(&id, trimmed);
+                            let ts = Utc::now();
+                            buffer.push(&id, trimmed.clone());
+                            if let Some(ref p) = pool {
+                                let p = p.clone();
+                                let id2 = id.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = history_store::insert_output_line(
+                                        &p, &id2, None, "default", &trimmed, ts,
+                                    )
+                                    .await
+                                    {
+                                        debug!(error = %e, "failed to persist output line (turn end)");
+                                    }
+                                });
+                            }
                         }
                     }
                 }

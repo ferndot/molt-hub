@@ -130,6 +130,37 @@ export function addAgentMessage(agentId: string, content: string): void {
   );
 }
 
+/**
+ * Hydrate steer message history from the backend DB.
+ *
+ * Only populates the store if there are no in-memory messages yet (i.e. a
+ * fresh page load / navigation back to an agent). If messages are already
+ * present from the current session we leave them as-is to avoid duplicates.
+ */
+export async function hydrateMessages(agentId: string): Promise<void> {
+  try {
+    const res = await api.getSteerHistory(agentId);
+    const rows = res.messages ?? [];
+    if (rows.length === 0) return;
+    setState(
+      produce((s) => {
+        // Only hydrate if no in-memory messages exist for this agent yet.
+        if (!s.messages[agentId] || s.messages[agentId].length === 0) {
+          s.messages[agentId] = rows.map((r) => ({
+            id: `steer-db-${r.id}`,
+            role: r.role as "human" | "agent",
+            content: r.content,
+            timestamp: r.timestamp,
+            priority: r.priority as SteerPriority | undefined,
+          }));
+        }
+      }),
+    );
+  } catch {
+    // Backend unavailable or no history — keep existing state.
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Selectors
 // ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ import { Show, onCleanup, createSignal } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { TbOutlineArrowLeft } from "solid-icons/tb";
 import { getAgent, setupAgentSubscription, registerAgentPlaceholder, fetchAgents, clearAuthError, hydrateAgentOutput } from "./agentStore";
+import { hydrateMessages } from "./steerStore";
 import { api } from "../../lib/api";
 import AgentChat from "../../components/AgentChat/AgentChat";
 import AgentMeta from "./AgentMeta";
@@ -49,6 +50,8 @@ const AgentDetailView: Component = () => {
   onCleanup(unsub);
   // Hydrate buffered output from the server
   void hydrateAgentOutput(params.id);
+  // Hydrate persisted steer messages from the server
+  void hydrateMessages(params.id);
 
   return (
     <Show
