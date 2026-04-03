@@ -22,8 +22,8 @@ import { sendMessage } from "../../views/AgentDetail/steerStore";
 import type { SteerPriority } from "../../views/AgentDetail/steerStore";
 import styles from "./AgentChat.module.css";
 
-// Configure marked for GitHub-flavored markdown
-marked.setOptions({ gfm: true, breaks: true });
+// Configure marked for GitHub-flavored markdown (gfm is the default in v5+)
+marked.use({ breaks: true });
 
 // ---------------------------------------------------------------------------
 // Tool call parsing
