@@ -790,6 +790,51 @@ async fn steer_agent(
     }
 }
 
+/// Request body for POST /api/agents/:id/approve.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ApproveRequest {
+    /// `true` to allow the pending tool call; `false` to reject it.
+    pub approved: bool,
+    /// Opaque request identifier from the `ToolApprovalRequired` event (informational only).
+    #[serde(default)]
+    pub request_id: Option<String>,
+}
+
+/// POST /api/agents/:id/approve — send an approval decision for a pending ACP tool call.
+#[instrument(skip(state, body))]
+async fn approve_agent_tool(
+    State(state): State<Arc<AgentState>>,
+    Path(agent_id_str): Path<String>,
+    Json(body): Json<ApproveRequest>,
+) -> impl IntoResponse {
+    let ulid = match ulid::Ulid::from_string(&agent_id_str) {
+        Ok(u) => u,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": format!("invalid agent ID: {agent_id_str}") })),
+            )
+                .into_response();
+        }
+    };
+
+    let agent_id = AgentId(ulid);
+
+    match state.supervisor.send_approval(&agent_id, body.approved).await {
+        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "ok": true }))).into_response(),
+        Err(SupervisorError::AgentNotFound(_)) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": format!("agent not found: {agent_id_str}") })),
+        )
+            .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": format!("approval failed: {e}") })),
+        )
+            .into_response(),
+    }
+}
+
 /// GET /api/agents/:id/output — return buffered output lines for an agent.
 ///
 /// If the in-memory buffer is empty (agent terminated or server restarted),
@@ -1114,6 +1159,7 @@ async fn respond_tool_approval(
 ///   POST /:id/pause         — pause an agent
 ///   POST /:id/resume        — resume an agent
 ///   POST /:id/steer         — send a steering message to an agent
+///   POST /:id/approve       — send approval/rejection for a pending tool call
 ///   GET  /:id/output        — get buffered output lines
 ///   GET  /:id/steer-history — get persisted steer messages
 ///   POST /login              — run `<tool> login` for the configured harness
@@ -1127,6 +1173,7 @@ pub fn agent_router(state: Arc<AgentState>) -> Router {
         .route("/:id/pause", post(pause_agent))
         .route("/:id/resume", post(resume_agent))
         .route("/:id/steer", post(steer_agent))
+        .route("/:id/approve", post(approve_agent_tool))
         .route("/:id/output", get(get_agent_output))
         .route("/:id/steer-history", get(get_steer_history))
         .route("/:id/history", get(get_agent_history))

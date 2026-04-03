@@ -219,6 +219,9 @@ pub enum AdapterError {
     #[error("operation timed out")]
     Timeout,
 
+    #[error("operation not supported by this adapter")]
+    Unsupported,
+
     #[error("internal adapter error: {0}")]
     Internal(#[from] Box<dyn std::error::Error + Send + Sync>),
 }
@@ -249,6 +252,19 @@ pub trait AgentAdapter: Send + Sync + 'static {
 
     /// A short identifier for this adapter implementation (e.g. `"claude-cli"`).
     fn adapter_type(&self) -> &str;
+
+    /// Send an approval decision to unblock a pending `request_permission` call.
+    ///
+    /// `approved = true` allows the tool call; `false` rejects it.
+    /// Adapters that do not support interactive approval return
+    /// [`AdapterError::Unsupported`].
+    async fn send_approval(
+        &self,
+        _handle: &AgentHandle,
+        _approved: bool,
+    ) -> Result<(), AdapterError> {
+        Err(AdapterError::Unsupported)
+    }
 }
 
 // ---------------------------------------------------------------------------

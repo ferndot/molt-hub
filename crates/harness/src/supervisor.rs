@@ -411,6 +411,27 @@ impl Supervisor {
         self.agents.len()
     }
 
+    /// Send an approval decision to unblock a pending ACP `request_permission` call.
+    ///
+    /// `approved = true` allows the tool; `false` rejects it.
+    pub async fn send_approval(
+        &self,
+        agent_id: &AgentId,
+        approved: bool,
+    ) -> Result<(), SupervisorError> {
+        let managed = self
+            .agents
+            .get(agent_id)
+            .ok_or_else(|| SupervisorError::AgentNotFound(agent_id.clone()))?;
+
+        managed
+            .adapter
+            .send_approval(&managed.handle, approved)
+            .await?;
+
+        Ok(())
+    }
+
     // -----------------------------------------------------------------------
     // Health monitor
     // -----------------------------------------------------------------------

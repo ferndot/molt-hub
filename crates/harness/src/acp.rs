@@ -994,6 +994,23 @@ impl AgentAdapter for AcpAdapter {
         // Same as terminate for ACP (no SIGKILL available without the child handle here).
         self.terminate(handle).await
     }
+
+    async fn send_approval(
+        &self,
+        handle: &AgentHandle,
+        approved: bool,
+    ) -> Result<(), AdapterError> {
+        let state = handle
+            .downcast_internal::<AcpInternal>()
+            .ok_or(AdapterError::AgentNotFound)?;
+
+        state
+            .approve_tx
+            .send(approved)
+            .map_err(|e| AdapterError::SendFailed(format!("approval channel closed: {e}")))?;
+
+        Ok(())
+    }
 }
 
 // ---------------------------------------------------------------------------
