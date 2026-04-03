@@ -3,11 +3,12 @@
  * with a glowing left-border accent and inline action buttons.
  */
 
-import { Show, type Component, type JSX } from "solid-js";
-import { useNavigate } from "@solidjs/router";
+import { Show, For, createMemo, type Component, type JSX } from "solid-js";
+import { useNavigate, A } from "@solidjs/router";
 import { TbOutlineCheck, TbOutlineX, TbOutlineArrowRight, TbOutlineClock } from "solid-icons/tb";
 import type { MissionControlItem } from "./missionControlStore";
 import { deleteTask } from "../Board/boardStore";
+import { useAgentDetailStore } from "../AgentDetail/agentStore";
 import styles from "./UnifiedCard.module.css";
 
 // ---------------------------------------------------------------------------
@@ -71,6 +72,14 @@ const priorityBadgeClass = (priority: string): string => {
   }
 };
 
+const agentChipColor = (status: string): string =>
+  ({
+    running: '#6366f1',
+    paused: '#f59e0b',
+    terminated: '#e63946',
+    idle: '#22c55e',
+  } as Record<string, string>)[status] ?? '#94a3b8';
+
 const attentionBorderClass = (priority: string): string => {
   switch (priority) {
     case "p1":
@@ -90,6 +99,10 @@ const attentionBorderClass = (priority: string): string => {
 
 const UnifiedCard: Component<UnifiedCardProps> = (props) => {
   const navigate = useNavigate();
+  const { state: agentState } = useAgentDetailStore();
+  const taskAgents = createMemo(() =>
+    agentState.agents.filter((a) => a.taskId === props.item.id),
+  );
 
   const cardClass = () => {
     const classes = [styles.card];
@@ -158,8 +171,32 @@ const UnifiedCard: Component<UnifiedCardProps> = (props) => {
         </button>
       </div>
 
+      {/* Agent chips — one per running agent, each links to the agent detail */}
+      <Show when={taskAgents().length > 0}>
+        <div class={styles.agentChips}>
+          <For each={taskAgents()}>
+            {(agent) => (
+              <A
+                href={`/agents/${agent.id}`}
+                class={styles.agentChip}
+                data-status={agent.status}
+                title={`${agent.name} — ${agent.status}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <span
+                  class={styles.agentChipDot}
+                  style={{ "background-color": agentChipColor(agent.status) } as JSX.CSSProperties}
+                  data-status={agent.status}
+                />
+                {agent.name}
+              </A>
+            )}
+          </For>
+        </div>
+      </Show>
+
       {/* Meta — stage chip omitted; column header already shows the stage */}
-      <Show when={props.item.agentName}>
+      <Show when={props.item.agentName && taskAgents().length === 0}>
         <div class={styles.meta}>
           <span class={styles.agentName}>{props.item.agentName}</span>
         </div>

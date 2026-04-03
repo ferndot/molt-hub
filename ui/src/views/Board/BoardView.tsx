@@ -3,7 +3,7 @@
  * focus filter, issue import, and column configuration.
  */
 
-import { For, Show, createEffect, createSignal, type Component } from "solid-js";
+import { For, Show, createEffect, createSignal, onMount, onCleanup, type Component } from "solid-js";
 import {
   TbOutlineFocus,
   TbOutlineEye,
@@ -16,6 +16,7 @@ import GitHubImport from "../Settings/GitHubImport";
 import JiraImport from "../Settings/JiraImport";
 import { settingsState } from "../Settings/settingsStore";
 import { api } from "../../lib/api";
+import { startAgentPolling } from "../AgentDetail/agentStore";
 import { boardState, getSortedStages } from "./boardStore";
 import ColumnEditor from "./ColumnEditor";
 import mcStyles from "../MissionControl/MissionControlView.module.css";
@@ -24,6 +25,11 @@ import styles from "./BoardView.module.css";
 const BoardView: Component = () => {
   const mc = useMissionControl();
   const [editorOpen, setEditorOpen] = createSignal(false);
+
+  onMount(() => {
+    const stop = startAgentPolling(5000);
+    onCleanup(stop);
+  });
   const [addIssueExpanded, setAddIssueExpanded] = createSignal(false);
   const [addIssueBody, setAddIssueBody] = createSignal("");
   const [addIssueError, setAddIssueError] = createSignal<string | null>(null);
