@@ -141,6 +141,22 @@ pub enum AgentEvent {
         agent_id: AgentId,
         timestamp: DateTime<Utc>,
     },
+    /// The agent initiated a tool call.
+    ToolCall {
+        agent_id: AgentId,
+        call_id: String,
+        tool_name: String,
+        input: serde_json::Value,
+        timestamp: DateTime<Utc>,
+    },
+    /// A tool call reached a terminal state (completed or failed).
+    ToolResult {
+        agent_id: AgentId,
+        call_id: String,
+        output: serde_json::Value,
+        is_error: bool,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 // ---------------------------------------------------------------------------
