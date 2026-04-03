@@ -583,6 +583,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
                 subtitle: Some(format!("Stage: {stage}")),
                 agent_name: None,
                 timestamp: notif_ts,
+                actions: None,
             }),
             DomainEvent::AgentCompleted { .. }
                 if matches!(new_state, TaskState::AwaitingApproval { .. }) =>
@@ -595,6 +596,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
                     subtitle: Some(format!("Stage: {stage}")),
                     agent_name: None,
                     timestamp: notif_ts,
+                    actions: None,
                 })
             }
             DomainEvent::AgentCompleted { summary, .. }
@@ -611,6 +613,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
                     subtitle: Some(format!("Stage: {stage}")),
                     agent_name: None,
                     timestamp: notif_ts,
+                    actions: None,
                 })
             }
             DomainEvent::TaskCompleted { outcome } => {
@@ -631,6 +634,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
                     subtitle: None,
                     agent_name: None,
                     timestamp: notif_ts,
+                    actions: None,
                 })
             }
             _ => None,

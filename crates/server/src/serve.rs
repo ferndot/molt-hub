@@ -41,7 +41,7 @@ use crate::runtime::{BoardRegistry, BoardRuntime, MultiBoardPipelineStore};
 use crate::settings::{typed_settings_router, SettingsFileStore, TypedSettingsState};
 use crate::system::pick_repo_folder;
 use crate::ws::{ws_handler, ConnectionManager};
-use crate::ws_broadcast::{broadcast_agent_error, broadcast_agent_output, broadcast_metrics, broadcast_notification, broadcast_tool_call, broadcast_tool_result, MetricsPayload, NotificationPayload};
+use crate::ws_broadcast::{broadcast_agent_error, broadcast_agent_output, broadcast_metrics, broadcast_notification, broadcast_tool_call, broadcast_tool_result, MetricsPayload, NotificationActionPayload, NotificationPayload};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -132,20 +132,67 @@ pub async fn build_router(
                                 broadcast_agent_output(&ws_fanout_manager, &id, buf.trim_end_matches('\r'));
                             }
                         }
-                        // Notify inbox when the agent ends a turn awaiting human input.
-                        // "tool_use" stop reason means it's mid-loop; skip those.
-                        let is_tool_loop = stop_reason.as_deref() == Some("tool_use");
-                        if !is_tool_loop {
+                        // Only notify for non-tool_use turns (tool_use turns are intermediate)
+                        if stop_reason.as_deref() != Some("tool_use") {
                             broadcast_notification(&ws_fanout_manager, &NotificationPayload {
-                                id: ulid::Ulid::new().to_string(),
+                                id: format!("turn-end-{id}-{}", chrono::Utc::now().timestamp_millis()),
                                 notif_type: "decision".into(),
                                 priority: "p1".into(),
                                 title: "Agent is awaiting your input".into(),
-                                subtitle: Some(format!("agent: {id}")),
+                                subtitle: Some(format!("Agent {id} finished a turn")),
                                 agent_name: Some(id.clone()),
                                 timestamp: chrono::Utc::now().to_rfc3339(),
+                                actions: Some(vec![NotificationActionPayload {
+                                    label: "View Agent".into(),
+                                    kind: "view".into(),
+                                    handler: format!("navigate:/agents/{id}"),
+                                }]),
                             });
                         }
+                    }
+                    Ok(AgentEvent::Completed { ref agent_id, .. }) => {
+                        let agent_id = agent_id.to_string();
+                        broadcast_notification(&ws_fanout_manager, &NotificationPayload {
+                            id: format!("completed-{agent_id}-{}", chrono::Utc::now().timestamp_millis()),
+                            notif_type: "agent_update".into(),
+                            priority: "p2".into(),
+                            title: "Agent completed".into(),
+                            subtitle: Some(format!("Agent {agent_id} finished successfully")),
+                            agent_name: Some(agent_id.clone()),
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                            actions: Some(vec![NotificationActionPayload {
+                                label: "View Agent".into(),
+                                kind: "view".into(),
+                                handler: format!("navigate:/agents/{agent_id}"),
+                            }]),
+                        });
+                    }
+                    Ok(AgentEvent::ToolApprovalRequired { ref agent_id, ref tool_name, ref request_id, ref options, .. }) => {
+                        let agent_id = agent_id.to_string();
+                        let actions = if options.is_empty() {
+                            vec![
+                                NotificationActionPayload { label: "Approve".into(), kind: "approve".into(), handler: format!("approve:{request_id}:{agent_id}") },
+                                NotificationActionPayload { label: "Deny".into(), kind: "reject".into(), handler: format!("reject:{request_id}:{agent_id}") },
+                            ]
+                        } else {
+                            options.iter().map(|opt| {
+                                if opt.contains("Deny") {
+                                    NotificationActionPayload { label: opt.clone(), kind: "reject".into(), handler: format!("reject:{request_id}:{agent_id}") }
+                                } else {
+                                    NotificationActionPayload { label: opt.clone(), kind: "approve".into(), handler: format!("approve:{request_id}:{agent_id}:{opt}") }
+                                }
+                            }).collect()
+                        };
+                        broadcast_notification(&ws_fanout_manager, &NotificationPayload {
+                            id: format!("approval-{request_id}"),
+                            notif_type: "decision".into(),
+                            priority: "p0".into(),
+                            title: format!("Tool approval required: {tool_name}"),
+                            subtitle: Some(format!("Agent {agent_id} wants to use {tool_name}")),
+                            agent_name: Some(agent_id.clone()),
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                            actions: Some(actions),
+                        });
                     }
                     Ok(AgentEvent::Error { agent_id, message, .. }) => {
                         let id = agent_id.to_string();
@@ -166,28 +213,6 @@ pub async fn build_router(
                     Ok(AgentEvent::ToolResult { agent_id, call_id, output, is_error, timestamp }) => {
                         let id = agent_id.to_string();
                         broadcast_tool_result(&ws_fanout_manager, &id, &call_id, output, is_error, &timestamp.to_rfc3339());
-                    }
-                    Ok(AgentEvent::Completed { ref agent_id, .. }) => {
-                        broadcast_notification(&ws_fanout_manager, &NotificationPayload {
-                            id: ulid::Ulid::new().to_string(),
-                            notif_type: "agent_update".into(),
-                            priority: "p2".into(),
-                            title: "Agent completed".into(),
-                            subtitle: Some(format!("agent: {}", agent_id)),
-                            agent_name: Some(agent_id.to_string()),
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                        });
-                    }
-                    Ok(AgentEvent::ToolApprovalRequired { ref agent_id, ref tool_name, .. }) => {
-                        broadcast_notification(&ws_fanout_manager, &NotificationPayload {
-                            id: ulid::Ulid::new().to_string(),
-                            notif_type: "decision".into(),
-                            priority: "p0".into(),
-                            title: format!("Approval required: {tool_name}"),
-                            subtitle: Some(format!("agent: {}", agent_id)),
-                            agent_name: Some(agent_id.to_string()),
-                            timestamp: chrono::Utc::now().to_rfc3339(),
-                        });
                     }
                     Ok(_) => {}
                     Err(broadcast::error::RecvError::Lagged(n)) => {

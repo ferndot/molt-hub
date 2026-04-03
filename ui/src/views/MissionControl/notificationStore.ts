@@ -7,6 +7,37 @@ import { createSignal, createMemo } from "solid-js";
 import { subscribe } from "../../lib/ws";
 
 // ---------------------------------------------------------------------------
+// Tauri native push — only active when running inside the desktop app.
+// Gracefully no-ops in browser/dev mode.
+// ---------------------------------------------------------------------------
+
+let _nativePushReady = false;
+
+export async function initNativePush(): Promise<void> {
+  try {
+    const { isPermissionGranted, requestPermission } = await import("@tauri-apps/plugin-notification");
+    let granted = await isPermissionGranted();
+    if (!granted) {
+      const permission = await requestPermission();
+      granted = permission === "granted";
+    }
+    _nativePushReady = granted;
+  } catch {
+    // Not running in Tauri desktop — silently skip
+  }
+}
+
+async function sendNativePush(title: string, body: string): Promise<void> {
+  if (!_nativePushReady) return;
+  try {
+    const { sendNotification } = await import("@tauri-apps/plugin-notification");
+    sendNotification({ title, body });
+  } catch {
+    // ignore
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -161,14 +192,29 @@ function dismissNotification(id: string): void {
   saveSet(NOTIF_READ_KEY, _readIds);
 }
 
+// ---------------------------------------------------------------------------
+// Navigate singleton — set by AppLayout via registerNavigate()
+// ---------------------------------------------------------------------------
+
+let _navigateFn: ((path: string) => void) | null = null;
+
+export function registerNavigate(fn: (path: string) => void): void {
+  _navigateFn = fn;
+}
+
 function handleAction(notifId: string, action: NotificationAction): void {
   // Mark as read on any action
   markRead(notifId);
   if (action.kind === "dismiss") {
     dismissNotification(notifId);
+    return;
   }
-  // In a real app, dispatch to the appropriate handler via the action.handler string
-  // For now this is a no-op beyond marking read
+  if (action.handler.startsWith("navigate:")) {
+    const path = action.handler.slice("navigate:".length);
+    _navigateFn?.(path);
+    return;
+  }
+  // approve/reject handlers: wiring to approval API is a separate task
 }
 
 function addNotification(notif: Notification): void {
@@ -176,6 +222,10 @@ function addNotification(notif: Notification): void {
   setNewNotifId(notif.id);
   // Clear the pulse animation marker after the animation completes
   setTimeout(() => setNewNotifId(null), 600);
+  // Native push for high-priority notifications
+  if (notif.priority === "p0" || notif.priority === "p1") {
+    void sendNativePush(notif.title, notif.subtitle ?? "");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -294,6 +344,7 @@ export {
   handleAction,
   addNotification,
   connectNotificationsWs,
+  registerNavigate,
 };
 
 export type { FilterTab as NotificationFilterTab };

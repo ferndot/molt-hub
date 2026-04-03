@@ -154,6 +154,7 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_single_instance::init(|_app, _argv, _cwd| {
             tracing::info!("single-instance handoff (e.g. second open or deep link on Windows/Linux)");
         }))

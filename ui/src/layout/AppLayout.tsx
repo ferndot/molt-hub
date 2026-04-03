@@ -1,8 +1,9 @@
 import type { ParentComponent } from "solid-js";
 import { createSignal, onMount, onCleanup } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import { useWebSocket, connect, disconnect } from "../lib/ws";
 import { useMissionControl } from "../views/MissionControl/missionControlStore";
-import { connectNotificationsWs, initNotificationsFromTriage } from "../views/MissionControl/notificationStore";
+import { connectNotificationsWs, initNotificationsFromTriage, initNativePush, registerNavigate } from "../views/MissionControl/notificationStore";
 import { unreadCount, setP0Count, setP1Count } from "./attentionStore";
 import { initAgents } from "./agentListUtils";
 import Sidebar from "./Sidebar";
@@ -38,8 +39,11 @@ const AppLayout: ParentComponent = (props) => {
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false);
   const [inboxOpen, setInboxOpen] = createSignal(false);
   const mc = useMissionControl();
+  const navigate = useNavigate();
 
   onMount(() => {
+    registerNavigate(navigate);
+    void initNativePush();
     connect("/ws");
     void initAgents();
     void initMetrics();

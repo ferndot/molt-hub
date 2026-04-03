@@ -371,29 +371,21 @@ pub fn broadcast_tool_result(
 }
 
 // ---------------------------------------------------------------------------
-// Settings events
-// ---------------------------------------------------------------------------
-
-/// Broadcast a settings change notification so other connected clients can
-/// refresh their local copy.
-pub fn broadcast_settings_changed(manager: &Arc<ConnectionManager>) {
-    broadcast_json(
-        manager,
-        "settings:changed",
-        &serde_json::json!({ "action": "updated" }),
-    );
-}
-
-// ---------------------------------------------------------------------------
 // Notification events
 // ---------------------------------------------------------------------------
 
-/// Payload for a notification pushed to `notification:*`.
-///
-/// Wire format matches the frontend `Notification` interface:
-/// ```json
-/// {"id": "...", "type": "decision", "priority": "p0", "title": "...", "timestamp": "..."}
-/// ```
+/// An action the user can take directly from a notification.
+#[derive(Debug, Serialize)]
+pub struct NotificationActionPayload {
+    pub label: String,
+    /// One of: "approve" | "reject" | "view" | "acknowledge" | "dismiss"
+    pub kind: String,
+    /// Opaque handler string the frontend dispatches (e.g. "navigate:/agents/abc",
+    /// "approve:{request_id}:{agent_id}:{option}", "reject:{request_id}:{agent_id}").
+    pub handler: String,
+}
+
+/// Payload for a notification pushed to the `notification:*` WebSocket topic.
 #[derive(Debug, Serialize)]
 pub struct NotificationPayload {
     pub id: String,
@@ -406,11 +398,27 @@ pub struct NotificationPayload {
     #[serde(rename = "agentName", skip_serializing_if = "Option::is_none")]
     pub agent_name: Option<String>,
     pub timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actions: Option<Vec<NotificationActionPayload>>,
 }
 
-/// Broadcast a notification to clients subscribed to the `notification:*` topic.
+/// Broadcast a notification to all clients subscribed to `notification:*`.
 pub fn broadcast_notification(manager: &ConnectionManager, payload: &NotificationPayload) {
     broadcast_json(manager, "notification:*", payload);
+}
+
+// ---------------------------------------------------------------------------
+// Settings events
+// ---------------------------------------------------------------------------
+
+/// Broadcast a settings change notification so other connected clients can
+/// refresh their local copy.
+pub fn broadcast_settings_changed(manager: &Arc<ConnectionManager>) {
+    broadcast_json(
+        manager,
+        "settings:changed",
+        &serde_json::json!({ "action": "updated" }),
+    );
 }
 
 // ---------------------------------------------------------------------------

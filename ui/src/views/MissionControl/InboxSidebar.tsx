@@ -5,6 +5,7 @@
  */
 
 import { For, Show, Switch, Match, createSignal, createMemo, type Component } from "solid-js";
+import { useNavigate } from "@solidjs/router";
 import {
   TbOutlineCheck,
   TbOutlineX,
@@ -151,6 +152,7 @@ const ActionButton: Component<{
 
 const NotificationItem: Component<{ notif: Notification }> = (props) => {
   const isNew = createMemo(() => newNotifId() === props.notif.id);
+  const navigate = useNavigate();
 
   return (
     <div
@@ -159,7 +161,12 @@ const NotificationItem: Component<{ notif: Notification }> = (props) => {
         [styles.unread]: !props.notif.read,
         [styles.notifPulse]: isNew(),
       }}
-      onClick={() => markRead(props.notif.id)}
+      onClick={() => {
+        markRead(props.notif.id);
+        if (props.notif.agentName) {
+          navigate(`/agents/${props.notif.agentName}`);
+        }
+      }}
       role="listitem"
       data-notif-id={props.notif.id}
     >

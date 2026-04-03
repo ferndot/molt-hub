@@ -15,6 +15,7 @@
     "core:event:default",
     "deep-link:default",
     "dialog:default",
+    "notification:default",
     "opener:default"
   ]
 }
