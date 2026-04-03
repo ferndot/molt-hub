@@ -16,7 +16,7 @@
     "@tanstack/solid-virtual": "^3.10.0",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-dialog": "^2.2.0",
-    "@tauri-apps/plugin-notification": "^2.0.0",
+    "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-opener": "^2.5.3",
     "@zed-industries/claude-agent-acp": "latest",
     "dompurify": "^3.3.3",
