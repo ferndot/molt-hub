@@ -162,6 +162,7 @@ impl<S: EventStore + 'static> ImportService<S> {
             payload: DomainEvent::AgentOutput {
                 agent_id: molt_hub_core::model::AgentId::new(),
                 output: format!("Imported from Jira: {}", import_note),
+                turn_id: None,
             },
         };
 

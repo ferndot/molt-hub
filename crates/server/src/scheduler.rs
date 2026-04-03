@@ -645,6 +645,7 @@ mod tests {
                     event: DomainEvent::AgentOutput {
                         agent_id: molt_hub_core::model::AgentId::new(),
                         output: "hello from scheduler".into(),
+                        turn_id: None,
                     },
                 },
                 Instant::now() + Duration::from_millis(80),
@@ -687,6 +688,7 @@ mod tests {
                     event: DomainEvent::AgentOutput {
                         agent_id: molt_hub_core::model::AgentId::new(),
                         output: "should not fire".into(),
+                        turn_id: None,
                     },
                 },
                 Instant::now() + Duration::from_millis(200),
@@ -745,6 +747,7 @@ mod tests {
                         event: DomainEvent::AgentOutput {
                             agent_id: molt_hub_core::model::AgentId::new(),
                             output: format!("job-{i}"),
+                            turn_id: None,
                         },
                     },
                     now + delay,

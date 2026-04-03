@@ -30,6 +30,7 @@ axum = { version = "0.7", features = ["ws"] }
 
 # IDs
 ulid = { version = "1", features = ["serde"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 
 # Error handling
 thiserror = "2"

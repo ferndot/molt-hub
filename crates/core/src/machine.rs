@@ -505,6 +505,7 @@ mod tests {
         let event = DomainEvent::AgentOutput {
             agent_id: AgentId::new(),
             output: "some log line".into(),
+            turn_id: None,
         };
         let result = m.apply(&event).unwrap();
         assert_eq!(result, TaskState::InProgress);
