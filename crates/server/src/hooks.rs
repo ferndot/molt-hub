@@ -428,6 +428,7 @@ impl HookExecutor {
             timeout: Some(Duration::from_secs(timeout_secs)),
             adapter_config,
             project_id: None,
+            name: None,
             event_tx: None,
         };
 

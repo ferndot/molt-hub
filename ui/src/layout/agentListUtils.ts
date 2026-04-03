@@ -67,7 +67,7 @@ export function mapApiAgent(a: AgentSummary): Agent {
   return {
     id: a.agent_id,
     taskId: a.task_id,
-    name: `Agent ${a.agent_id.slice(-4)}`,
+    name: a.name || a.agent_id.slice(0, 8),
     status: mapApiStatus(a.status),
     stage: mapApiStatus(a.status) === "running" ? "in-progress" : a.status.toLowerCase(),
   };

@@ -369,6 +369,7 @@ export interface BoardTaskItem {
 
 export interface AgentSummary {
   agent_id: string;
+  name: string;
   task_id: string;
   status: string;
 }

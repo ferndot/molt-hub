@@ -103,6 +103,8 @@ pub struct ManagedAgent {
     pub last_health_check: DateTime<Utc>,
     /// Optional project this agent belongs to. `None` means the global / default context.
     pub project_id: Option<String>,
+    /// Human-readable name for this agent.
+    pub name: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -153,6 +155,7 @@ impl Supervisor {
         let agent_id = spawn_config.agent_id.clone();
         let task_id = spawn_config.task_id.clone();
         let project_id = spawn_config.project_id.clone();
+        let name = spawn_config.name.clone();
 
         info!(
             agent_id = %agent_id,
@@ -171,6 +174,7 @@ impl Supervisor {
             started_at: now,
             last_health_check: now,
             project_id,
+            name,
         };
 
         self.agents.insert(agent_id.clone(), managed);
@@ -340,13 +344,14 @@ impl Supervisor {
         managed.adapter.status(&managed.handle).await.ok()
     }
 
-    /// Return a snapshot of all active agents: `(AgentId, TaskId, AgentStatus)`.
-    pub async fn list_agents(&self) -> Vec<(AgentId, TaskId, AgentStatus)> {
+    /// Return a snapshot of all active agents: `(AgentId, TaskId, AgentStatus, Option<String>)`.
+    pub async fn list_agents(&self) -> Vec<(AgentId, TaskId, AgentStatus, Option<String>)> {
         let mut result = Vec::with_capacity(self.agents.len());
 
         for entry in self.agents.iter() {
             let agent_id = entry.key().clone();
             let task_id = entry.value().task_id.clone();
+            let name = entry.value().name.clone();
             let status = entry
                 .value()
                 .adapter
@@ -355,23 +360,24 @@ impl Supervisor {
                 .unwrap_or(AgentStatus::Crashed {
                     error: "status unavailable".into(),
                 });
-            result.push((agent_id, task_id, status));
+            result.push((agent_id, task_id, status, name));
         }
 
         result
     }
 
-    /// Return a snapshot of all active agents with their project IDs:
-    /// `(AgentId, TaskId, AgentStatus, Option<String>)`.
+    /// Return a snapshot of all active agents with their project IDs and names:
+    /// `(AgentId, TaskId, AgentStatus, Option<String> project_id, Option<String> name)`.
     pub async fn list_agents_with_project(
         &self,
-    ) -> Vec<(AgentId, TaskId, AgentStatus, Option<String>)> {
+    ) -> Vec<(AgentId, TaskId, AgentStatus, Option<String>, Option<String>)> {
         let mut result = Vec::with_capacity(self.agents.len());
 
         for entry in self.agents.iter() {
             let agent_id = entry.key().clone();
             let task_id = entry.value().task_id.clone();
             let project_id = entry.value().project_id.clone();
+            let name = entry.value().name.clone();
             let status = entry
                 .value()
                 .adapter
@@ -380,7 +386,7 @@ impl Supervisor {
                 .unwrap_or(AgentStatus::Crashed {
                     error: "status unavailable".into(),
                 });
-            result.push((agent_id, task_id, status, project_id));
+            result.push((agent_id, task_id, status, project_id, name));
         }
 
         result
@@ -599,6 +605,7 @@ mod tests {
             timeout: None,
             adapter_config: serde_json::Value::Null,
             project_id: None,
+            name: None,
             event_tx: None,
         }
     }
@@ -709,13 +716,13 @@ mod tests {
         let list = sup.list_agents().await;
         assert_eq!(list.len(), 2);
 
-        let find = |id: &AgentId| list.iter().find(|(a, _, _)| a == id).cloned();
+        let find = |id: &AgentId| list.iter().find(|(a, _, _, _)| a == id).cloned();
 
-        let (_, t1, s1) = find(&id1).expect("agent 1 not in list");
+        let (_, t1, s1, _) = find(&id1).expect("agent 1 not in list");
         assert_eq!(t1, task1);
         assert_eq!(s1, AgentStatus::Running);
 
-        let (_, t2, s2) = find(&id2).expect("agent 2 not in list");
+        let (_, t2, s2, _) = find(&id2).expect("agent 2 not in list");
         assert_eq!(t2, task2);
         assert_eq!(s2, AgentStatus::Running);
     }

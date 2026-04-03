@@ -66,6 +66,7 @@ pub struct AgentState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentResponse {
     pub agent_id: String,
+    pub name: String,
     pub task_id: String,
     pub status: String,
 }
@@ -107,6 +108,9 @@ pub struct AgentHistoryResponse {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SpawnRequest {
+    /// Human-readable name for this agent. Falls back to agent ID prefix if absent.
+    #[serde(default)]
+    pub name: Option<String>,
     /// Task instructions for the agent.
     pub instructions: String,
     /// Working directory for the agent process.
@@ -441,6 +445,7 @@ async fn spawn_agent(
             cfg
         },
         project_id: None,
+        name: body.name,
         event_tx: None, // supervisor injects the global channel
     };
 
@@ -488,10 +493,15 @@ async fn list_agents(State(state): State<Arc<AgentState>>) -> impl IntoResponse 
     let mut responses: Vec<AgentResponse> = state.supervisor.list_agents()
         .await
         .into_iter()
-        .map(|(agent_id, task_id, status)| AgentResponse {
-            agent_id: agent_id.to_string(),
-            task_id: task_id.to_string(),
-            status: format!("{:?}", status),
+        .map(|(agent_id, task_id, status, name)| {
+            let id_str = agent_id.to_string();
+            let resolved_name = name.unwrap_or_else(|| id_str[..id_str.len().min(8)].to_owned());
+            AgentResponse {
+                agent_id: id_str,
+                name: resolved_name,
+                task_id: task_id.to_string(),
+                status: format!("{:?}", status),
+            }
         })
         .collect();
 
@@ -550,12 +560,14 @@ async fn list_agents(State(state): State<Arc<AgentState>>) -> impl IntoResponse 
 
                     if stage == "in-progress" && !is_completed {
                         responses.push(AgentResponse {
+                            name: agent_id[..agent_id.len().min(8)].to_owned(),
                             agent_id: agent_id.clone(),
                             task_id: task_id.clone(),
                             status: "Running".to_owned(),
                         });
                     } else if is_completed && recent {
                         responses.push(AgentResponse {
+                            name: agent_id[..agent_id.len().min(8)].to_owned(),
                             agent_id: agent_id.clone(),
                             task_id: task_id.clone(),
                             status: "Completed".to_owned(),

@@ -25,19 +25,32 @@ describe("agentListUtils API integration", () => {
       const { mapApiAgent } = await import("../agentListUtils");
       const result = mapApiAgent({
         agent_id: "01HZBB0001ABCDEF12345678",
+        name: "test-agent",
         task_id: "task-001",
         status: "Running",
       });
       expect(result.id).toBe("01HZBB0001ABCDEF12345678");
       expect(result.status).toBe("running");
-      expect(result.stage).toBe("Running");
-      expect(result.name).toBe("01HZBB00"); // first 8 chars
+      expect(result.stage).toBe("in-progress");
+      expect(result.name).toBe("test-agent");
+    });
+
+    it("falls back to agent_id prefix when name is empty", async () => {
+      const { mapApiAgent } = await import("../agentListUtils");
+      const result = mapApiAgent({
+        agent_id: "01HZBB0001ABCDEF12345678",
+        name: "",
+        task_id: "task-001",
+        status: "Running",
+      });
+      expect(result.name).toBe("01HZBB00");
     });
 
     it("maps unknown status to idle", async () => {
       const { mapApiAgent } = await import("../agentListUtils");
       const result = mapApiAgent({
         agent_id: "abc12345",
+        name: "agent-abc",
         task_id: "t1",
         status: "SomeNewStatus",
       });
@@ -48,6 +61,7 @@ describe("agentListUtils API integration", () => {
       const { mapApiAgent } = await import("../agentListUtils");
       const result = mapApiAgent({
         agent_id: "abc12345",
+        name: "agent-abc",
         task_id: "t1",
         status: "Waiting",
       });
@@ -58,6 +72,7 @@ describe("agentListUtils API integration", () => {
       const { mapApiAgent } = await import("../agentListUtils");
       const result = mapApiAgent({
         agent_id: "abc12345",
+        name: "agent-abc",
         task_id: "t1",
         status: "Failed",
       });
@@ -68,6 +83,7 @@ describe("agentListUtils API integration", () => {
       const { mapApiAgent } = await import("../agentListUtils");
       const result = mapApiAgent({
         agent_id: "abc12345",
+        name: "agent-abc",
         task_id: "t1",
         status: "Stopped",
       });
@@ -82,8 +98,8 @@ describe("agentListUtils API integration", () => {
   describe("fetchAgents", () => {
     it("returns mapped agents on success", async () => {
       const agents = [
-        { agent_id: "a1", task_id: "t1", status: "Running" },
-        { agent_id: "a2", task_id: "t2", status: "Idle" },
+        { agent_id: "a1", name: "agent-a1", task_id: "t1", status: "Running" },
+        { agent_id: "a2", name: "agent-a2", task_id: "t2", status: "Idle" },
       ];
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -137,7 +153,7 @@ describe("agentListUtils API integration", () => {
   describe("initAgents", () => {
     it("populates the reactive store with API agents", async () => {
       const apiAgents = [
-        { agent_id: "live-a1", task_id: "t1", status: "Running" },
+        { agent_id: "live-a1", name: "live-agent-1", task_id: "t1", status: "Running" },
       ];
       mockFetch.mockResolvedValueOnce({
         ok: true,
@@ -173,8 +189,8 @@ describe("agentListUtils API integration", () => {
   describe("refreshAgents", () => {
     it("updates agents when API returns data", async () => {
       const apiAgents = [
-        { agent_id: "refresh-a1", task_id: "t1", status: "Running" },
-        { agent_id: "refresh-a2", task_id: "t2", status: "Terminated" },
+        { agent_id: "refresh-a1", name: "refresh-agent-1", task_id: "t1", status: "Running" },
+        { agent_id: "refresh-a2", name: "refresh-agent-2", task_id: "t2", status: "Terminated" },
       ];
       mockFetch.mockResolvedValueOnce({
         ok: true,

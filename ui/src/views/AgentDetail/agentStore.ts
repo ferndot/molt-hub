@@ -180,7 +180,7 @@ function coalesceOrAddToTimeline(
 function mapApiAgent(a: AgentSummary): AgentDetail {
   return {
     id: a.agent_id,
-    name: a.agent_id.slice(0, 8),
+    name: a.name || a.agent_id.slice(0, 8),
     taskId: a.task_id ?? "",
     taskName: a.task_id ?? "",
     taskDescription: "",
