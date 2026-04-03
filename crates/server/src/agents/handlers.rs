@@ -85,6 +85,24 @@ pub struct SpawnResponse {
     pub message: String,
 }
 
+/// A single entry in an agent's conversation history.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryEntry {
+    pub turn_id: Option<String>,
+    pub role: String,
+    pub content: String,
+    pub timestamp: String,
+}
+
+/// Response for GET /api/agents/:id/history.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentHistoryResponse {
+    pub agent_id: String,
+    pub entries: Vec<HistoryEntry>,
+}
+
 /// Request body for POST /api/agents/spawn.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -916,6 +934,74 @@ async fn login_agent(
 }
 
 // ---------------------------------------------------------------------------
+// History
+// ---------------------------------------------------------------------------
+
+/// GET /api/agents/:id/history — return persisted conversation history from the event store.
+#[instrument(skip(state))]
+async fn get_agent_history(
+    State(state): State<Arc<AgentState>>,
+    Path(agent_id_str): Path<String>,
+) -> impl IntoResponse {
+    let Some(ref store) = state.event_store else {
+        return Json(AgentHistoryResponse {
+            agent_id: agent_id_str,
+            entries: vec![],
+        })
+        .into_response();
+    };
+
+    let since = chrono::DateTime::<chrono::Utc>::MIN_UTC;
+    let events = match store.get_events_since(since).await {
+        Ok(e) => e,
+        Err(_) => {
+            return Json(AgentHistoryResponse {
+                agent_id: agent_id_str,
+                entries: vec![],
+            })
+            .into_response()
+        }
+    };
+
+    let mut entries = Vec::new();
+    for env in events {
+        match &env.payload {
+            molt_hub_core::events::types::DomainEvent::AgentOutput {
+                agent_id,
+                output,
+                turn_id,
+            } if agent_id.to_string() == agent_id_str => {
+                entries.push(HistoryEntry {
+                    turn_id: turn_id.map(|t| t.to_string()),
+                    role: "agent".to_string(),
+                    content: output.clone(),
+                    timestamp: env.timestamp.to_rfc3339(),
+                });
+            }
+            molt_hub_core::events::types::DomainEvent::HumanInput {
+                agent_id,
+                content,
+                turn_id,
+            } if agent_id.to_string() == agent_id_str => {
+                entries.push(HistoryEntry {
+                    turn_id: turn_id.clone(),
+                    role: "human".to_string(),
+                    content: content.clone(),
+                    timestamp: env.timestamp.to_rfc3339(),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    Json(AgentHistoryResponse {
+        agent_id: agent_id_str,
+        entries,
+    })
+    .into_response()
+}
+
+// ---------------------------------------------------------------------------
 // Router
 // ---------------------------------------------------------------------------
 
@@ -944,6 +1030,7 @@ pub fn agent_router(state: Arc<AgentState>) -> Router {
         .route("/:id/steer", post(steer_agent))
         .route("/:id/output", get(get_agent_output))
         .route("/:id/steer-history", get(get_steer_history))
+        .route("/:id/history", get(get_agent_history))
         .with_state(state)
 }
 
