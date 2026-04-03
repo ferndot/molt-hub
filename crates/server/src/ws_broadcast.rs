@@ -385,6 +385,35 @@ pub fn broadcast_settings_changed(manager: &Arc<ConnectionManager>) {
 }
 
 // ---------------------------------------------------------------------------
+// Notification events
+// ---------------------------------------------------------------------------
+
+/// Payload for a notification pushed to `notification:*`.
+///
+/// Wire format matches the frontend `Notification` interface:
+/// ```json
+/// {"id": "...", "type": "decision", "priority": "p0", "title": "...", "timestamp": "..."}
+/// ```
+#[derive(Debug, Serialize)]
+pub struct NotificationPayload {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub notif_type: String,
+    pub priority: String,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    #[serde(rename = "agentName", skip_serializing_if = "Option::is_none")]
+    pub agent_name: Option<String>,
+    pub timestamp: String,
+}
+
+/// Broadcast a notification to clients subscribed to the `notification:*` topic.
+pub fn broadcast_notification(manager: &ConnectionManager, payload: &NotificationPayload) {
+    broadcast_json(manager, "notification:*", payload);
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

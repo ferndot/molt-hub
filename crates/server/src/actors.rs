@@ -29,8 +29,8 @@ use molt_hub_core::model::{AgentId, SessionId, TaskId, TaskState};
 use crate::hooks::{HookContext, HookExecutor, HookExecutorError};
 use crate::ws::ConnectionManager;
 use crate::ws_broadcast::{
-    broadcast_agent_output, broadcast_board_update, broadcast_hook_fired, broadcast_triage_new,
-    broadcast_triage_resolved, TriageItemPayload,
+    broadcast_agent_output, broadcast_board_update, broadcast_hook_fired, broadcast_notification,
+    broadcast_triage_new, broadcast_triage_resolved, NotificationPayload, TriageItemPayload,
 };
 
 // ---------------------------------------------------------------------------
@@ -570,6 +570,73 @@ impl<S: EventStore + 'static> TaskActor<S> {
             }
 
             _ => {}
+        }
+
+        // Notification broadcasts — real-time inbox updates.
+        let notif_ts = chrono::Utc::now().to_rfc3339();
+        let notif: Option<NotificationPayload> = match event {
+            DomainEvent::TaskBlocked { reason } => Some(NotificationPayload {
+                id: ulid::Ulid::new().to_string(),
+                notif_type: "decision".into(),
+                priority: "p0".into(),
+                title: format!("Task blocked: {reason}"),
+                subtitle: Some(format!("Stage: {stage}")),
+                agent_name: None,
+                timestamp: notif_ts,
+            }),
+            DomainEvent::AgentCompleted { .. }
+                if matches!(new_state, TaskState::AwaitingApproval { .. }) =>
+            {
+                Some(NotificationPayload {
+                    id: ulid::Ulid::new().to_string(),
+                    notif_type: "decision".into(),
+                    priority: "p1".into(),
+                    title: "Awaiting human approval".into(),
+                    subtitle: Some(format!("Stage: {stage}")),
+                    agent_name: None,
+                    timestamp: notif_ts,
+                })
+            }
+            DomainEvent::AgentCompleted { summary, .. }
+                if matches!(new_state, TaskState::Completed { .. }) =>
+            {
+                Some(NotificationPayload {
+                    id: ulid::Ulid::new().to_string(),
+                    notif_type: "agent_update".into(),
+                    priority: "p2".into(),
+                    title: summary
+                        .as_deref()
+                        .unwrap_or("Agent completed")
+                        .to_owned(),
+                    subtitle: Some(format!("Stage: {stage}")),
+                    agent_name: None,
+                    timestamp: notif_ts,
+                })
+            }
+            DomainEvent::TaskCompleted { outcome } => {
+                let outcome_str = match outcome {
+                    molt_hub_core::model::TaskOutcome::Success => "success".to_owned(),
+                    molt_hub_core::model::TaskOutcome::Rejected { reason } => {
+                        format!("rejected: {reason}")
+                    }
+                    molt_hub_core::model::TaskOutcome::Abandoned { reason } => {
+                        format!("abandoned: {reason}")
+                    }
+                };
+                Some(NotificationPayload {
+                    id: ulid::Ulid::new().to_string(),
+                    notif_type: "agent_update".into(),
+                    priority: "p2".into(),
+                    title: format!("Task completed: {outcome_str}"),
+                    subtitle: None,
+                    agent_name: None,
+                    timestamp: notif_ts,
+                })
+            }
+            _ => None,
+        };
+        if let Some(n) = notif {
+            broadcast_notification(mgr, &n);
         }
     }
 }
