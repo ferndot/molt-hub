@@ -161,6 +161,15 @@ pub enum AgentEvent {
         is_error: bool,
         timestamp: DateTime<Utc>,
     },
+    /// A file diff produced by the agent (emitted after completion via git diff).
+    FileDiff {
+        agent_id: AgentId,
+        /// Relative path within the repository.
+        path: String,
+        /// Unified diff format output for this file.
+        unified_diff: String,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 // ---------------------------------------------------------------------------
