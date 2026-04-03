@@ -266,6 +266,7 @@ fn event_name(event: &DomainEvent) -> &'static str {
         DomainEvent::ProjectCreated { .. } => "ProjectCreated",
         DomainEvent::ProjectArchived { .. } => "ProjectArchived",
         DomainEvent::ProjectUpdated { .. } => "ProjectUpdated",
+        DomainEvent::HumanInput { .. } => "HumanInput",
     }
 }
 

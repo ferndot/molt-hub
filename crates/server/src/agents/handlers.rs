@@ -24,8 +24,9 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing::{instrument, warn};
 
-use molt_hub_core::events::EventStore;
-use molt_hub_core::model::{AgentId, SessionId, TaskId};
+use chrono::Utc;
+use molt_hub_core::events::{DomainEvent, EventEnvelope, EventStore};
+use molt_hub_core::model::{AgentId, EventId, SessionId, TaskId};
 use molt_hub_harness::acp::AcpAdapter;
 use molt_hub_harness::adapter::SpawnConfig;
 use molt_hub_harness::supervisor::{SteerMessage, SteerPriority, Supervisor, SupervisorError};
@@ -656,17 +657,37 @@ async fn steer_agent(
         _ => SteerPriority::Normal,
     };
 
+    let message_text = body.message.clone();
     let steer_msg = SteerMessage {
         message: body.message,
         priority,
     };
 
     match state.supervisor.steer(&agent_id, steer_msg).await {
-        Ok(()) => Json(SteerResponse {
-            delivered: true,
-            agent_id: agent_id_str,
-        })
-        .into_response(),
+        Ok(()) => {
+            // Persist the steering message as a HumanInput domain event.
+            if let Some(ref store) = state.event_store {
+                let envelope = EventEnvelope {
+                    id: EventId::new(),
+                    task_id: None,
+                    project_id: "default".to_string(),
+                    session_id: SessionId::new(),
+                    timestamp: Utc::now(),
+                    caused_by: None,
+                    payload: DomainEvent::HumanInput {
+                        agent_id: agent_id.clone(),
+                        content: message_text,
+                        turn_id: None,
+                    },
+                };
+                let _ = store.append(envelope).await;
+            }
+            Json(SteerResponse {
+                delivered: true,
+                agent_id: agent_id_str,
+            })
+            .into_response()
+        }
         Err(SupervisorError::AgentNotFound(_)) => (
             StatusCode::NOT_FOUND,
             Json(MessageResponse {

@@ -237,6 +237,7 @@ fn event_summary(event: &DomainEvent) -> String {
             format!("Project archived: {project_id}")
         }
         DomainEvent::ProjectUpdated { name, .. } => format!("Project updated: {name}"),
+        DomainEvent::HumanInput { content, .. } => format!("Human input: {content}"),
     }
 }
 

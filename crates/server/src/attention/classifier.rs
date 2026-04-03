@@ -69,6 +69,7 @@ impl InterruptClassifier {
             DomainEvent::ProjectCreated { .. } => InterruptLevel::P3,
             DomainEvent::ProjectArchived { .. } => InterruptLevel::P3,
             DomainEvent::ProjectUpdated { .. } => InterruptLevel::P3,
+            DomainEvent::HumanInput { .. } => InterruptLevel::P3,
         }
     }
 }
