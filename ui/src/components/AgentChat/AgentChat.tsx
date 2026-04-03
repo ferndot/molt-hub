@@ -17,91 +17,13 @@ import {
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import { getAgent } from "../../views/AgentDetail/agentStore";
-import type { OutputLine } from "../../views/AgentDetail/agentStore";
+import type { ChatEvent } from "../../views/AgentDetail/agentStore";
 import { sendMessage } from "../../views/AgentDetail/steerStore";
 import type { SteerPriority } from "../../views/AgentDetail/steerStore";
 import styles from "./AgentChat.module.css";
 
 // Configure marked for GitHub-flavored markdown (gfm is the default in v5+)
 marked.use({ breaks: true });
-
-// ---------------------------------------------------------------------------
-// Tool call parsing
-// ---------------------------------------------------------------------------
-// Claude Code emits tool calls using Unicode bullets:
-//   ⏺ ToolName(args)        ← tool invocation  (U+23FA)
-//     ⎿  result line 1      ← result start      (U+23BF, 2-space indent)
-//        result line 2      ← result cont.      (5-space indent)
-//
-// We also accept ● (U+25CF) as an alternate invocation bullet.
-
-const TOOL_CALL_RE = /^[⏺●]\s+([\w:]+)\((.*)\)\s*$/;
-const RESULT_START_RE = /^[ \t]{0,3}⎿\s{0,2}/;
-const RESULT_CONT_RE = /^[ \t]{5}/;
-
-// Strip ANSI escape sequences that Claude Code may emit
-const ANSI_RE = /\x1b\[[0-9;]*m/g;
-function stripAnsi(s: string): string {
-  return s.replace(ANSI_RE, "");
-}
-
-interface TextSegment   { kind: "text";     lines: string[] }
-interface ToolCallSegment {
-  kind:   "toolcall";
-  name:   string;
-  args:   string;
-  result: string[];
-}
-type OutputSegment = TextSegment | ToolCallSegment;
-
-function parseOutputSegments(lines: OutputLine[]): OutputSegment[] {
-  const segments: OutputSegment[] = [];
-  let textBuf: string[] = [];
-  let i = 0;
-
-  const flushText = () => {
-    if (textBuf.length > 0) {
-      segments.push({ kind: "text", lines: textBuf });
-      textBuf = [];
-    }
-  };
-
-  while (i < lines.length) {
-    const raw = stripAnsi(lines[i].text);
-    const toolMatch = raw.match(TOOL_CALL_RE);
-
-    if (toolMatch) {
-      flushText();
-      const name   = toolMatch[1];
-      const args   = toolMatch[2];
-      const result: string[] = [];
-      i++;
-
-      // Collect result lines
-      while (i < lines.length) {
-        const rRaw = stripAnsi(lines[i].text);
-        if (RESULT_START_RE.test(rRaw)) {
-          result.push(rRaw.replace(RESULT_START_RE, ""));
-          i++;
-        } else if (result.length > 0 && RESULT_CONT_RE.test(rRaw)) {
-          // Continuation — strip the leading 5 spaces
-          result.push(rRaw.replace(/^[ \t]{5}/, ""));
-          i++;
-        } else {
-          break;
-        }
-      }
-
-      segments.push({ kind: "toolcall", name, args, result });
-    } else {
-      textBuf.push(raw);
-      i++;
-    }
-  }
-
-  flushText();
-  return segments;
-}
 
 // ---------------------------------------------------------------------------
 // Markdown renderer (plain text segments)
@@ -114,41 +36,103 @@ function renderMarkdownText(lines: string[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// OutputBlock — renders an output chunk (text + tool calls interleaved)
+// Extract a short primary arg for display in tool call summaries
 // ---------------------------------------------------------------------------
 
-const OutputBlock: Component<{ lines: OutputLine[] }> = (props) => {
-  const segments = createMemo(() => parseOutputSegments(props.lines));
+function extractPrimaryArg(input: unknown): string {
+  if (typeof input === "string") {
+    return input.length > 60 ? input.slice(0, 57) + "…" : input;
+  }
+  if (input && typeof input === "object") {
+    const obj = input as Record<string, unknown>;
+    // Prefer path/file/command/query/pattern as the primary display arg
+    const preferredKeys = ["path", "file_path", "command", "query", "pattern", "url", "content"];
+    for (const key of preferredKeys) {
+      if (typeof obj[key] === "string") {
+        const v = obj[key] as string;
+        return v.length > 60 ? v.slice(0, 57) + "…" : v;
+      }
+    }
+    // Fall back to first string value
+    for (const val of Object.values(obj)) {
+      if (typeof val === "string") {
+        return val.length > 60 ? val.slice(0, 57) + "…" : val;
+      }
+    }
+  }
+  return "";
+}
+
+// ---------------------------------------------------------------------------
+// ToolCallBlock
+// ---------------------------------------------------------------------------
+
+type ToolCallEvent = Extract<ChatEvent, { kind: "tool_call" }>;
+
+const ToolCallBlock: Component<{ event: ToolCallEvent }> = (props) => {
+  const primaryArg = createMemo(() => extractPrimaryArg(props.event.input));
+  const statusClass = createMemo(() => {
+    if (!props.event.completedAt) return styles.toolCallStatusPending;
+    if (props.event.isError) return styles.toolCallStatusError;
+    return styles.toolCallStatusDone;
+  });
+  const statusGlyph = createMemo(() => {
+    if (!props.event.completedAt) return "⋯";
+    if (props.event.isError) return "✗";
+    return "✓";
+  });
 
   return (
-    <For each={segments()}>
-      {(seg) => (
-        <Show
-          when={seg.kind === "toolcall"}
-          fallback={
-            <div
-              class={styles.outputBlock}
-              innerHTML={renderMarkdownText((seg as TextSegment).lines)}
-            />
-          }
-        >
-          <details class={styles.toolCall}>
-            <summary class={styles.toolCallSummary}>
-              <span class={styles.toolCallBullet}>⏺</span>
-              <span class={styles.toolCallName}>{(seg as ToolCallSegment).name}</span>
-              <Show when={(seg as ToolCallSegment).args}>
-                <span class={styles.toolCallArgs}>({(seg as ToolCallSegment).args})</span>
-              </Show>
-            </summary>
-            <Show when={(seg as ToolCallSegment).result.join("\n").trim()}>
-              <div class={styles.toolCallResult}>
-                <pre class={styles.toolCallPre}><code>{(seg as ToolCallSegment).result.join("\n")}</code></pre>
-              </div>
-            </Show>
-          </details>
+    <details class={styles.toolCall}>
+      <summary class={styles.toolCallSummary}>
+        <span class={`${styles.toolCallStatus} ${statusClass()}`}>{statusGlyph()}</span>
+        <span class={styles.toolCallName}>{props.event.toolName}</span>
+        <Show when={primaryArg()}>
+          <span class={styles.toolCallArgs}>({primaryArg()})</span>
         </Show>
-      )}
-    </For>
+      </summary>
+      <div class={styles.toolCallBody}>
+        <Show when={props.event.input !== undefined && props.event.input !== null}>
+          <div class={styles.toolCallSection}>
+            <div class={styles.toolCallSectionLabel}>Input</div>
+            <pre class={styles.toolCallPre}>
+              <code>
+                {typeof props.event.input === "string"
+                  ? props.event.input
+                  : JSON.stringify(props.event.input, null, 2)}
+              </code>
+            </pre>
+          </div>
+        </Show>
+        <Show when={props.event.result !== undefined && props.event.result !== null}>
+          <div class={styles.toolCallSection}>
+            <div class={styles.toolCallSectionLabel}>Output</div>
+            <pre class={styles.toolCallPre}>
+              <code>
+                {typeof props.event.result === "string"
+                  ? props.event.result
+                  : JSON.stringify(props.event.result, null, 2)}
+              </code>
+            </pre>
+          </div>
+        </Show>
+      </div>
+    </details>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// ThinkingBlock
+// ---------------------------------------------------------------------------
+
+type ThinkingEvent = Extract<ChatEvent, { kind: "thinking" }>;
+
+const ThinkingBlock: Component<{ event: ThinkingEvent }> = (props) => {
+  return (
+    <details class={styles.thinkingBlock}>
+      <summary class={styles.thinkingBlockSummary}>Thinking…</summary>
+      <pre class={styles.thinkingContent}>{props.event.lines.join("\n")}</pre>
+    </details>
   );
 };
 
@@ -160,11 +144,11 @@ interface SteerInsertion {
   id: string;
   text: string;
   priority: SteerPriority;
-  atLineIndex: number; // outputLines.length when steer was sent
+  atEventIndex: number; // chatTimeline.length when steer was sent
 }
 
 type StreamBlock =
-  | { kind: "output"; lines: OutputLine[] }
+  | { kind: "events"; events: ChatEvent[] }
   | { kind: "user";   text: string; priority: SteerPriority };
 
 // ---------------------------------------------------------------------------
@@ -190,29 +174,29 @@ const AgentChat: Component<AgentChatProps> = (props) => {
 
   // Thinking indicator — true from when the user's steer is sent until new agent output arrives.
   const [waitingForResponse, setWaitingForResponse] = createSignal(false);
-  const [waitingAfterLine, setWaitingAfterLine] = createSignal(0);
+  const [waitingAfterEventIndex, setWaitingAfterEventIndex] = createSignal(0);
 
   // Ref for the stream scroll container
   let streamRef: HTMLDivElement | undefined;
 
   // Build the unified stream blocks as a memo.
   const blocks = createMemo<StreamBlock[]>(() => {
-    const lines: OutputLine[] = getAgent(props.agentId)?.outputLines ?? [];
+    const timeline: ChatEvent[] = getAgent(props.agentId)?.chatTimeline ?? [];
     const insertions = steerInsertions();
 
     const result: StreamBlock[] = [];
-    let lineIdx = 0;
+    let evIdx = 0;
 
     for (const ins of insertions) {
-      if (ins.atLineIndex > lineIdx) {
-        result.push({ kind: "output", lines: lines.slice(lineIdx, ins.atLineIndex) });
+      if (ins.atEventIndex > evIdx) {
+        result.push({ kind: "events", events: timeline.slice(evIdx, ins.atEventIndex) });
       }
       result.push({ kind: "user", text: ins.text, priority: ins.priority });
-      lineIdx = ins.atLineIndex;
+      evIdx = ins.atEventIndex;
     }
 
-    if (lineIdx < lines.length) {
-      result.push({ kind: "output", lines: lines.slice(lineIdx) });
+    if (evIdx < timeline.length) {
+      result.push({ kind: "events", events: timeline.slice(evIdx) });
     }
 
     return result;
@@ -226,10 +210,10 @@ const AgentChat: Component<AgentChatProps> = (props) => {
     }
   });
 
-  // Clear thinking indicator when new output arrives after the steer point.
+  // Clear thinking indicator when new timeline events arrive after the steer point.
   createEffect(() => {
-    const lines = getAgent(props.agentId)?.outputLines ?? [];
-    if (waitingForResponse() && lines.length > waitingAfterLine()) {
+    const timeline = getAgent(props.agentId)?.chatTimeline ?? [];
+    if (waitingForResponse() && timeline.length > waitingAfterEventIndex()) {
       setWaitingForResponse(false);
     }
   });
@@ -238,14 +222,14 @@ const AgentChat: Component<AgentChatProps> = (props) => {
     const text = inputText().trim();
     if (!text || sending()) return;
 
-    const atLineIndex = getAgent(props.agentId)?.outputLines.length ?? 0;
+    const atEventIndex = getAgent(props.agentId)?.chatTimeline.length ?? 0;
 
     // Record the insertion locally.
     const insertion: SteerInsertion = {
       id: `ins-${Date.now()}-${Math.random()}`,
       text,
       priority,
-      atLineIndex,
+      atEventIndex,
     };
     setSteerInsertions((prev) => [...prev, insertion]);
     setInputText("");
@@ -253,8 +237,8 @@ const AgentChat: Component<AgentChatProps> = (props) => {
     setSending(true);
     try {
       await sendMessage(props.agentId, text, priority);
-      // Show the thinking indicator from this line index onwards.
-      setWaitingAfterLine(atLineIndex);
+      // Show the thinking indicator from this event index onwards.
+      setWaitingAfterEventIndex(atEventIndex);
       setWaitingForResponse(true);
     } finally {
       setSending(false);
@@ -291,7 +275,28 @@ const AgentChat: Component<AgentChatProps> = (props) => {
             <Show
               when={block.kind === "user"}
               fallback={
-                <OutputBlock lines={(block as { kind: "output"; lines: OutputLine[] }).lines} />
+                <For each={(block as { kind: "events"; events: ChatEvent[] }).events}>
+                  {(event) => (
+                    <Show
+                      when={event.kind === "tool_call"}
+                      fallback={
+                        <Show
+                          when={event.kind === "thinking"}
+                          fallback={
+                            <div
+                              class={styles.outputBlock}
+                              innerHTML={renderMarkdownText((event as Extract<ChatEvent, { kind: "text" }>).lines)}
+                            />
+                          }
+                        >
+                          <ThinkingBlock event={event as Extract<ChatEvent, { kind: "thinking" }>} />
+                        </Show>
+                      }
+                    >
+                      <ToolCallBlock event={event as Extract<ChatEvent, { kind: "tool_call" }>} />
+                    </Show>
+                  )}
+                </For>
               }
             >
               <div class={styles.userBlock}>

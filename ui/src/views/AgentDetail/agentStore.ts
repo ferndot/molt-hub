@@ -26,6 +26,11 @@ export interface ToolCallEntry {
   completedAt?: string;
 }
 
+export type ChatEvent =
+  | { kind: "text";      lines: string[]; timestamp: string }
+  | { kind: "thinking";  lines: string[]; timestamp: string }
+  | { kind: "tool_call"; callId: string; toolName: string; input: unknown; result?: unknown; isError?: boolean; startedAt: string; completedAt?: string };
+
 export interface OutputLine {
   timestamp: string;
   text: string;
@@ -54,6 +59,7 @@ export interface AgentDetail {
   priority: Priority;
   assignedAt: string;
   outputLines: OutputLine[];
+  chatTimeline: ChatEvent[];
   fileDiffs: FileDiff[];
   toolCalls: ToolCallEntry[];
   authError?: string;
@@ -123,6 +129,39 @@ export function useAgentDetailStore() {
 // fetchAgents() does not set up duplicate listeners on every poll.
 const subscribedAgentIds = new Set<string>();
 
+// Per-agent state for timeline parsing (kept outside the store to avoid reactivity overhead)
+const agentInThinking = new Set<string>();
+const agentInToolResult = new Set<string>();
+
+const ANSI_RE_WS = /\x1b\[[0-9;]*m/g;
+function stripAnsiWs(s: string): string {
+  return s.replace(ANSI_RE_WS, "");
+}
+
+const TOOL_CALL_LINE_RE_WS = /^[⏺●]\s+[\w:]+\(/;
+const RESULT_START_RE_WS = /^[ \t]{0,3}⎿/;
+
+/** Coalesce into last same-kind event or push new one. */
+function coalesceOrAddToTimeline(
+  agentId: string,
+  kind: "text" | "thinking",
+  line: string,
+  timestamp: string,
+): void {
+  setState(
+    "agents",
+    (a) => a.id === agentId,
+    produce((a) => {
+      const last = a.chatTimeline[a.chatTimeline.length - 1];
+      if (last && last.kind === kind) {
+        (last as Extract<ChatEvent, { kind: "text" | "thinking" }>).lines.push(line);
+      } else {
+        a.chatTimeline.push({ kind, lines: [line], timestamp } as ChatEvent);
+      }
+    }),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // API fetch — load real agents from the backend
 // ---------------------------------------------------------------------------
@@ -140,6 +179,7 @@ function mapApiAgent(a: AgentSummary): AgentDetail {
     priority: "p2" as Priority,
     assignedAt: new Date().toISOString(),
     outputLines: [],
+    chatTimeline: [],
     inputTokens: 0,
     outputTokens: 0,
     fileDiffs: [],
@@ -165,6 +205,7 @@ export async function fetchAgents(): Promise<void> {
           return {
             ...m,
             outputLines: old.outputLines.length > 0 ? old.outputLines : m.outputLines,
+            chatTimeline: old.chatTimeline.length > 0 ? old.chatTimeline : m.chatTimeline,
             fileDiffs: old.fileDiffs.length > 0 ? old.fileDiffs : m.fileDiffs,
             toolCalls: old.toolCalls,
             authError: old.authError,
@@ -222,12 +263,103 @@ export function registerAgentPlaceholder(
       priority: "p2" as Priority,
       assignedAt: new Date().toISOString(),
       outputLines: [],
+      chatTimeline: [],
       inputTokens: 0,
       outputTokens: 0,
       fileDiffs: [],
       toolCalls: [],
     },
   ]);
+}
+
+// ---------------------------------------------------------------------------
+// Hydration helpers — rebuild chatTimeline from raw output lines
+// ---------------------------------------------------------------------------
+
+const ANSI_RE_HYDRATE = /\x1b\[[0-9;]*m/g;
+function stripAnsiHydrate(s: string): string {
+  return s.replace(ANSI_RE_HYDRATE, "");
+}
+
+const TOOL_CALL_LINE_RE_HYDRATE = /^[⏺●]\s+([\w:]+)\((.*)\)\s*$/;
+const RESULT_START_RE_HYDRATE = /^[ \t]{0,3}⎿/;
+const RESULT_CONT_RE_HYDRATE = /^[ \t]{5}/;
+
+function buildChatTimeline(lines: OutputLine[]): ChatEvent[] {
+  const timeline: ChatEvent[] = [];
+  let inThinking = false;
+  let inResult = false;
+
+  const coalesceOrAdd = (kind: "text" | "thinking", line: string, timestamp: string) => {
+    const last = timeline[timeline.length - 1];
+    if (last && last.kind === kind) {
+      (last as { kind: "text" | "thinking"; lines: string[]; timestamp: string }).lines.push(line);
+    } else {
+      timeline.push({ kind, lines: [line], timestamp } as ChatEvent);
+    }
+  };
+
+  for (const ol of lines) {
+    const raw = stripAnsiHydrate(ol.text);
+    const ts = ol.timestamp;
+
+    if (raw === "<thinking>") {
+      inThinking = true;
+      continue;
+    }
+    if (raw === "</thinking>") {
+      inThinking = false;
+      continue;
+    }
+    if (inThinking) {
+      coalesceOrAdd("thinking", raw, ts);
+      continue;
+    }
+
+    const toolMatch = raw.match(TOOL_CALL_LINE_RE_HYDRATE);
+    if (toolMatch) {
+      inResult = false;
+      // Tool call line — push a tool_call event (hydrated, no structured callId)
+      const idx = timeline.filter((e) => e.kind === "tool_call").length;
+      timeline.push({
+        kind: "tool_call",
+        callId: `hydrated-${idx}`,
+        toolName: toolMatch[1],
+        input: toolMatch[2],
+        startedAt: ts,
+      });
+      continue;
+    }
+
+    if (RESULT_START_RE_HYDRATE.test(raw)) {
+      inResult = true;
+      const resultText = raw.replace(RESULT_START_RE_HYDRATE, "").replace(/^\s{0,2}/, "");
+      // Attach to last tool_call event
+      const last = timeline[timeline.length - 1];
+      if (last && last.kind === "tool_call") {
+        const tc = last as Extract<ChatEvent, { kind: "tool_call" }>;
+        tc.result = resultText;
+        tc.completedAt = ts;
+      }
+      continue;
+    }
+
+    if (inResult && RESULT_CONT_RE_HYDRATE.test(raw)) {
+      // Continuation of result — append to last tool_call result
+      const last = timeline[timeline.length - 1];
+      if (last && last.kind === "tool_call") {
+        const tc = last as Extract<ChatEvent, { kind: "tool_call" }>;
+        tc.result = (tc.result ? String(tc.result) + "\n" : "") + raw.replace(/^[ \t]{5}/, "");
+      }
+      continue;
+    }
+
+    // Regular text line
+    inResult = false;
+    coalesceOrAdd("text", raw, ts);
+  }
+
+  return timeline;
 }
 
 /** Replace buffered output from the server snapshot (e.g. after navigation or resume). */
@@ -241,8 +373,9 @@ export async function hydrateAgentOutput(agentId: string): Promise<void> {
     }));
     const authLine = mapped.findLast((l) => l.text.startsWith("auth_required:"));
     const authError = authLine ? authLine.text.replace(/^auth_required:\s*/, "") : undefined;
+    const chatTimeline = buildChatTimeline(mapped);
     setState("agents", (agents) =>
-      agents.map((a) => (a.id === agentId ? { ...a, outputLines: mapped, authError } : a)),
+      agents.map((a) => (a.id === agentId ? { ...a, outputLines: mapped, chatTimeline, authError } : a)),
     );
   } catch {
     /* ignore */
@@ -252,6 +385,8 @@ export async function hydrateAgentOutput(agentId: string): Promise<void> {
 export function removeAgentFromStore(agentId: string): void {
   setState("agents", (agents) => agents.filter((a) => a.id !== agentId));
   subscribedAgentIds.delete(agentId);
+  agentInThinking.delete(agentId);
+  agentInToolResult.delete(agentId);
 }
 
 /**
@@ -334,6 +469,7 @@ export function setupAgentSubscription(agentId: string): () => void {
           (a) => a.id === agentId,
           produce((a) => {
             a.toolCalls.push({ callId, toolName, input, startedAt: timestamp });
+            a.chatTimeline.push({ kind: "tool_call", callId, toolName, input, startedAt: timestamp });
           }),
         );
       }
@@ -346,6 +482,7 @@ export function setupAgentSubscription(agentId: string): () => void {
       const isError = payload.is_error as boolean | undefined;
       const timestamp = (payload.timestamp as string | undefined) ?? new Date().toISOString();
       if (callId) {
+        // Update legacy toolCalls array
         setState(
           "agents",
           (a) => a.id === agentId,
@@ -353,6 +490,19 @@ export function setupAgentSubscription(agentId: string): () => void {
           (tc) => tc.callId === callId,
           produce((tc) => {
             tc.output = output;
+            tc.isError = isError ?? false;
+            tc.completedAt = timestamp;
+          }),
+        );
+        // Update chatTimeline tool_call entry
+        setState(
+          "agents",
+          (a) => a.id === agentId,
+          "chatTimeline",
+          (ev) => ev.kind === "tool_call" && (ev as Extract<ChatEvent, { kind: "tool_call" }>).callId === callId,
+          produce((ev) => {
+            const tc = ev as Extract<ChatEvent, { kind: "tool_call" }>;
+            tc.result = output;
             tc.isError = isError ?? false;
             tc.completedAt = timestamp;
           }),
@@ -381,6 +531,41 @@ export function setupAgentSubscription(agentId: string): () => void {
           });
       appendOutputLine(agentId, { timestamp: ts, text: output });
       addAgentMessage(agentId, output);
+
+      // Also parse into chatTimeline
+      const rawLine = stripAnsiWs(output);
+
+      if (rawLine === "<thinking>") {
+        agentInThinking.add(agentId);
+        return;
+      }
+      if (rawLine === "</thinking>") {
+        agentInThinking.delete(agentId);
+        return;
+      }
+      if (agentInThinking.has(agentId)) {
+        coalesceOrAddToTimeline(agentId, "thinking", rawLine, ts);
+        return;
+      }
+
+      // Skip tool call text representation lines — structured events handle display
+      if (TOOL_CALL_LINE_RE_WS.test(rawLine)) {
+        agentInToolResult.delete(agentId);
+        return;
+      }
+
+      if (RESULT_START_RE_WS.test(rawLine)) {
+        agentInToolResult.add(agentId);
+        return;
+      }
+
+      if (agentInToolResult.has(agentId) && /^[ \t]{5}/.test(rawLine)) {
+        return;
+      }
+
+      // Regular text line
+      agentInToolResult.delete(agentId);
+      coalesceOrAddToTimeline(agentId, "text", rawLine, ts);
     }
   });
   return unsubscribe;
