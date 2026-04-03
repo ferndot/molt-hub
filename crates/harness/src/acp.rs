@@ -650,6 +650,10 @@ impl AgentAdapter for AcpAdapter {
                                 // Flush partial output buffer at turn end
                                 let _ = event_tx_thread.send(AgentEvent::TurnEnd {
                                     agent_id: agent_id_clone.clone(),
+                                    stop_reason: Some(format!("{:?}", resp.stop_reason)),
+                                    input_tokens: resp.usage.as_ref().map(|u| u.input_tokens as u32),
+                                    output_tokens: resp.usage.as_ref().map(|u| u.output_tokens as u32),
+                                    cost: None,
                                     timestamp: Utc::now(),
                                 });
                                 if resp.stop_reason == agent_client_protocol::StopReason::EndTurn {
@@ -705,6 +709,10 @@ impl AgentAdapter for AcpAdapter {
                                 );
                                 let _ = event_tx_thread.send(AgentEvent::TurnEnd {
                                     agent_id: agent_id_clone.clone(),
+                                    stop_reason: Some(format!("{:?}", resp.stop_reason)),
+                                    input_tokens: resp.usage.as_ref().map(|u| u.input_tokens as u32),
+                                    output_tokens: resp.usage.as_ref().map(|u| u.output_tokens as u32),
+                                    cost: None,
                                     timestamp: Utc::now(),
                                 });
                             }
