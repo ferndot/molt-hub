@@ -301,6 +301,76 @@ pub fn broadcast_hook_fired(
 }
 
 // ---------------------------------------------------------------------------
+// Agent tool call / result events
+// ---------------------------------------------------------------------------
+
+/// Payload for a tool call initiated by an agent, pushed to `agent:{id}`.
+#[derive(Debug, Serialize)]
+pub struct AgentToolCallPayload {
+    #[serde(rename = "type")]
+    pub msg_type: &'static str,
+    pub agent_id: String,
+    pub call_id: String,
+    pub tool_name: String,
+    pub input: serde_json::Value,
+    pub timestamp: String,
+}
+
+/// Broadcast a tool_call event to clients subscribed to `agent:{id}`.
+pub fn broadcast_tool_call(
+    manager: &ConnectionManager,
+    agent_id: &str,
+    call_id: &str,
+    tool_name: &str,
+    input: serde_json::Value,
+    timestamp: &str,
+) {
+    let payload = AgentToolCallPayload {
+        msg_type: "tool_call",
+        agent_id: agent_id.to_owned(),
+        call_id: call_id.to_owned(),
+        tool_name: tool_name.to_owned(),
+        input,
+        timestamp: timestamp.to_owned(),
+    };
+    let topic = format!("agent:{agent_id}");
+    broadcast_json(manager, &topic, &payload);
+}
+
+/// Payload for the result of a tool call, pushed to `agent:{id}`.
+#[derive(Debug, Serialize)]
+pub struct AgentToolResultPayload {
+    #[serde(rename = "type")]
+    pub msg_type: &'static str,
+    pub agent_id: String,
+    pub call_id: String,
+    pub output: serde_json::Value,
+    pub is_error: bool,
+    pub timestamp: String,
+}
+
+/// Broadcast a tool_result event to clients subscribed to `agent:{id}`.
+pub fn broadcast_tool_result(
+    manager: &ConnectionManager,
+    agent_id: &str,
+    call_id: &str,
+    output: serde_json::Value,
+    is_error: bool,
+    timestamp: &str,
+) {
+    let payload = AgentToolResultPayload {
+        msg_type: "tool_result",
+        agent_id: agent_id.to_owned(),
+        call_id: call_id.to_owned(),
+        output,
+        is_error,
+        timestamp: timestamp.to_owned(),
+    };
+    let topic = format!("agent:{agent_id}");
+    broadcast_json(manager, &topic, &payload);
+}
+
+// ---------------------------------------------------------------------------
 // Settings events
 // ---------------------------------------------------------------------------
 

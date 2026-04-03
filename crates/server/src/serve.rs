@@ -41,7 +41,7 @@ use crate::runtime::{BoardRegistry, BoardRuntime, MultiBoardPipelineStore};
 use crate::settings::{typed_settings_router, SettingsFileStore, TypedSettingsState};
 use crate::system::pick_repo_folder;
 use crate::ws::{ws_handler, ConnectionManager};
-use crate::ws_broadcast::{broadcast_agent_error, broadcast_agent_output, broadcast_metrics, MetricsPayload};
+use crate::ws_broadcast::{broadcast_agent_error, broadcast_agent_output, broadcast_metrics, broadcast_tool_call, broadcast_tool_result, MetricsPayload};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -144,6 +144,14 @@ pub async fn build_router(
                         tracing::error!(agent_id = %id, raw_error = %message, "agent error (internal)");
                         let (client_message, auth_required) = sanitize_agent_error(&message);
                         broadcast_agent_error(&ws_fanout_manager, &id, &client_message, auth_required);
+                    }
+                    Ok(AgentEvent::ToolCall { agent_id, call_id, tool_name, input, timestamp }) => {
+                        let id = agent_id.to_string();
+                        broadcast_tool_call(&ws_fanout_manager, &id, &call_id, &tool_name, input, &timestamp.to_rfc3339());
+                    }
+                    Ok(AgentEvent::ToolResult { agent_id, call_id, output, is_error, timestamp }) => {
+                        let id = agent_id.to_string();
+                        broadcast_tool_result(&ws_fanout_manager, &id, &call_id, output, is_error, &timestamp.to_rfc3339());
                     }
                     Ok(_) => {}
                     Err(broadcast::error::RecvError::Lagged(n)) => {
