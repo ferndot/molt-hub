@@ -54,6 +54,10 @@ pub struct AcpInternal {
     status: Arc<std::sync::RwLock<AgentStatus>>,
     /// Used by callers to subscribe to agent events.
     pub event_tx: broadcast::Sender<AgentEvent>,
+    /// Send `true` (approve) or `false` (reject) to unblock a pending `request_permission` call.
+    /// The handler layer can use this when it receives an `"approve:<id>"` / `"reject:<id>"`
+    /// steer message.
+    pub approve_tx: broadcast::Sender<bool>,
 }
 
 // Safety: `mpsc::Sender<String>` and `broadcast::Sender<AgentEvent>` are `Send`;
@@ -70,6 +74,9 @@ struct AcpClientImpl {
     /// When `None`, chunks are broadcast via `event_tx` (spawn mode).
     output: Option<Rc<RefCell<String>>>,
     event_tx: broadcast::Sender<AgentEvent>,
+    /// Receives approval decisions for `request_permission` calls.
+    /// `None` in oneshot mode (permissions are auto-approved there).
+    permission_rx: Option<Rc<RefCell<broadcast::Receiver<bool>>>>,
 }
 
 #[async_trait::async_trait(?Send)]
@@ -78,29 +85,106 @@ impl agent_client_protocol::Client for AcpClientImpl {
         &self,
         args: agent_client_protocol::RequestPermissionRequest,
     ) -> agent_client_protocol::Result<agent_client_protocol::RequestPermissionResponse> {
-        // Auto-approve: pick the first AllowOnce option, falling back to any option.
         use agent_client_protocol::{PermissionOptionKind, RequestPermissionOutcome, SelectedPermissionOutcome};
 
-        let chosen = args
+        // Stable request_id from the ACP tool call id for UI correlation.
+        let request_id = args.tool_call.tool_call_id.to_string();
+
+        // Extract a human-readable tool name from the ACP tool call title if present.
+        let tool_name = args.tool_call.fields.title.clone().unwrap_or_default();
+
+        // Human-readable option labels for the UI.
+        let options: Vec<String> = args
             .options
             .iter()
-            .find(|o| o.kind == PermissionOptionKind::AllowOnce)
-            .or_else(|| args.options.first());
+            .map(|o| format!("{:?}: {}", o.kind, o.name))
+            .collect();
 
-        let outcome = if let Some(opt) = chosen {
+        // Emit the approval-required event so the UI can surface it to the user.
+        let _ = self.event_tx.send(AgentEvent::ToolApprovalRequired {
+            agent_id: self.agent_id.clone(),
+            request_id: request_id.clone(),
+            tool_name: tool_name.clone(),
+            options,
+            timestamp: Utc::now(),
+        });
+
+        // If we have a permission channel, wait for the user's decision (5-minute timeout).
+        // On timeout or channel error we fall through to auto-approve so the agent isn't stuck.
+        // TODO mh-rzm: wire the UI decision through AcpInternal::approve_tx → permission_rx
+        // to enable real blocking approval instead of the auto-approve timeout fallback.
+        let approved = if let Some(rx_cell) = &self.permission_rx {
+            info!(
+                agent_id = %self.agent_id,
+                request_id = %request_id,
+                tool_name = %tool_name,
+                "ACP: waiting for user permission decision",
+            );
+            let decision = tokio::time::timeout(
+                std::time::Duration::from_secs(300),
+                async {
+                    loop {
+                        let result = rx_cell.borrow_mut().recv().await;
+                        match result {
+                            Ok(v) => break v,
+                            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                            Err(broadcast::error::RecvError::Closed) => break true,
+                        }
+                    }
+                },
+            )
+            .await;
+
+            match decision {
+                Ok(v) => v,
+                Err(_timeout) => {
+                    warn!(
+                        agent_id = %self.agent_id,
+                        request_id = %request_id,
+                        "ACP: permission decision timed out after 5 minutes, auto-approving",
+                    );
+                    true
+                }
+            }
+        } else {
+            // Oneshot mode — no interactive permission channel; auto-approve.
             debug!(
                 agent_id = %self.agent_id,
-                option_id = %opt.option_id,
-                "ACP: auto-approving permission request",
+                request_id = %request_id,
+                "ACP: auto-approving permission request (oneshot mode)",
             );
-            RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
-                opt.option_id.clone(),
-            ))
+            true
+        };
+
+        let outcome = if approved {
+            let chosen = args
+                .options
+                .iter()
+                .find(|o| o.kind == PermissionOptionKind::AllowOnce)
+                .or_else(|| args.options.first());
+
+            if let Some(opt) = chosen {
+                debug!(
+                    agent_id = %self.agent_id,
+                    option_id = %opt.option_id,
+                    approved = true,
+                    "ACP: permission approved",
+                );
+                RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(
+                    opt.option_id.clone(),
+                ))
+            } else {
+                warn!(
+                    agent_id = %self.agent_id,
+                    "ACP: approved but no permission options provided, returning Cancelled",
+                );
+                RequestPermissionOutcome::Cancelled
+            }
         } else {
-            // No options provided — fall back to cancelled to avoid hanging.
-            warn!(
+            info!(
                 agent_id = %self.agent_id,
-                "ACP: no permission options provided, returning Cancelled",
+                request_id = %request_id,
+                "ACP: permission rejected by user",
             );
             RequestPermissionOutcome::Cancelled
         };
@@ -383,6 +467,7 @@ impl AcpAdapter {
                         agent_id: AgentId::new(),
                         output: Some(Rc::clone(&collected)),
                         event_tx,
+                        permission_rx: None,
                     };
 
                     let (conn, handle_io) = agent_client_protocol::ClientSideConnection::new(
@@ -498,6 +583,10 @@ impl AgentAdapter for AcpAdapter {
         // MPSC channel: adapter → thread (follow-up messages).
         let (msg_tx, mut msg_rx) = mpsc::channel::<String>(64);
 
+        // Broadcast channel for permission decisions: handler → ACP thread.
+        let (approve_tx, _) = broadcast::channel::<bool>(4);
+        let approve_tx_thread = approve_tx.clone();
+
         let terminated = Arc::new(AtomicBool::new(false));
         let terminated_thread = Arc::clone(&terminated);
 
@@ -561,11 +650,20 @@ impl AgentAdapter for AcpAdapter {
                         .expect("ACP agent stdout should be piped")
                         .compat();
 
+                    // Create approval broadcast channel for interactive permission decisions.
+                    // The receiver is held by the client impl; the sender is surfaced via
+                    // AcpInternal::approve_tx so the handler layer can send decisions.
+                    let permission_rx_local = {
+                        let rx = approve_tx_thread.subscribe();
+                        Some(Rc::new(RefCell::new(rx)))
+                    };
+
                     // Create ACP client-side connection.
                     let client_impl = AcpClientImpl {
                         agent_id: agent_id_clone.clone(),
                         output: None,
                         event_tx: event_tx_thread.clone(),
+                        permission_rx: permission_rx_local,
                     };
 
                     let (conn, handle_io) = agent_client_protocol::ClientSideConnection::new(
@@ -781,6 +879,7 @@ impl AgentAdapter for AcpAdapter {
             terminated,
             status,
             event_tx: event_tx.clone(),
+            approve_tx,
         });
 
         // We don't have a reliable PID at this point (the child is in the thread);
