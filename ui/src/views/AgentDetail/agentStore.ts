@@ -5,7 +5,7 @@
  * to WebSocket topic `agent:{id}` for live output.
  */
 
-import { createStore } from "solid-js/store";
+import { createStore, produce } from "solid-js/store";
 import { subscribe } from "../../lib/ws";
 import { api } from "../../lib/api";
 import { addAgentMessage } from "./steerStore";
@@ -15,6 +15,16 @@ import type { Priority } from "../../types/domain";
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+export interface ToolCallEntry {
+  callId: string;
+  toolName: string;
+  input: unknown;
+  output?: unknown;
+  isError?: boolean;
+  startedAt: string;
+  completedAt?: string;
+}
 
 export interface OutputLine {
   timestamp: string;
@@ -38,6 +48,7 @@ export interface AgentDetail {
   priority: Priority;
   assignedAt: string;
   outputLines: OutputLine[];
+  toolCalls: ToolCallEntry[];
   authError?: string;
 }
 
@@ -120,6 +131,7 @@ function mapApiAgent(a: AgentSummary): AgentDetail {
     priority: "p2" as Priority,
     assignedAt: new Date().toISOString(),
     outputLines: [],
+    toolCalls: [],
   };
 }
 
@@ -141,6 +153,7 @@ export async function fetchAgents(): Promise<void> {
           return {
             ...m,
             outputLines: old.outputLines.length > 0 ? old.outputLines : m.outputLines,
+            toolCalls: old.toolCalls,
             authError: old.authError,
           };
         }
@@ -194,6 +207,7 @@ export function registerAgentPlaceholder(
       priority: "p2" as Priority,
       assignedAt: new Date().toISOString(),
       outputLines: [],
+      toolCalls: [],
     },
   ]);
 }
@@ -256,6 +270,45 @@ export function setupAgentSubscription(agentId: string): () => void {
         "authError",
         authRequired ? (message ?? "Authentication required") : undefined,
       );
+      return;
+    }
+
+    // Handle structured tool call events.
+    if (payload.type === "tool_call") {
+      const callId = payload.call_id as string | undefined;
+      const toolName = (payload.tool_name as string | undefined) ?? "Tool";
+      const input = payload.input;
+      const timestamp = (payload.timestamp as string | undefined) ?? new Date().toISOString();
+      if (callId) {
+        setState(
+          "agents",
+          (a) => a.id === agentId,
+          produce((a) => {
+            a.toolCalls.push({ callId, toolName, input, startedAt: timestamp });
+          }),
+        );
+      }
+      return;
+    }
+
+    if (payload.type === "tool_result") {
+      const callId = payload.call_id as string | undefined;
+      const output = payload.output;
+      const isError = payload.is_error as boolean | undefined;
+      const timestamp = (payload.timestamp as string | undefined) ?? new Date().toISOString();
+      if (callId) {
+        setState(
+          "agents",
+          (a) => a.id === agentId,
+          "toolCalls",
+          (tc) => tc.callId === callId,
+          produce((tc) => {
+            tc.output = output;
+            tc.isError = isError ?? false;
+            tc.completedAt = timestamp;
+          }),
+        );
+      }
       return;
     }
 
