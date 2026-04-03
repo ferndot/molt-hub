@@ -9,6 +9,7 @@ import type { Component } from "solid-js";
 import { For, Show } from "solid-js";
 import type { AgentDetail, StageEntry } from "./agentStore";
 import type { Priority } from "../../types/domain";
+import { api } from "../../lib/api";
 import styles from "./AgentMeta.module.css";
 
 // ---------------------------------------------------------------------------
@@ -71,8 +72,9 @@ const AgentMeta: Component<Props> = (props) => {
       .find((e) => e.stage === props.agent.currentStage);
 
   function handlePause(): void {
-    // stub — future: dispatch pause action via WebSocket
-    console.info("[AgentMeta] Pause clicked for", props.agent.id);
+    api.pauseAgent(props.agent.id).catch((err: unknown) => {
+      console.error("[AgentMeta] Pause failed", err);
+    });
   }
 
   function handleTerminate(): void {
@@ -81,13 +83,14 @@ const AgentMeta: Component<Props> = (props) => {
         `Terminate agent "${props.agent.name}"? This cannot be undone.`,
       )
     ) {
-      // stub — future: dispatch terminate action via WebSocket
-      console.info("[AgentMeta] Terminate confirmed for", props.agent.id);
+      api.terminateAgent(props.agent.id).catch((err: unknown) => {
+        console.error("[AgentMeta] Terminate failed", err);
+      });
     }
   }
 
   function handleReassign(): void {
-    // stub — future: open reassign modal
+    // stub — future: open reassign modal (no backend endpoint yet)
     console.info("[AgentMeta] Reassign clicked for", props.agent.id);
   }
 

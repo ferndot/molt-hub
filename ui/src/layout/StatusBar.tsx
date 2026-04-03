@@ -135,14 +135,14 @@ const StatusBar: Component<Props> = (props) => {
 
         <Sep />
 
-        {/* CPU usage — mocked; TODO: wire to health monitoring WebSocket stream */}
+        {/* CPU usage — broadcast from backend health:metrics WS topic */}
         <span class={cpuClass()}>
           <TbOutlineCpu size={14} style={{ "vertical-align": "middle" }} /> CPU <span class={cpuPopClass()}>{cpuUsage()}</span>%
         </span>
 
         <Sep />
 
-        {/* Memory usage — mocked; TODO: wire to health monitoring WebSocket stream */}
+        {/* Memory usage — broadcast from backend health:metrics WS topic */}
         <span class={styles.metricItem}>
           <TbOutlineServer size={14} style={{ "vertical-align": "middle" }} /> MEM {formatMemory(memoryUsage())}
         </span>

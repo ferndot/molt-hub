@@ -2,10 +2,7 @@
  * Metrics store — operational metrics for the Status Bar.
  *
  * Tracks active agent count, pending decision count, and system resource usage.
- * CPU and memory values are mocked for now.
- *
- * TODO: Wire cpuUsage and memoryUsage to the health monitoring WebSocket stream
- * once the backend exposes a "health:metrics" topic.
+ * CPU and memory are populated from the backend "health:metrics" WebSocket topic.
  */
 
 import { createSignal } from "solid-js";
