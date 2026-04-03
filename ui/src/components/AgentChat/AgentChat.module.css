@@ -426,3 +426,23 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+.stopBtn {
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--priority-p0, #ef4444);
+  background: transparent;
+  border: 1px solid var(--priority-p0, #ef4444);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, color 0.15s;
+  height: 36px;
+  flex-shrink: 0;
+}
+
+.stopBtn:hover {
+  background: var(--priority-p0, #ef4444);
+  color: #fff;
+}

@@ -207,8 +207,6 @@ export const api = {
     post<{ agentId: string; message?: string }>("/agents/spawn", req),
   terminateAgent: (id: string) =>
     post<Record<string, unknown>>(`/agents/${id}/terminate`),
-  pauseAgent: (id: string) =>
-    post<Record<string, unknown>>(`/agents/${id}/pause`),
   getAgentOutput: (id: string) =>
     get<{ lines: unknown[] }>(`/agents/${id}/output`),
 

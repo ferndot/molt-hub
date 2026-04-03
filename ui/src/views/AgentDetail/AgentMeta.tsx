@@ -9,7 +9,6 @@ import type { Component } from "solid-js";
 import { For, Show } from "solid-js";
 import type { AgentDetail, StageEntry } from "./agentStore";
 import type { Priority } from "../../types/domain";
-import { api } from "../../lib/api";
 import styles from "./AgentMeta.module.css";
 
 // ---------------------------------------------------------------------------
@@ -70,29 +69,6 @@ const AgentMeta: Component<Props> = (props) => {
     [...props.agent.stageHistory]
       .reverse()
       .find((e) => e.stage === props.agent.currentStage);
-
-  function handlePause(): void {
-    api.pauseAgent(props.agent.id).catch((err: unknown) => {
-      console.error("[AgentMeta] Pause failed", err);
-    });
-  }
-
-  function handleTerminate(): void {
-    if (
-      window.confirm(
-        `Terminate agent "${props.agent.name}"? This cannot be undone.`,
-      )
-    ) {
-      api.terminateAgent(props.agent.id).catch((err: unknown) => {
-        console.error("[AgentMeta] Terminate failed", err);
-      });
-    }
-  }
-
-  function handleReassign(): void {
-    // stub — future: open reassign modal (no backend endpoint yet)
-    console.info("[AgentMeta] Reassign clicked for", props.agent.id);
-  }
 
   return (
     <div class={styles.panel}>
@@ -171,33 +147,6 @@ const AgentMeta: Component<Props> = (props) => {
         </ul>
       </div>
 
-      {/* Action buttons */}
-      <div class={styles.card}>
-        <p class={styles.sectionTitle}>Actions</p>
-        <div class={styles.actions}>
-          <button
-            class={`${styles.actionBtn} ${styles.btnPause}`}
-            onClick={handlePause}
-            type="button"
-          >
-            ⏸ Pause
-          </button>
-          <button
-            class={`${styles.actionBtn} ${styles.btnTerminate}`}
-            onClick={handleTerminate}
-            type="button"
-          >
-            ✕ Terminate
-          </button>
-          <button
-            class={`${styles.actionBtn} ${styles.btnReassign}`}
-            onClick={handleReassign}
-            type="button"
-          >
-            → Reassign
-          </button>
-        </div>
-      </div>
     </div>
   );
 };

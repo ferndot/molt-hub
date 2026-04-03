@@ -20,6 +20,7 @@ import { getAgent } from "../../views/AgentDetail/agentStore";
 import type { ChatEvent } from "../../views/AgentDetail/agentStore";
 import { sendMessage } from "../../views/AgentDetail/steerStore";
 import type { SteerPriority } from "../../views/AgentDetail/steerStore";
+import { api } from "../../lib/api";
 import styles from "./AgentChat.module.css";
 
 // Configure marked for GitHub-flavored markdown (gfm is the default in v5+)
@@ -318,6 +319,20 @@ const AgentChat: Component<AgentChatProps> = (props) => {
 
       {/* Input bar */}
       <div class={styles.inputRow}>
+        <Show when={props.status === "running"}>
+          <button
+            type="button"
+            class={styles.stopBtn}
+            onClick={() => {
+              api.terminateAgent(props.agentId).catch((err: unknown) => {
+                console.error("[AgentChat] Stop failed", err);
+              });
+            }}
+            title="Stop agent"
+          >
+            ■ Stop
+          </button>
+        </Show>
         <textarea
           class={styles.textInput}
           placeholder="Send a message… (Enter = normal, Shift+Enter = urgent)"
