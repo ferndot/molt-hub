@@ -35,8 +35,8 @@ use crate::integrations::oauth::JiraOAuthService;
 use crate::integrations::oauth_redirect::{github_redirect_uri, jira_redirect_uri};
 use crate::pipeline::handlers::PipelineState;
 use crate::pipeline::PipelineConfigSqliteStore;
+use crate::boards::boards_router;
 use crate::projects::boards_store::BoardsStore;
-use crate::projects::handlers::{project_router, ProjectConfigStore};
 use crate::projects::runtime::{MultiBoardPipelineStore, ProjectRuntime, ProjectRuntimeRegistry};
 use crate::settings::{typed_settings_router, SettingsFileStore, TypedSettingsState};
 use crate::system::pick_repo_folder;
@@ -73,7 +73,7 @@ fn default_events_db_path() -> PathBuf {
 /// - `GET /api/events/:id` — get a single event
 /// - `POST /api/events` — append an event
 /// - `GET /api/tasks` — list tasks derived from events
-/// - `/api/projects/...` — projects, agents, and per-board pipeline stages (`…/boards/:bid/stages`)
+/// - `/api/boards/...` — named boards and per-board pipeline stages (`…/:bid/stages`)
 /// - `/*`      — Static files from `dist_dir` with `index.html` fallback (SPA routing)
 pub async fn build_router(
     dist_dir: PathBuf,
@@ -242,13 +242,10 @@ pub async fn build_router(
         registry.insert("default".to_owned(), default_runtime).await;
     }
 
-    // Project store (YAML-backed)
-    let project_state = Arc::new(ProjectConfigStore::load_default());
-
     let agents = agent_router(agent_state);
     let audit = audit_router(audit_state);
     let typed_settings = typed_settings_router(Arc::clone(&typed_settings_state));
-    let projects = project_router(project_state);
+    let boards = boards_router();
 
     // Shared credential store backed by the OS keychain.
     let credential_store: Arc<dyn crate::credentials::CredentialStore> =
@@ -313,10 +310,7 @@ pub async fn build_router(
         .nest_service("/api/settings", typed_settings)
         .nest_service("/api/integrations/github", github_stack)
         .nest_service("/api/integrations/jira", jira_stack)
-        // Projects CRUD + project-scoped agent/pipeline routes.
-        // The project-scoped routes are part of project_router (same nest_service)
-        // so there is no wildcard conflict.
-        .nest_service("/api/projects", projects);
+        .nest_service("/api/boards", boards);
 
     // Wire event/task routes if the store initialised successfully.
     if let Some(es_state) = event_store_state {

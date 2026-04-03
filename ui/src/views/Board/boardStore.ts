@@ -1,6 +1,6 @@
 /**
  * Board store — stages and tasks per named board. Fetches
- * GET /api/projects/{workspace}/boards and per-board stages (see `lib/workspace`).
+ * GET /api/boards and per-board stages.
  * WebSocket `board:*` updates apply to the shared task list; the active board
  * filters columns by its stage ids (see missionControlStore).
  */
@@ -48,7 +48,7 @@ export interface BoardState {
   pipelineStages: PipelineStage[];
   stagesLoaded: boolean;
   tasks: BoardTask[];
-  /** Boards from API (workspace scope). */
+  /** Boards from API. */
   boards: BoardSummary[];
   /** Selected pipeline / kanban board id. */
   activeBoardId: string;

@@ -6,6 +6,7 @@
 pub mod actors;
 pub mod agents;
 pub mod approvals;
+pub mod boards;
 pub mod seed;
 pub mod attention;
 pub mod audit;

@@ -1,7 +1,6 @@
 import type { Component } from "solid-js";
 import { createEffect, onCleanup, onMount } from "solid-js";
 import { Router, Route, Navigate } from "@solidjs/router";
-import { WORKSPACE_ID } from "./lib/workspace";
 import {
   handleBoardWsMessage,
   homeRedirectBoardPath,
@@ -62,13 +61,13 @@ const App: Component = () => {
   });
 
   createEffect(() => {
-    const topic = projectTopic(WORKSPACE_ID, "board:update");
+    const topic = projectTopic("default", "board:update");
     const unsub = subscribe(topic, handleBoardWsMessage);
     onCleanup(unsub);
   });
 
   createEffect(() => {
-    const hooksTopic = projectTopic(WORKSPACE_ID, "hooks");
+    const hooksTopic = projectTopic("default", "hooks");
     const unsub = subscribe(hooksTopic, (msg) => {
       if (msg.type !== "event") return;
       const payload = msg.payload as Record<string, unknown>;

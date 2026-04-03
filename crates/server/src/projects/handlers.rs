@@ -7,13 +7,12 @@
 //!   PATCH  /api/projects/:id   — update project name
 //!   DELETE /api/projects/:id   — archive (soft-delete) a project
 
-use crate::agents::handlers::{delete_project_agent, get_project_agent, list_project_agents};
 use crate::pipeline::handlers::{PipelineConfigStore, PipelineState, StagePatch, StagesResponse};
 use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
     response::IntoResponse,
-    routing::{delete, get, patch},
+    routing::get,
     Json, Router,
 };
 use chrono::Utc;
@@ -652,30 +651,6 @@ pub async fn patch_project_board_stage(
 pub fn project_router(state: Arc<ProjectConfigStore>) -> Router {
     Router::new()
         .route("/", get(list_projects).post(create_project))
-        // Register multi-segment `/:pid/...` routes before `/:id` so paths like
-        // `/default/boards` never compete with the single-segment project route.
-        .route("/:pid/agents", get(list_project_agents))
-        .route(
-            "/:pid/agents/:aid",
-            get(get_project_agent).delete(delete_project_agent),
-        )
-        .route(
-            "/:pid/board-template",
-            get(get_project_board_template),
-        )
-        .route(
-            "/:pid/boards",
-            get(list_project_boards).post(post_project_board),
-        )
-        .route("/:pid/boards/:bid", delete(delete_project_board))
-        .route(
-            "/:pid/boards/:bid/stages",
-            get(get_project_board_stages).put(put_project_board_stages),
-        )
-        .route(
-            "/:pid/boards/:bid/stages/:sid",
-            patch(patch_project_board_stage),
-        )
         .route(
             "/:id",
             get(get_project)
