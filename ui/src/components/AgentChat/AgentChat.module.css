@@ -452,3 +452,68 @@
   background: var(--priority-p0, #ef4444);
   color: #fff;
 }
+
+/* ------------------------------------------------------------------ */
+/* AskUserQuestion inline block                                         */
+/* ------------------------------------------------------------------ */
+
+.askQuestion {
+  margin: 0.5rem 0;
+  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 40%, transparent);
+  border-left: 3px solid var(--accent, #3b82f6);
+  border-radius: 6px;
+  padding: 0.65rem 0.875rem;
+  background: color-mix(in srgb, var(--accent, #3b82f6) 6%, var(--bg-secondary, #161b27));
+}
+
+.askQuestionLabel {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent, #3b82f6);
+  margin-bottom: 0.3rem;
+}
+
+.askQuestionText {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  line-height: 1.5;
+  margin-bottom: 0.6rem;
+}
+
+.askQuestionInput {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-end;
+}
+
+.askQuestionOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.askQuestionOption {
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--accent, #3b82f6);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--accent, #3b82f6) 50%, transparent);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.askQuestionOption:hover:not(:disabled) {
+  background: var(--accent, #3b82f6);
+  color: #fff;
+}
+
+.askQuestionOption:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}

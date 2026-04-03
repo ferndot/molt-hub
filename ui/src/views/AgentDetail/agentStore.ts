@@ -29,7 +29,8 @@ export interface ToolCallEntry {
 export type ChatEvent =
   | { kind: "text";      lines: string[]; timestamp: string }
   | { kind: "thinking";  lines: string[]; timestamp: string }
-  | { kind: "tool_call"; callId: string; toolName: string; input: unknown; result?: unknown; isError?: boolean; startedAt: string; completedAt?: string };
+  | { kind: "tool_call"; callId: string; toolName: string; input: unknown; result?: unknown; isError?: boolean; startedAt: string; completedAt?: string; awaitingAnswer?: boolean }
+  | { kind: "user";      text: string; priority: "normal" | "urgent"; timestamp: string };
 
 export interface OutputLine {
   timestamp: string;
@@ -105,6 +106,16 @@ export function appendOutputLine(agentId: string, line: OutputLine): void {
         ? { ...a, outputLines: [...a.outputLines, line] }
         : a,
     ),
+  );
+}
+
+export function insertUserSteer(agentId: string, text: string, priority: "normal" | "urgent"): void {
+  setState(
+    "agents",
+    (a) => a.id === agentId,
+    produce((a) => {
+      a.chatTimeline.push({ kind: "user", text, priority, timestamp: new Date().toISOString() });
+    }),
   );
 }
 
@@ -451,6 +462,23 @@ export function setupAgentSubscription(agentId: string): () => void {
           (a) => a.id === agentId,
           produce((a) => {
             a.fileDiffs.push({ path, unifiedDiff, timestamp: timestamp ?? new Date().toISOString() });
+          }),
+        );
+      }
+      return;
+    }
+
+    // Handle user_question events — mark the matching tool_call as awaiting an answer.
+    if (payload.type === "user_question") {
+      const callId = payload.call_id as string | undefined;
+      if (callId) {
+        setState(
+          "agents",
+          (a) => a.id === agentId,
+          "chatTimeline",
+          (ev) => ev.kind === "tool_call" && (ev as Extract<ChatEvent, { kind: "tool_call" }>).callId === callId,
+          produce((ev) => {
+            (ev as Extract<ChatEvent, { kind: "tool_call" }>).awaitingAnswer = true;
           }),
         );
       }

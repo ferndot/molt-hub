@@ -371,6 +371,35 @@ pub fn broadcast_tool_result(
 }
 
 // ---------------------------------------------------------------------------
+// User question events
+// ---------------------------------------------------------------------------
+
+/// Broadcast a user_question event to clients subscribed to `agent:{id}`.
+///
+/// Signals that the agent's `AskUserQuestion` tool is awaiting a response.
+pub fn broadcast_user_question(
+    manager: &ConnectionManager,
+    agent_id: &str,
+    call_id: &str,
+    question: &str,
+    options: &[String],
+) {
+    let topic = format!("agent:{agent_id}");
+    broadcast_json(
+        manager,
+        &topic,
+        &serde_json::json!({
+            "type": "user_question",
+            "agent_id": agent_id,
+            "call_id": call_id,
+            "question": question,
+            "options": options,
+            "timestamp": chrono::Utc::now().to_rfc3339(),
+        }),
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Notification events
 // ---------------------------------------------------------------------------
 

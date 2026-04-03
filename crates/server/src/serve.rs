@@ -41,7 +41,7 @@ use crate::runtime::{BoardRegistry, BoardRuntime, MultiBoardPipelineStore};
 use crate::settings::{typed_settings_router, SettingsFileStore, TypedSettingsState};
 use crate::system::pick_repo_folder;
 use crate::ws::{ws_handler, ConnectionManager};
-use crate::ws_broadcast::{broadcast_agent_error, broadcast_agent_output, broadcast_metrics, broadcast_notification, broadcast_tool_call, broadcast_tool_result, MetricsPayload, NotificationActionPayload, NotificationPayload};
+use crate::ws_broadcast::{broadcast_agent_error, broadcast_agent_output, broadcast_metrics, broadcast_notification, broadcast_tool_call, broadcast_tool_result, broadcast_user_question, MetricsPayload, NotificationActionPayload, NotificationPayload};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -193,6 +193,10 @@ pub async fn build_router(
                             timestamp: chrono::Utc::now().to_rfc3339(),
                             actions: Some(actions),
                         });
+                    }
+                    Ok(AgentEvent::UserQuestionRequired { ref agent_id, ref request_id, ref question, ref options, .. }) => {
+                        let agent_id = agent_id.to_string();
+                        broadcast_user_question(&ws_fanout_manager, &agent_id, request_id, question, options);
                     }
                     Ok(AgentEvent::Error { agent_id, message, .. }) => {
                         let id = agent_id.to_string();

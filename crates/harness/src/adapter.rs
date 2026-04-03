@@ -189,6 +189,18 @@ pub enum AgentEvent {
         approved: bool,
         timestamp: DateTime<Utc>,
     },
+    /// The agent is asking the user a question and needs a text response.
+    /// Pauses until the user answers.
+    UserQuestionRequired {
+        agent_id: AgentId,
+        /// Matches the `tool_call_id` from the ACP request_permission call.
+        request_id: String,
+        /// The question text from AskUserQuestion's `question` parameter.
+        question: String,
+        /// Predefined answer choices (empty = free text).
+        options: Vec<String>,
+        timestamp: DateTime<Utc>,
+    },
     /// Internal agent reasoning/thinking chunk.
     ThinkingChunk {
         agent_id: AgentId,

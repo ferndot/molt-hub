@@ -16,7 +16,7 @@ import {
 } from "solid-js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
-import { getAgent } from "../../views/AgentDetail/agentStore";
+import { getAgent, insertUserSteer } from "../../views/AgentDetail/agentStore";
 import type { ChatEvent } from "../../views/AgentDetail/agentStore";
 import { sendMessage } from "../../views/AgentDetail/steerStore";
 import type { SteerPriority } from "../../views/AgentDetail/steerStore";
@@ -138,19 +138,93 @@ const ThinkingBlock: Component<{ event: ThinkingEvent }> = (props) => {
 };
 
 // ---------------------------------------------------------------------------
-// Stream block types
+// AskUserQuestionBlock
 // ---------------------------------------------------------------------------
 
-interface SteerInsertion {
-  id: string;
-  text: string;
-  priority: SteerPriority;
-  atEventIndex: number; // chatTimeline.length when steer was sent
-}
+type AskUserQuestionEvent = Extract<ChatEvent, { kind: "tool_call" }> & { toolName: "AskUserQuestion" };
 
-type StreamBlock =
-  | { kind: "events"; events: ChatEvent[] }
-  | { kind: "user";   text: string; priority: SteerPriority };
+const AskUserQuestionBlock: Component<{ event: AskUserQuestionEvent; agentId: string }> = (props) => {
+  const input = createMemo(() => {
+    const raw = props.event.input;
+    if (raw && typeof raw === "object") return raw as { question?: string; options?: string[] };
+    return {};
+  });
+
+  const question = createMemo(() => input().question ?? "");
+  const options = createMemo(() => input().options ?? []);
+
+  const [answer, setAnswer] = createSignal("");
+  const [submitting, setSubmitting] = createSignal(false);
+
+  const submit = async (text: string) => {
+    if (!text.trim() || submitting()) return;
+    setSubmitting(true);
+    try {
+      // Insert the answer as a user event in the timeline so it appears in chat
+      insertUserSteer(props.agentId, text.trim(), "normal");
+      // Send as steer so the agent receives the answer text
+      await sendMessage(props.agentId, text.trim(), "normal");
+      // Auto-approve the pending tool call
+      await api.respondToolApproval(props.agentId, { requestId: props.event.callId, approved: true });
+      setAnswer("");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void submit(answer());
+    }
+  };
+
+  return (
+    <div class={styles.askQuestion}>
+      <div class={styles.askQuestionLabel}>Question</div>
+      <div class={styles.askQuestionText}>{question()}</div>
+      <Show
+        when={options().length > 0}
+        fallback={
+          <div class={styles.askQuestionInput}>
+            <textarea
+              class={styles.textInput}
+              placeholder="Type your answer…"
+              value={answer()}
+              onInput={(e) => setAnswer(e.currentTarget.value)}
+              onKeyDown={handleKeyDown}
+              rows={1}
+              disabled={submitting()}
+            />
+            <button
+              type="button"
+              class={styles.sendBtn}
+              disabled={submitting() || !answer().trim()}
+              onClick={() => void submit(answer())}
+            >
+              {submitting() ? "…" : "Answer"}
+            </button>
+          </div>
+        }
+      >
+        <div class={styles.askQuestionOptions}>
+          <For each={options()}>
+            {(opt) => (
+              <button
+                type="button"
+                class={styles.askQuestionOption}
+                disabled={submitting()}
+                onClick={() => void submit(opt)}
+              >
+                {opt}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+    </div>
+  );
+};
 
 // ---------------------------------------------------------------------------
 // Props
@@ -166,42 +240,15 @@ interface AgentChatProps {
 // ---------------------------------------------------------------------------
 
 const AgentChat: Component<AgentChatProps> = (props) => {
-  // Steer insertions tracked locally — not persisted.
-  const [steerInsertions, setSteerInsertions] = createSignal<SteerInsertion[]>([]);
-
   // Input state
   const [inputText, setInputText] = createSignal("");
   const [sending, setSending] = createSignal(false);
 
-  // Thinking indicator — true from when the user's steer is sent until new agent output arrives.
-  const [waitingForResponse, setWaitingForResponse] = createSignal(false);
-  const [waitingAfterEventIndex, setWaitingAfterEventIndex] = createSignal(0);
-
   // Ref for the stream scroll container
   let streamRef: HTMLDivElement | undefined;
 
-  // Build the unified stream blocks as a memo.
-  const blocks = createMemo<StreamBlock[]>(() => {
-    const timeline: ChatEvent[] = getAgent(props.agentId)?.chatTimeline ?? [];
-    const insertions = steerInsertions();
-
-    const result: StreamBlock[] = [];
-    let evIdx = 0;
-
-    for (const ins of insertions) {
-      if (ins.atEventIndex > evIdx) {
-        result.push({ kind: "events", events: timeline.slice(evIdx, ins.atEventIndex) });
-      }
-      result.push({ kind: "user", text: ins.text, priority: ins.priority });
-      evIdx = ins.atEventIndex;
-    }
-
-    if (evIdx < timeline.length) {
-      result.push({ kind: "events", events: timeline.slice(evIdx) });
-    }
-
-    return result;
-  });
+  // Read chatTimeline directly — user events are inserted in-place by insertUserSteer.
+  const blocks = createMemo<ChatEvent[]>(() => getAgent(props.agentId)?.chatTimeline ?? []);
 
   // Auto-scroll to bottom whenever blocks change.
   createEffect(() => {
@@ -211,36 +258,17 @@ const AgentChat: Component<AgentChatProps> = (props) => {
     }
   });
 
-  // Clear thinking indicator when new timeline events arrive after the steer point.
-  createEffect(() => {
-    const timeline = getAgent(props.agentId)?.chatTimeline ?? [];
-    if (waitingForResponse() && timeline.length > waitingAfterEventIndex()) {
-      setWaitingForResponse(false);
-    }
-  });
-
   const handleSend = async (priority: SteerPriority) => {
     const text = inputText().trim();
     if (!text || sending()) return;
 
-    const atEventIndex = getAgent(props.agentId)?.chatTimeline.length ?? 0;
-
-    // Record the insertion locally.
-    const insertion: SteerInsertion = {
-      id: `ins-${Date.now()}-${Math.random()}`,
-      text,
-      priority,
-      atEventIndex,
-    };
-    setSteerInsertions((prev) => [...prev, insertion]);
+    // Insert user message directly into the timeline before sending.
+    insertUserSteer(props.agentId, text, priority);
     setInputText("");
 
     setSending(true);
     try {
       await sendMessage(props.agentId, text, priority);
-      // Show the thinking indicator from this event index onwards.
-      setWaitingAfterEventIndex(atEventIndex);
-      setWaitingForResponse(true);
     } finally {
       setSending(false);
     }
@@ -272,49 +300,52 @@ const AgentChat: Component<AgentChatProps> = (props) => {
           </div>
         </Show>
         <For each={blocks()}>
-          {(block) => (
+          {(event) => (
             <Show
-              when={block.kind === "user"}
+              when={event.kind === "user"}
               fallback={
-                <For each={(block as { kind: "events"; events: ChatEvent[] }).events}>
-                  {(event) => (
+                <Show
+                  when={event.kind === "tool_call"}
+                  fallback={
                     <Show
-                      when={event.kind === "tool_call"}
+                      when={event.kind === "thinking"}
                       fallback={
-                        <Show
-                          when={event.kind === "thinking"}
-                          fallback={
-                            <div
-                              class={styles.outputBlock}
-                              innerHTML={renderMarkdownText((event as Extract<ChatEvent, { kind: "text" }>).lines)}
-                            />
-                          }
-                        >
-                          <ThinkingBlock event={event as Extract<ChatEvent, { kind: "thinking" }>} />
-                        </Show>
+                        <div
+                          class={styles.outputBlock}
+                          innerHTML={renderMarkdownText((event as Extract<ChatEvent, { kind: "text" }>).lines)}
+                        />
                       }
                     >
-                      <ToolCallBlock event={event as Extract<ChatEvent, { kind: "tool_call" }>} />
+                      <ThinkingBlock event={event as Extract<ChatEvent, { kind: "thinking" }>} />
                     </Show>
-                  )}
-                </For>
+                  }
+                >
+                  <Show
+                    when={
+                      (event as Extract<ChatEvent, { kind: "tool_call" }>).toolName === "AskUserQuestion" &&
+                      (event as Extract<ChatEvent, { kind: "tool_call" }>).awaitingAnswer &&
+                      !(event as Extract<ChatEvent, { kind: "tool_call" }>).completedAt
+                    }
+                    fallback={
+                      <ToolCallBlock event={event as Extract<ChatEvent, { kind: "tool_call" }>} />
+                    }
+                  >
+                    <AskUserQuestionBlock
+                      event={event as AskUserQuestionEvent}
+                      agentId={props.agentId}
+                    />
+                  </Show>
+                </Show>
               }
             >
               <div class={styles.userBlock}>
-                <div class={`${styles.userBubble} ${(block as { kind: "user"; text: string; priority: SteerPriority }).priority === "urgent" ? styles.userBubbleUrgent : ""}`}>
-                  {(block as { kind: "user"; text: string; priority: SteerPriority }).text}
+                <div class={`${styles.userBubble} ${(event as Extract<ChatEvent, { kind: "user" }>).priority === "urgent" ? styles.userBubbleUrgent : ""}`}>
+                  {(event as Extract<ChatEvent, { kind: "user" }>).text}
                 </div>
               </div>
             </Show>
           )}
         </For>
-        <Show when={waitingForResponse()}>
-          <div class={styles.thinkingRow}>
-            <span class={styles.thinkingDot} />
-            <span class={styles.thinkingDot} />
-            <span class={styles.thinkingDot} />
-          </div>
-        </Show>
       </div>
 
       {/* Input bar */}

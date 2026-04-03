@@ -100,6 +100,31 @@ impl agent_client_protocol::Client for AcpClientImpl {
             .map(|o| format!("{:?}: {}", o.kind, o.name))
             .collect();
 
+        // Handle AskUserQuestion specially — extract question text and emit
+        // UserQuestionRequired so the UI can show an inline answer prompt.
+        if tool_name == "AskUserQuestion" {
+            let raw_input = args.tool_call.fields.raw_input.as_ref();
+            let question = raw_input
+                .and_then(|v| v.get("question"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("Question")
+                .to_string();
+            let uq_options: Vec<String> = raw_input
+                .and_then(|v| v.get("options"))
+                .and_then(|v| v.as_array())
+                .map(|arr| arr.iter().filter_map(|o| o.as_str().map(|s| s.to_string())).collect())
+                .unwrap_or_default();
+
+            let _ = self.event_tx.send(AgentEvent::UserQuestionRequired {
+                agent_id: self.agent_id.clone(),
+                request_id: request_id.clone(),
+                question,
+                options: uq_options,
+                timestamp: Utc::now(),
+            });
+            // Fall through to the normal approval wait — UI will send both steer + approve
+        }
+
         // Emit the approval-required event so the UI can surface it to the user.
         let _ = self.event_tx.send(AgentEvent::ToolApprovalRequired {
             agent_id: self.agent_id.clone(),
