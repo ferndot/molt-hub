@@ -5,12 +5,7 @@
  * which the Vite dev server proxies to the Rust backend at 127.0.0.1:13401.
  */
 
-import { WORKSPACE_ID } from "./workspace";
-
 const BASE = "/api";
-
-/** `/projects/{workspace}/…` segment (boards and per-board pipeline). */
-const WS_PROJECT = `/projects/${WORKSPACE_ID}`;
 
 function jsonHeaders(): HeadersInit {
   return { "Content-Type": "application/json" };
@@ -172,28 +167,28 @@ export const api = {
 
   /** Named kanban boards (empty until you create one). */
   listBoards: () =>
-    get<{ boards: BoardSummary[] }>(`${WS_PROJECT}/boards`),
+    get<{ boards: BoardSummary[] }>(`/boards`),
   /** Default stages/columns applied to each new board (preview before create). */
   getBoardTemplate: () =>
     get<{ stages: PipelineStage[]; columns?: unknown }>(
-      `${WS_PROJECT}/board-template`,
+      `/boards/template`,
     ),
   createBoard: (body: { name: string }) =>
     post<{ boards: BoardSummary[]; boardId: string }>(
-      `${WS_PROJECT}/boards`,
+      `/boards`,
       body,
     ),
   deleteBoard: (boardId: string) =>
     del<{ boards: BoardSummary[] }>(
-      `${WS_PROJECT}/boards/${encodeURIComponent(boardId)}`,
+      `/boards/${encodeURIComponent(boardId)}`,
     ),
   getBoardStages: (boardId: string) =>
     get<{ stages: PipelineStage[] }>(
-      `${WS_PROJECT}/boards/${encodeURIComponent(boardId)}/stages`,
+      `/boards/${encodeURIComponent(boardId)}/stages`,
     ),
   updateBoardStages: (boardId: string, body: unknown) =>
     put<{ stages: PipelineStage[] }>(
-      `${WS_PROJECT}/boards/${encodeURIComponent(boardId)}/stages`,
+      `/boards/${encodeURIComponent(boardId)}/stages`,
       body,
     ),
   patchBoardStage: (
@@ -202,12 +197,9 @@ export const api = {
     fields: Partial<PipelineStage>,
   ) =>
     patch<PipelineStage>(
-      `${WS_PROJECT}/boards/${encodeURIComponent(boardId)}/stages/${encodeURIComponent(stageId)}`,
+      `/boards/${encodeURIComponent(boardId)}/stages/${encodeURIComponent(stageId)}`,
       fields,
     ),
-
-  /** All registered projects (YAML). First project’s `repo_path` is a typical cwd for agents. */
-  listProjects: () => get<{ projects: ProjectSummary[] }>("/projects"),
 
   // Agents
   getAgents: () => get<AgentsListResponse>("/agents"),
@@ -306,12 +298,6 @@ export interface BoardSummary {
   name: string;
 }
 
-/** Registered project with a repository root (used for agent working directories). */
-export interface ProjectSummary {
-  id: string;
-  name: string;
-  repo_path: string;
-}
 
 /** Serialized [`HookDefinition`](Rust) — extra keys are hook-specific config. */
 export type HookDefinitionJson = Record<string, unknown> & {

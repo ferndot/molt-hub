@@ -61,34 +61,26 @@ describe("api client", () => {
     });
   });
 
-  it("listBoards sends GET /api/projects/default/boards", async () => {
+  it("listBoards sends GET /api/boards", async () => {
     mockJsonResponse({ boards: [{ id: "default", name: "Default" }] });
     const result = await api.listBoards();
-    expect(mockFetch).toHaveBeenCalledWith("/api/projects/default/boards");
+    expect(mockFetch).toHaveBeenCalledWith("/api/boards");
     expect(result.boards).toHaveLength(1);
   });
 
-  it("getBoardStages sends GET /api/projects/default/boards/:id/stages", async () => {
+  it("getBoardStages sends GET /api/boards/:id/stages", async () => {
     const data = { stages: [{ id: "backlog", label: "Backlog", wip_limit: null }] };
     mockJsonResponse(data);
     const result = await api.getBoardStages("my-board");
-    expect(mockFetch).toHaveBeenCalledWith("/api/projects/default/boards/my-board/stages");
+    expect(mockFetch).toHaveBeenCalledWith("/api/boards/my-board/stages");
     expect(result.stages).toHaveLength(1);
   });
 
-  it("listProjects sends GET /api/projects", async () => {
-    mockJsonResponse({ projects: [{ id: "p1", name: "App", repo_path: "/tmp/r" }] });
-    const result = await api.listProjects();
-    expect(mockFetch).toHaveBeenCalledWith("/api/projects");
-    expect(result.projects).toHaveLength(1);
-    expect(result.projects[0].repo_path).toBe("/tmp/r");
-  });
-
-  it("getBoardTemplate sends GET /api/projects/default/board-template", async () => {
+  it("getBoardTemplate sends GET /api/boards/template", async () => {
     const data = { stages: [{ id: "backlog", label: "Backlog", wip_limit: null, order: 0 }] };
     mockJsonResponse(data);
     const result = await api.getBoardTemplate();
-    expect(mockFetch).toHaveBeenCalledWith("/api/projects/default/board-template");
+    expect(mockFetch).toHaveBeenCalledWith("/api/boards/template");
     expect(result.stages).toHaveLength(1);
   });
 

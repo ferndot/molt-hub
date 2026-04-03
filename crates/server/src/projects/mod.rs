@@ -1,19 +1,8 @@
-//! Project management API — CRUD for monitored codebases.
-//!
-//! # Endpoints
-//!
-//! | Method | Path                  | Description              |
-//! |--------|-----------------------|--------------------------|
-//! | GET    | `/api/projects`       | List all projects        |
-//! | POST   | `/api/projects`       | Create a project         |
-//! | GET    | `/api/projects/:id`   | Get project details      |
-//! | PATCH  | `/api/projects/:id`   | Update project name      |
-//! | DELETE | `/api/projects/:id`   | Archive (soft-delete)    |
+//! Project runtime — board management, pipeline stores, and runtime registry.
 
 pub mod boards_store;
 pub mod handlers;
 pub mod runtime;
 
 pub use boards_store::{BoardRecord, BoardsStore};
-pub use handlers::project_router;
 pub use runtime::{BoardSummary, MultiBoardPipelineStore, ProjectRuntime, ProjectRuntimeRegistry};
