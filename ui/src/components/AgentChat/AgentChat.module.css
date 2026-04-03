@@ -6,8 +6,14 @@
   display: flex;
   flex-direction: column;
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 0.75rem 1rem;
+}
+
+/* Prevent flex-shrink from compressing chat blocks as content grows */
+.stream > * {
+  flex-shrink: 0;
 }
 
 .outputBlock {
