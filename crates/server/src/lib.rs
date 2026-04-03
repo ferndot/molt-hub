@@ -15,7 +15,7 @@ pub mod events;
 pub mod hooks;
 pub mod integrations;
 pub mod pipeline;
-pub mod projects;
+pub mod runtime;
 pub mod scheduler;
 pub mod serve;
 pub mod settings;

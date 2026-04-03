@@ -24,7 +24,7 @@ use std::sync::Arc;
 use tracing::instrument;
 
 use crate::pipeline::handlers::{PipelineConfigStore, PipelineState, StagePatch, StagesResponse};
-use crate::projects::runtime::{ensure_project_runtime, BoardSummary, ProjectRuntimeRegistry};
+use crate::runtime::{ensure_board_runtime, BoardRegistry, BoardSummary};
 
 const DEFAULT_PROJECT: &str = "default";
 
@@ -71,10 +71,10 @@ pub async fn get_board_template(
 /// GET /api/boards
 #[instrument(skip_all)]
 pub async fn list_boards(
-    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(registry): Extension<Arc<BoardRegistry>>,
     Extension(supervisor): Extension<Arc<Supervisor>>,
 ) -> impl IntoResponse {
-    let rt = ensure_project_runtime(DEFAULT_PROJECT, &registry, &supervisor).await;
+    let rt = ensure_board_runtime(DEFAULT_PROJECT, &registry, &supervisor).await;
     let boards = rt.boards.list_summaries().await;
     (StatusCode::OK, Json(BoardsListBody { boards })).into_response()
 }
@@ -82,11 +82,11 @@ pub async fn list_boards(
 /// POST /api/boards
 #[instrument(skip_all)]
 pub async fn post_board(
-    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(registry): Extension<Arc<BoardRegistry>>,
     Extension(supervisor): Extension<Arc<Supervisor>>,
     Json(body): Json<CreateBoardRequest>,
 ) -> impl IntoResponse {
-    let rt = ensure_project_runtime(DEFAULT_PROJECT, &registry, &supervisor).await;
+    let rt = ensure_board_runtime(DEFAULT_PROJECT, &registry, &supervisor).await;
     match rt.boards.create_board(&body.name).await {
         Ok(board_id) => {
             let boards = rt.boards.list_summaries().await;
@@ -104,10 +104,10 @@ pub async fn post_board(
 #[instrument(skip_all)]
 pub async fn delete_board(
     Path(board_id): Path<String>,
-    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(registry): Extension<Arc<BoardRegistry>>,
     Extension(supervisor): Extension<Arc<Supervisor>>,
 ) -> impl IntoResponse {
-    let rt = ensure_project_runtime(DEFAULT_PROJECT, &registry, &supervisor).await;
+    let rt = ensure_board_runtime(DEFAULT_PROJECT, &registry, &supervisor).await;
     match rt.boards.delete_board(&board_id).await {
         Ok(()) => {
             let boards = rt.boards.list_summaries().await;
@@ -126,10 +126,10 @@ pub async fn delete_board(
 
 async fn board_pipeline_store(
     board_id: &str,
-    registry: &ProjectRuntimeRegistry,
+    registry: &BoardRegistry,
     supervisor: &Arc<Supervisor>,
 ) -> Result<Arc<PipelineConfigStore>, (StatusCode, Json<ErrorResponse>)> {
-    let rt = ensure_project_runtime(DEFAULT_PROJECT, registry, supervisor).await;
+    let rt = ensure_board_runtime(DEFAULT_PROJECT, registry, supervisor).await;
     let Some(store) = rt.boards.get_store(board_id).await else {
         return Err((
             StatusCode::NOT_FOUND,
@@ -145,7 +145,7 @@ async fn board_pipeline_store(
 #[instrument(skip_all)]
 pub async fn get_board_stages(
     Path(board_id): Path<String>,
-    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(registry): Extension<Arc<BoardRegistry>>,
     Extension(supervisor): Extension<Arc<Supervisor>>,
 ) -> impl IntoResponse {
     match board_pipeline_store(&board_id, &registry, &supervisor).await {
@@ -161,7 +161,7 @@ pub async fn get_board_stages(
 #[instrument(skip_all)]
 pub async fn put_board_stages(
     Path(board_id): Path<String>,
-    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(registry): Extension<Arc<BoardRegistry>>,
     Extension(supervisor): Extension<Arc<Supervisor>>,
     Json(body): Json<StagesResponse>,
 ) -> impl IntoResponse {
@@ -182,7 +182,7 @@ pub async fn put_board_stages(
 #[instrument(skip_all)]
 pub async fn patch_board_stage(
     Path((board_id, stage_id)): Path<(String, String)>,
-    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(registry): Extension<Arc<BoardRegistry>>,
     Extension(supervisor): Extension<Arc<Supervisor>>,
     Json(p): Json<StagePatch>,
 ) -> impl IntoResponse {

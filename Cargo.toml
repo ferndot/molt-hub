@@ -71,8 +71,9 @@ sha2 = "0.10"
 # Base64 encoding (for PKCE verifier / challenge)
 base64 = "0.22"
 
-# System keychain
-keyring = "3"
+# System keychain (platform-native backends required — without them, keyring
+# uses an in-memory mock and credentials are lost on restart)
+keyring = { version = "3", features = ["apple-native", "windows-native", "linux-native"] }
 
 # Optional `.env` for local secrets (see `molt_hub_server::load_dotenv_files`)
 dotenvy = "0.15"

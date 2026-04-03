@@ -36,8 +36,8 @@ use crate::integrations::oauth_redirect::{github_redirect_uri, jira_redirect_uri
 use crate::pipeline::handlers::PipelineState;
 use crate::pipeline::PipelineConfigSqliteStore;
 use crate::boards::boards_router;
-use crate::projects::boards_store::BoardsStore;
-use crate::projects::runtime::{MultiBoardPipelineStore, ProjectRuntime, ProjectRuntimeRegistry};
+use crate::runtime::boards_store::BoardsStore;
+use crate::runtime::{BoardRegistry, BoardRuntime, MultiBoardPipelineStore};
 use crate::settings::{typed_settings_router, SettingsFileStore, TypedSettingsState};
 use crate::system::pick_repo_folder;
 use crate::ws::{ws_handler, ConnectionManager};
@@ -215,7 +215,7 @@ pub async fn build_router(
 
     // ---- Project runtime registry ------------------------------------------
     let board_template = pipeline_state.snapshot_config().await;
-    let registry = Arc::new(ProjectRuntimeRegistry::new(board_template.clone(), boards_store.clone()));
+    let registry = Arc::new(BoardRegistry::new(board_template.clone(), boards_store.clone()));
     {
         let boards = Arc::new(
             MultiBoardPipelineStore::load_or_empty(
@@ -234,7 +234,7 @@ pub async fn build_router(
                 Err(e) => tracing::warn!(error = %e, "seed: could not create demo board"),
             }
         }
-        let default_runtime = Arc::new(ProjectRuntime {
+        let default_runtime = Arc::new(BoardRuntime {
             project_id: "default".to_owned(),
             supervisor: Arc::clone(&supervisor),
             boards,
@@ -322,7 +322,7 @@ pub async fn build_router(
             .nest_service("/api/tasks", tasks);
     }
 
-    // Single `ProjectRuntimeRegistry` Extension (populated above, e.g. `"default"`).
+    // Single `BoardRegistry` Extension (populated above, e.g. `"default"`).
     let mut router = router
         .fallback_service(ServeDir::new(dist_dir).fallback(ServeFile::new(index_html)))
         .layer(axum::Extension(Arc::clone(&registry)))

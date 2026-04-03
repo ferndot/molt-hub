@@ -1,11 +1,15 @@
-//! Per-project runtime state — supervisor, multi-board pipeline config, and event store.
+//! Board runtime state — supervisor, multi-board pipeline config, and event store.
 //!
-//! Kanban boards for each project are persisted under the platform config directory
+//! Kanban boards for each board are persisted under the platform config directory
 //! (see [`MultiBoardPipelineStore::load_or_empty`]).
 //!
-//! [`ProjectRuntime`] holds the live state for a single project.
-//! [`ProjectRuntimeRegistry`] is an in-memory map of `project_id → runtime`
+//! [`BoardRuntime`] holds the live state for a single board context.
+//! [`BoardRegistry`] is an in-memory map of `project_id → runtime`
 //! and is injected into Axum handlers via `axum::Extension`.
+
+pub mod boards_store;
+
+pub use boards_store::{BoardRecord, BoardsStore};
 
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -22,7 +26,6 @@ use tracing::warn;
 use ulid::Ulid;
 
 use crate::pipeline::handlers::PipelineConfigStore;
-use crate::projects::boards_store::BoardsStore;
 
 // ---------------------------------------------------------------------------
 // Persist directory helper
@@ -311,8 +314,8 @@ pub struct BoardSummary {
 // Config
 // ---------------------------------------------------------------------------
 
-/// Default cap on distinct project runtimes kept in memory before LRU eviction.
-const DEFAULT_MAX_PROJECT_RUNTIMES: usize = 64;
+/// Default cap on distinct board runtimes kept in memory before LRU eviction.
+const DEFAULT_MAX_BOARD_RUNTIMES: usize = 64;
 
 fn now_ms() -> u64 {
     SystemTime::now()
@@ -326,12 +329,12 @@ fn now_ms() -> u64 {
 // ---------------------------------------------------------------------------
 
 struct RuntimeEntry {
-    runtime: Arc<ProjectRuntime>,
+    runtime: Arc<BoardRuntime>,
     last_access_ms: AtomicU64,
 }
 
 impl RuntimeEntry {
-    fn new(runtime: Arc<ProjectRuntime>) -> Self {
+    fn new(runtime: Arc<BoardRuntime>) -> Self {
         Self {
             runtime,
             last_access_ms: AtomicU64::new(now_ms()),
@@ -348,58 +351,58 @@ impl RuntimeEntry {
 }
 
 // ---------------------------------------------------------------------------
-// ProjectRuntime
+// BoardRuntime
 // ---------------------------------------------------------------------------
 
-/// Live runtime state for a single project.
-pub struct ProjectRuntime {
+/// Live runtime state for a single board context.
+pub struct BoardRuntime {
     /// The project's string identifier (matches the ULID stored in the config).
     pub project_id: String,
-    /// Supervisor managing agents spawned under this project.
+    /// Supervisor managing agents spawned under this board context.
     pub supervisor: Arc<Supervisor>,
-    /// Named pipeline / kanban boards for this project.
+    /// Named pipeline / kanban boards.
     pub boards: Arc<MultiBoardPipelineStore>,
 }
 
 // ---------------------------------------------------------------------------
-// ProjectRuntimeRegistry
+// BoardRegistry
 // ---------------------------------------------------------------------------
 
-/// Registry of all active project runtimes, keyed by `project_id`.
+/// Registry of all active board runtimes, keyed by `project_id`.
 ///
-/// Inject this into Axum via `axum::Extension<Arc<ProjectRuntimeRegistry>>`.
+/// Inject this into Axum via `axum::Extension<Arc<BoardRegistry>>`.
 ///
-/// When the number of projects exceeds [`DEFAULT_MAX_PROJECT_RUNTIMES`], the
-/// least-recently-used project (by [`get`] / [`insert`] touch) is evicted.
-/// The synthetic `"default"` project is never evicted.
-pub struct ProjectRuntimeRegistry {
+/// When the number of entries exceeds [`DEFAULT_MAX_BOARD_RUNTIMES`], the
+/// least-recently-used entry (by [`get`] / [`insert`] touch) is evicted.
+/// The synthetic `"default"` entry is never evicted.
+pub struct BoardRegistry {
     map: DashMap<String, RuntimeEntry>,
     max_projects: usize,
-    /// Copied into each new [`MultiBoardPipelineStore`] when a project runtime is created.
+    /// Copied into each new [`MultiBoardPipelineStore`] when a board runtime is created.
     new_board_template: PipelineConfig,
-    /// SQLite-backed boards index shared across all project runtimes.
+    /// SQLite-backed boards index shared across all board runtimes.
     boards_store: Option<Arc<BoardsStore>>,
 }
 
-impl Default for ProjectRuntimeRegistry {
+impl Default for BoardRegistry {
     fn default() -> Self {
         Self::new(PipelineConfig::board_defaults(), None)
     }
 }
 
-/// Return an existing [`ProjectRuntime`] or register a new one.
+/// Return an existing [`BoardRuntime`] or register a new one.
 ///
 /// **Call only after** verifying `project_id == "default"` or the project exists in
 /// [`ProjectConfigStore`], otherwise bogus runtimes may be created.
-pub async fn ensure_project_runtime(
+pub async fn ensure_board_runtime(
     project_id: &str,
-    registry: &ProjectRuntimeRegistry,
+    registry: &BoardRegistry,
     supervisor: &Arc<Supervisor>,
-) -> Arc<ProjectRuntime> {
+) -> Arc<BoardRuntime> {
     if let Some(r) = registry.get(project_id).await {
         return r;
     }
-    let runtime = Arc::new(ProjectRuntime {
+    let runtime = Arc::new(BoardRuntime {
         project_id: project_id.to_string(),
         supervisor: Arc::clone(supervisor),
         boards: Arc::new(
@@ -417,10 +420,10 @@ pub async fn ensure_project_runtime(
     runtime
 }
 
-impl ProjectRuntimeRegistry {
-    /// Create a registry with the default capacity ([`DEFAULT_MAX_PROJECT_RUNTIMES`]).
+impl BoardRegistry {
+    /// Create a registry with the default capacity ([`DEFAULT_MAX_BOARD_RUNTIMES`]).
     pub fn new(new_board_template: PipelineConfig, boards_store: Option<Arc<BoardsStore>>) -> Self {
-        Self::with_max_projects(DEFAULT_MAX_PROJECT_RUNTIMES, new_board_template, boards_store)
+        Self::with_max_projects(DEFAULT_MAX_BOARD_RUNTIMES, new_board_template, boards_store)
     }
 
     /// Create a registry that retains at most `max_projects` entries before LRU eviction.
@@ -457,7 +460,7 @@ impl ProjectRuntimeRegistry {
     }
 
     /// Register a runtime for `project_id`, replacing any existing entry.
-    pub async fn insert(&self, project_id: String, runtime: Arc<ProjectRuntime>) {
+    pub async fn insert(&self, project_id: String, runtime: Arc<BoardRuntime>) {
         if project_id != "default"
             && self.map.len() >= self.max_projects
             && !self.map.contains_key(&project_id)
@@ -472,7 +475,7 @@ impl ProjectRuntimeRegistry {
     /// Look up the runtime for `project_id`.
     ///
     /// Returns `None` when no runtime has been registered for that project.
-    pub async fn get(&self, project_id: &str) -> Option<Arc<ProjectRuntime>> {
+    pub async fn get(&self, project_id: &str) -> Option<Arc<BoardRuntime>> {
         self.map.get(project_id).map(|r| {
             r.touch();
             Arc::clone(&r.runtime)
@@ -480,7 +483,7 @@ impl ProjectRuntimeRegistry {
     }
 
     /// Remove the runtime for `project_id` and return it, if present.
-    pub async fn remove(&self, project_id: &str) -> Option<Arc<ProjectRuntime>> {
+    pub async fn remove(&self, project_id: &str) -> Option<Arc<BoardRuntime>> {
         self.map
             .remove(project_id)
             .map(|(_, e)| Arc::clone(&e.runtime))
@@ -496,7 +499,7 @@ impl ProjectRuntimeRegistry {
         self.map.is_empty()
     }
 
-    /// Pipeline snapshot used when creating new boards (and new project runtimes).
+    /// Pipeline snapshot used when creating new boards.
     pub fn new_board_template(&self) -> PipelineConfig {
         self.new_board_template.clone()
     }
@@ -518,11 +521,11 @@ mod tests {
     use molt_hub_harness::supervisor::SupervisorConfig;
     use tokio::sync::broadcast;
 
-    fn make_runtime(id: &str) -> Arc<ProjectRuntime> {
+    fn make_runtime(id: &str) -> Arc<BoardRuntime> {
         let (tx, _rx) = broadcast::channel::<AgentEvent>(64);
         let supervisor = Arc::new(Supervisor::new(SupervisorConfig::default(), tx));
         let boards = Arc::new(MultiBoardPipelineStore::new());
-        Arc::new(ProjectRuntime {
+        Arc::new(BoardRuntime {
             project_id: id.to_string(),
             supervisor,
             boards,
@@ -531,7 +534,7 @@ mod tests {
 
     #[tokio::test]
     async fn registry_insert_and_get() {
-        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults(), None);
+        let registry = BoardRegistry::new(PipelineConfig::board_defaults(), None);
         let rt = make_runtime("proj-1");
 
         registry.insert("proj-1".into(), Arc::clone(&rt)).await;
@@ -543,13 +546,13 @@ mod tests {
 
     #[tokio::test]
     async fn registry_get_missing_returns_none() {
-        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults(), None);
+        let registry = BoardRegistry::new(PipelineConfig::board_defaults(), None);
         assert!(registry.get("nonexistent").await.is_none());
     }
 
     #[tokio::test]
     async fn registry_remove() {
-        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults(), None);
+        let registry = BoardRegistry::new(PipelineConfig::board_defaults(), None);
         registry.insert("p".into(), make_runtime("p")).await;
         assert_eq!(registry.len(), 1);
 
@@ -560,7 +563,7 @@ mod tests {
 
     #[tokio::test]
     async fn registry_is_empty() {
-        let registry = ProjectRuntimeRegistry::new(PipelineConfig::board_defaults(), None);
+        let registry = BoardRegistry::new(PipelineConfig::board_defaults(), None);
         assert!(registry.is_empty());
         registry.insert("x".into(), make_runtime("x")).await;
         assert!(!registry.is_empty());
@@ -569,7 +572,7 @@ mod tests {
     #[tokio::test]
     async fn registry_evicts_lru_when_over_capacity() {
         let registry =
-            ProjectRuntimeRegistry::with_max_projects(2, PipelineConfig::board_defaults(), None);
+            BoardRegistry::with_max_projects(2, PipelineConfig::board_defaults(), None);
 
         registry
             .insert("default".into(), make_runtime("default"))

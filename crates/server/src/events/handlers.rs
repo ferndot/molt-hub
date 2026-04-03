@@ -33,7 +33,7 @@ use molt_hub_harness::supervisor::Supervisor;
 
 use crate::actors::run_lifecycle_hooks_for_event;
 use crate::hooks::HookExecutor;
-use crate::projects::runtime::{ensure_project_runtime, ProjectRuntimeRegistry};
+use crate::runtime::{ensure_board_runtime, BoardRegistry};
 use crate::ws::ConnectionManager;
 use crate::ws_broadcast::{broadcast_board_update_full, BoardUpdate};
 
@@ -371,7 +371,7 @@ pub async fn create_task(
 pub async fn move_task_stage(
     State(state): State<Arc<EventStoreState>>,
     Extension(manager): Extension<Arc<ConnectionManager>>,
-    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(registry): Extension<Arc<BoardRegistry>>,
     Extension(supervisor): Extension<Arc<Supervisor>>,
     Extension(hook_executor): Extension<Arc<HookExecutor>>,
     Path(task_id_str): Path<String>,
@@ -399,7 +399,7 @@ pub async fn move_task_stage(
             .into_response();
     }
 
-    let rt = ensure_project_runtime("default", &registry, &supervisor).await;
+    let rt = ensure_board_runtime("default", &registry, &supervisor).await;
     let board_store = match rt.boards.get_store(board_id).await {
         Some(s) => s,
         None => {
@@ -590,7 +590,7 @@ pub async fn move_task_stage(
 pub async fn submit_human_decision(
     State(state): State<Arc<EventStoreState>>,
     Extension(manager): Extension<Arc<ConnectionManager>>,
-    Extension(registry): Extension<Arc<ProjectRuntimeRegistry>>,
+    Extension(registry): Extension<Arc<BoardRegistry>>,
     Extension(supervisor): Extension<Arc<Supervisor>>,
     Extension(hook_executor): Extension<Arc<HookExecutor>>,
     Path(task_id_str): Path<String>,
@@ -617,7 +617,7 @@ pub async fn submit_human_decision(
             .into_response();
     }
 
-    let rt = ensure_project_runtime("default", &registry, &supervisor).await;
+    let rt = ensure_board_runtime("default", &registry, &supervisor).await;
     let board_store = match rt.boards.get_store(board_id).await {
         Some(s) => s,
         None => {
