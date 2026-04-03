@@ -41,7 +41,7 @@ use crate::runtime::{BoardRegistry, BoardRuntime, MultiBoardPipelineStore};
 use crate::settings::{typed_settings_router, SettingsFileStore, TypedSettingsState};
 use crate::system::pick_repo_folder;
 use crate::ws::{ws_handler, ConnectionManager};
-use crate::ws_broadcast::{broadcast_agent_error, broadcast_agent_output, broadcast_metrics, broadcast_tool_call, broadcast_tool_result, MetricsPayload};
+use crate::ws_broadcast::{broadcast_agent_error, broadcast_agent_output, broadcast_metrics, broadcast_notification, broadcast_tool_call, broadcast_tool_result, MetricsPayload, NotificationPayload};
 
 // ---------------------------------------------------------------------------
 // Router
@@ -125,12 +125,26 @@ pub async fn build_router(
                             }
                         }
                     }
-                    Ok(AgentEvent::TurnEnd { ref agent_id, .. }) => {
+                    Ok(AgentEvent::TurnEnd { ref agent_id, ref stop_reason, .. }) => {
                         let id = agent_id.to_string();
                         if let Some(buf) = partial.remove(&id) {
                             if !buf.trim().is_empty() {
                                 broadcast_agent_output(&ws_fanout_manager, &id, buf.trim_end_matches('\r'));
                             }
+                        }
+                        // Notify inbox when the agent ends a turn awaiting human input.
+                        // "tool_use" stop reason means it's mid-loop; skip those.
+                        let is_tool_loop = stop_reason.as_deref() == Some("tool_use");
+                        if !is_tool_loop {
+                            broadcast_notification(&ws_fanout_manager, &NotificationPayload {
+                                id: ulid::Ulid::new().to_string(),
+                                notif_type: "decision".into(),
+                                priority: "p1".into(),
+                                title: "Agent is awaiting your input".into(),
+                                subtitle: Some(format!("agent: {id}")),
+                                agent_name: Some(id.clone()),
+                                timestamp: chrono::Utc::now().to_rfc3339(),
+                            });
                         }
                     }
                     Ok(AgentEvent::Error { agent_id, message, .. }) => {
@@ -152,6 +166,28 @@ pub async fn build_router(
                     Ok(AgentEvent::ToolResult { agent_id, call_id, output, is_error, timestamp }) => {
                         let id = agent_id.to_string();
                         broadcast_tool_result(&ws_fanout_manager, &id, &call_id, output, is_error, &timestamp.to_rfc3339());
+                    }
+                    Ok(AgentEvent::Completed { ref agent_id, .. }) => {
+                        broadcast_notification(&ws_fanout_manager, &NotificationPayload {
+                            id: ulid::Ulid::new().to_string(),
+                            notif_type: "agent_update".into(),
+                            priority: "p2".into(),
+                            title: "Agent completed".into(),
+                            subtitle: Some(format!("agent: {}", agent_id)),
+                            agent_name: Some(agent_id.to_string()),
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                        });
+                    }
+                    Ok(AgentEvent::ToolApprovalRequired { ref agent_id, ref tool_name, .. }) => {
+                        broadcast_notification(&ws_fanout_manager, &NotificationPayload {
+                            id: ulid::Ulid::new().to_string(),
+                            notif_type: "decision".into(),
+                            priority: "p0".into(),
+                            title: format!("Approval required: {tool_name}"),
+                            subtitle: Some(format!("agent: {}", agent_id)),
+                            agent_name: Some(agent_id.to_string()),
+                            timestamp: chrono::Utc::now().to_rfc3339(),
+                        });
                     }
                     Ok(_) => {}
                     Err(broadcast::error::RecvError::Lagged(n)) => {
