@@ -141,6 +141,12 @@ pub enum AgentEvent {
         agent_id: AgentId,
         timestamp: DateTime<Utc>,
     },
+    /// Internal agent reasoning/thinking chunk.
+    ThinkingChunk {
+        agent_id: AgentId,
+        content: String,
+        timestamp: DateTime<Utc>,
+    },
 }
 
 // ---------------------------------------------------------------------------

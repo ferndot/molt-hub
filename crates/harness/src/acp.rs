@@ -132,6 +132,17 @@ impl agent_client_protocol::Client for AcpClientImpl {
                     }
                 }
             }
+            SessionUpdate::AgentThoughtChunk(chunk) => {
+                if let ContentBlock::Text(t) = chunk.content {
+                    if !t.text.is_empty() {
+                        let _ = self.event_tx.send(AgentEvent::ThinkingChunk {
+                            agent_id: self.agent_id.clone(),
+                            content: t.text,
+                            timestamp: Utc::now(),
+                        });
+                    }
+                }
+            }
             _other => {}
         }
 
