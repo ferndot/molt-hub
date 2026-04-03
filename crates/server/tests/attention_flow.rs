@@ -62,6 +62,7 @@ fn classify_agent_output_is_p3() {
     let event = DomainEvent::AgentOutput {
         agent_id: AgentId::new(),
         output: "compiling...".into(),
+        turn_id: None,
     };
     assert_eq!(classifier.classify(&event), InterruptLevel::P3);
 }
@@ -140,6 +141,7 @@ fn route_mixed_p0_and_p3_both_classified_correctly() {
     let p3_event = DomainEvent::AgentOutput {
         agent_id: AgentId::new(),
         output: "log output".into(),
+        turn_id: None,
     };
 
     let n_p0 = router.route(&p0_event);
@@ -242,6 +244,7 @@ fn needs_attention_false_with_only_p2_p3() {
     router.route(&DomainEvent::AgentOutput {
         agent_id: AgentId::new(),
         output: "log".into(),
+        turn_id: None,
     });
 
     let summary = AttentionSummary::from_store(router.store());

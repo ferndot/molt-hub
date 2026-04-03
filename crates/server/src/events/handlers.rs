@@ -1148,7 +1148,7 @@ pub async fn get_task_events(
                     agent_name.clone(),
                     format!("Agent {} assigned", agent_name),
                 ),
-                DomainEvent::AgentOutput { agent_id, output } => {
+                DomainEvent::AgentOutput { agent_id, output, .. } => {
                     let truncated = if output.len() > 80 {
                         format!("{}…", &output[..80])
                     } else {

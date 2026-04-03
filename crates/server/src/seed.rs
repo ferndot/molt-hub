@@ -170,6 +170,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      Option C: Separate database per tenant (max isolation, 10× infra cost).\n\
                      Recommendation: Option A with Postgres RLS. Awaiting human sign-off."
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -233,6 +234,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      Recommendation: pgvector for MVP (zero new infra). \
                      Migrate to Qdrant if p99 > 100 ms at scale. Awaiting human approval."
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -294,6 +296,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      The `SubscriberMap` uses a `DashMap<SessionId, mpsc::Sender<…>>` but dead \
                      senders are never pruned."
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -306,6 +309,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      this accumulates to ~350 MB/hr.\n\
                      Proposed fix: background task scans for closed senders every 30 s."
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -364,6 +368,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      Found `max_connections = 20` on `SqlitePoolOptions`.\n\
                      Locating the Postgres connection in `crates/analytics/src/store.rs`…"
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -376,6 +381,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      default_pool_size = 5.\n\
                      Creating `infra/pgbouncer/pgbouncer.ini`…"
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -387,6 +393,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      Updating `DATABASE_URL` env to point to pgbouncer port 6432.\n\
                      Running migration smoke tests…"
                 .into(),
+            turn_id: None,
         },
     ));
 
@@ -436,6 +443,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      Current implementation issues long-lived refresh tokens with no rotation. \
                      Tokens stored in the OS keychain via the `keyring` crate."
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -448,6 +456,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      entire family.\n\
                      Writing tests for the rotation flow…"
                 .into(),
+            turn_id: None,
         },
     ));
 
@@ -496,6 +505,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
             output: "Scaffolding streaming client in `sdk/typescript/src/streaming.ts`…\n\
                      Using native `EventSource` in browsers and `eventsource` package in Node."
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -507,6 +517,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      Added `onChunk` callback shim for backwards compat.\n\
                      Writing Jest tests with MSW interceptors…"
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -517,6 +528,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
             output: "All 23 tests passing. Bundle size delta +1.4 KB gzipped (acceptable).\n\
                      Updating CHANGELOG and JSDoc…"
                 .into(),
+            turn_id: None,
         },
     ));
     // Move to review BEFORE AgentCompleted so the task stays InProgress
@@ -589,6 +601,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      `api-gateway/middleware/cors.ts`, and `cdn/edge-functions/cors.js`.\n\
                      All currently use wildcard origin."
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -600,6 +613,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      Adding `Vary: Origin` header to prevent cache poisoning.\n\
                      Blocking `credentials: include` on public endpoints."
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -678,6 +692,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      Found 4 transitive dependants.\n\
                      Updating `Cargo.toml` to pin `openssl = \"1.0\"`…"
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -688,6 +703,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
             output: "Build succeeded. Running `cargo audit`… 0 vulnerabilities found.\n\
                      All existing tests pass. No API surface changes."
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -767,6 +783,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      Adding `redis` crate dependency. Wiring `RedisPool` into the \
                      inference handler…"
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -778,6 +795,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
                      `cache_hit_total`, `cache_miss_total`.\n\
                      Writing integration tests with `fakeredis`…"
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(
@@ -788,6 +806,7 @@ fn build_demo_batch() -> Vec<EventEnvelope> {
             output: "Tests passing. Cache hit rate in smoke tests: 43 % (above 40 % target).\n\
                      Updating Helm chart to add Redis sidecar."
                 .into(),
+            turn_id: None,
         },
     ));
     b.push(ev(

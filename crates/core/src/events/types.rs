@@ -121,6 +121,9 @@ pub enum DomainEvent {
         agent_id: AgentId,
         /// Raw output text from the agent.
         output: String,
+        /// Optional turn identifier for grouping output lines into turns.
+        #[serde(default)]
+        turn_id: Option<uuid::Uuid>,
     },
 
     /// An agent finished its work on the task.

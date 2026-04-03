@@ -215,6 +215,7 @@ mod tests {
         let event = DomainEvent::AgentOutput {
             agent_id: AgentId::new(),
             output: "some log line".into(),
+            turn_id: None,
         };
         assert_eq!(classifier().classify(&event), InterruptLevel::P3);
     }
@@ -275,6 +276,7 @@ mod tests {
             DomainEvent::AgentOutput {
                 agent_id: AgentId::new(),
                 output: "o".into(),
+                turn_id: None,
             },
             DomainEvent::AgentCompleted {
                 agent_id: AgentId::new(),

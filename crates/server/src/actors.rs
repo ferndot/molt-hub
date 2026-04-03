@@ -517,7 +517,7 @@ impl<S: EventStore + 'static> TaskActor<S> {
         // Event-specific broadcasts.
         match event {
             // Agent output → stream to agent:{id} channel.
-            DomainEvent::AgentOutput { agent_id, output } => {
+            DomainEvent::AgentOutput { agent_id, output, .. } => {
                 broadcast_agent_output(mgr, &agent_id.to_string(), output);
             }
 

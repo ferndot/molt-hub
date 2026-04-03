@@ -398,6 +398,7 @@ mod tests {
         let event = DomainEvent::AgentOutput {
             agent_id: AgentId::new(),
             output: "log line".into(),
+            turn_id: None,
         };
         r.route(&event);
 
