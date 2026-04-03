@@ -6,7 +6,7 @@
  */
 
 import type { Component } from "solid-js";
-import { For } from "solid-js";
+import { For, Show } from "solid-js";
 import type { AgentDetail, StageEntry } from "./agentStore";
 import type { Priority } from "../../types/domain";
 import styles from "./AgentMeta.module.css";
@@ -130,6 +130,18 @@ const AgentMeta: Component<Props> = (props) => {
           </span>
         </div>
       </div>
+
+      {/* Token usage */}
+      <Show when={props.agent.inputTokens > 0}>
+        <div class={styles.card}>
+          <p class={styles.sectionTitle}>Token Usage</p>
+          <div class={styles.tokenBadge}>
+            <span>{props.agent.inputTokens.toLocaleString()} in</span>
+            <span class={styles.tokenSep}>/</span>
+            <span>{props.agent.outputTokens.toLocaleString()} out</span>
+          </div>
+        </div>
+      </Show>
 
       {/* Stage history */}
       <div class={styles.card}>

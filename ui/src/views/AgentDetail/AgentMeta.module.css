@@ -231,3 +231,16 @@
 .btnReassign:hover {
   background: rgba(59, 130, 246, 0.18);
 }
+
+/* Token usage badge */
+.tokenBadge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.tokenSep {
+  color: var(--text-subtle);
+}
