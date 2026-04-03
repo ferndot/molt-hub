@@ -524,14 +524,41 @@ async fn list_agents(State(state): State<Arc<AgentState>>) -> impl IntoResponse 
                         _ => {}
                     }
                 }
-                // Tasks that are currently in "in-progress" with an assigned agent and no completion
+                // Track the latest timestamp seen per task so we can apply a recency filter.
+                let mut last_seen: std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> =
+                    std::collections::HashMap::new();
+                for envelope in &events {
+                    let Some(ref tid) = envelope.task_id else { continue };
+                    let id = tid.0.to_string();
+                    let entry = last_seen.entry(id).or_insert(chrono::DateTime::<chrono::Utc>::MIN_UTC);
+                    if envelope.timestamp > *entry {
+                        *entry = envelope.timestamp;
+                    }
+                }
+
+                let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
+
+                // Include in-progress agents without completion, AND recently-completed agents
+                // (last activity within the past 7 days).
                 for (task_id, agent_id) in &agent_ids {
                     let stage = stages.get(task_id).map(|s| s.as_str()).unwrap_or("");
-                    if stage == "in-progress" && !completed.contains(task_id) {
+                    let is_completed = completed.contains(task_id);
+                    let recent = last_seen
+                        .get(task_id)
+                        .map(|ts| *ts >= cutoff)
+                        .unwrap_or(false);
+
+                    if stage == "in-progress" && !is_completed {
                         responses.push(AgentResponse {
                             agent_id: agent_id.clone(),
                             task_id: task_id.clone(),
                             status: "Running".to_owned(),
+                        });
+                    } else if is_completed && recent {
+                        responses.push(AgentResponse {
+                            agent_id: agent_id.clone(),
+                            task_id: task_id.clone(),
+                            status: "Completed".to_owned(),
                         });
                     }
                 }
@@ -772,38 +799,45 @@ async fn get_agent_output(
     State(state): State<Arc<AgentState>>,
     Path(agent_id_str): Path<String>,
 ) -> impl IntoResponse {
-    let lines = state.output_buffer.get_lines(&agent_id_str);
+    let buf_lines = state.output_buffer.get_lines(&agent_id_str);
 
-    if !lines.is_empty() {
-        let count = lines.len();
-        return Json(AgentOutputResponse {
-            agent_id: agent_id_str,
-            lines: lines
-                .into_iter()
-                .map(|l| OutputLineResponse {
-                    line: l.line,
-                    timestamp: l.timestamp.to_rfc3339(),
-                })
-                .collect(),
-            count,
-        })
-        .into_response();
-    }
-
-    // Buffer empty — try DB fallback.
+    // Always prefer DB when available: it holds the full history. Merge any
+    // in-memory lines that arrived after the latest DB timestamp on top, so
+    // callers see all lines without duplication even when the buffer has
+    // overflowed the 500-line cap.
     if let Some(ref pool) = state.pool {
         match history_store::get_output_lines(pool, &agent_id_str, None).await {
             Ok(db_lines) => {
-                let count = db_lines.len();
+                // Determine the latest timestamp already in the DB.
+                let latest_db_ts = db_lines.last().map(|(ts, _)| *ts);
+
+                // Build the merged list: DB lines first, then in-memory lines
+                // that are strictly newer than the last DB entry.
+                let mut merged: Vec<OutputLineResponse> = db_lines
+                    .into_iter()
+                    .map(|(ts, line)| OutputLineResponse {
+                        line,
+                        timestamp: ts.to_rfc3339(),
+                    })
+                    .collect();
+
+                for buf_line in buf_lines {
+                    let include = match latest_db_ts {
+                        Some(db_ts) => buf_line.timestamp > db_ts,
+                        None => true,
+                    };
+                    if include {
+                        merged.push(OutputLineResponse {
+                            line: buf_line.line,
+                            timestamp: buf_line.timestamp.to_rfc3339(),
+                        });
+                    }
+                }
+
+                let count = merged.len();
                 return Json(AgentOutputResponse {
                     agent_id: agent_id_str,
-                    lines: db_lines
-                        .into_iter()
-                        .map(|(ts, line)| OutputLineResponse {
-                            line,
-                            timestamp: ts.to_rfc3339(),
-                        })
-                        .collect(),
+                    lines: merged,
                     count,
                 })
                 .into_response();
@@ -814,10 +848,18 @@ async fn get_agent_output(
         }
     }
 
+    // No DB — fall back to in-memory buffer only.
+    let count = buf_lines.len();
     Json(AgentOutputResponse {
         agent_id: agent_id_str,
-        lines: vec![],
-        count: 0,
+        lines: buf_lines
+            .into_iter()
+            .map(|l| OutputLineResponse {
+                line: l.line,
+                timestamp: l.timestamp.to_rfc3339(),
+            })
+            .collect(),
+        count,
     })
     .into_response()
 }
