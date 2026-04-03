@@ -745,6 +745,18 @@ impl AgentAdapter for AcpAdapter {
                         *w = AgentStatus::Completed;
                     }
 
+                    // Run git diff to capture what the agent changed, then emit per-file events.
+                    if let Ok(diff_output) = crate::worktree::run_git(&working_dir, &["diff", "HEAD"]).await {
+                        for (path, diff) in parse_unified_diff_by_file(&diff_output) {
+                            let _ = event_tx_thread.send(AgentEvent::FileDiff {
+                                agent_id: agent_id_clone.clone(),
+                                path,
+                                unified_diff: diff,
+                                timestamp: Utc::now(),
+                            });
+                        }
+                    }
+
                     let _ = event_tx_thread.send(AgentEvent::Completed {
                         agent_id: agent_id_clone.clone(),
                         exit_code: Some(0),
@@ -842,6 +854,35 @@ impl AgentAdapter for AcpAdapter {
         // Same as terminate for ACP (no SIGKILL available without the child handle here).
         self.terminate(handle).await
     }
+}
+
+// ---------------------------------------------------------------------------
+// Unified diff parser
+// ---------------------------------------------------------------------------
+
+/// Split unified diff output into (path, diff_text) pairs, one per file.
+fn parse_unified_diff_by_file(diff: &str) -> Vec<(String, String)> {
+    let mut files = Vec::new();
+    let mut current_path: Option<String> = None;
+    let mut current_diff = String::new();
+
+    for line in diff.lines() {
+        if line.starts_with("diff --git ") {
+            if let Some(path) = current_path.take() {
+                files.push((path, std::mem::take(&mut current_diff)));
+            }
+            // Extract path from "diff --git a/foo b/foo"
+            if let Some(b_path) = line.split(" b/").nth(1) {
+                current_path = Some(b_path.to_string());
+            }
+        }
+        current_diff.push_str(line);
+        current_diff.push('\n');
+    }
+    if let Some(path) = current_path {
+        files.push((path, current_diff));
+    }
+    files
 }
 
 // ---------------------------------------------------------------------------
