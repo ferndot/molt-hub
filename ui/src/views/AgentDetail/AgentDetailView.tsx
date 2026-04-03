@@ -12,6 +12,7 @@ import { Show, For, onCleanup, createSignal } from "solid-js";
 import { useParams } from "@solidjs/router";
 import { TbOutlineArrowLeft } from "solid-icons/tb";
 import { getAgent, setupAgentSubscription, registerAgentPlaceholder, fetchAgents, clearAuthError, hydrateAgentOutput } from "./agentStore";
+import type { ToolCallEntry } from "./agentStore";
 import { hydrateMessages } from "./steerStore";
 import { api } from "../../lib/api";
 import AgentChat from "../../components/AgentChat/AgentChat";
@@ -142,6 +143,29 @@ const AgentDetailView: Component = () => {
             {/* Right — metadata + actions */}
             <div class={styles.rightPane}>
               <AgentMeta agent={a()} />
+              <Show when={(a().toolCalls?.length ?? 0) > 0}>
+                <div class={styles.toolCallLog}>
+                  <div class={styles.toolCallLogTitle}>Tool Calls</div>
+                  <For each={a().toolCalls ?? []}>
+                    {(tc: ToolCallEntry) => (
+                      <details class={styles.toolCallEntry}>
+                        <summary class={styles.toolCallSummary}>
+                          <span class={tc.isError ? styles.toolCallError : tc.completedAt ? styles.toolCallDone : styles.toolCallPending}>
+                            {tc.completedAt ? (tc.isError ? "✗" : "✓") : "⋯"}
+                          </span>
+                          <span class={styles.toolCallName}>{tc.toolName}</span>
+                        </summary>
+                        <Show when={tc.input !== undefined && tc.input !== null}>
+                          <pre class={styles.toolCallDetail}>{JSON.stringify(tc.input, null, 2)}</pre>
+                        </Show>
+                        <Show when={tc.completedAt && tc.output !== undefined}>
+                          <pre class={styles.toolCallDetail}>{JSON.stringify(tc.output, null, 2)}</pre>
+                        </Show>
+                      </details>
+                    )}
+                  </For>
+                </div>
+              </Show>
             </div>
           </div>
         </div>

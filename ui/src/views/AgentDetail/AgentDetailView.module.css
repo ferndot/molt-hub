@@ -268,3 +268,56 @@
   border-radius: 4px;
   white-space: pre;
 }
+
+/* Tool call log */
+.toolCallLog {
+  border-top: 1px solid var(--chrome-border, #333);
+  padding: var(--spacing-md, 1rem);
+  overflow-y: auto;
+  max-height: 300px;
+}
+
+.toolCallLogTitle {
+  font-size: var(--font-size-sm, 0.75rem);
+  font-weight: 600;
+  color: var(--chrome-text-muted, #888);
+  margin-bottom: var(--spacing-sm, 0.5rem);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.toolCallEntry {
+  margin-bottom: 0.25rem;
+}
+
+.toolCallSummary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: var(--font-size-sm, 0.75rem);
+  color: var(--chrome-text, #ccc);
+  padding: 0.2rem 0;
+}
+
+.toolCallName {
+  flex: 1;
+}
+
+.toolCallPending { color: var(--chrome-text-muted, #888); }
+.toolCallDone { color: #4caf50; }
+.toolCallError { color: #f44336; }
+
+.toolCallDetail {
+  font-size: 0.65rem;
+  font-family: var(--font-mono, monospace);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--chrome-text-muted, #888);
+  background: var(--sidebar-bg, #111);
+  padding: 0.25rem 0.5rem;
+  border-radius: 3px;
+  max-height: 100px;
+  overflow-y: auto;
+}
